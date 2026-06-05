@@ -1,0 +1,2126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenoPanel - Server Control Center</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js for beautiful graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --sidebar-color: rgba(13, 20, 35, 0.7);
+            --card-color: rgba(22, 32, 53, 0.45);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --accent-primary: #3b82f6; /* Blue */
+            --accent-secondary: #a855f7; /* Purple */
+            --accent-glow: rgba(59, 130, 246, 0.5);
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --font-main: 'Inter', sans-serif;
+            --font-title: 'Outfit', sans-serif;
+            --font-code: 'Fira Code', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 90% 90%, rgba(168, 85, 247, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* CSRF Protection Token container */
+        .csrf-container {
+            display: none;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Sidebar Styling */
+        aside {
+            width: 260px;
+            background: var(--sidebar-color);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid var(--card-border);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 16px;
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 12px 28px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 24px;
+        }
+
+        .brand-logo {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-title);
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: #fff;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .brand-name {
+            font-family: var(--font-title);
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            background: linear-gradient(to right, #ffffff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-grow: 1;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 16px;
+            color: var(--text-muted);
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+        }
+
+        .nav-item:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.02);
+        }
+
+        .nav-item.active {
+            color: #fff;
+            background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(168, 85, 247, 0.05) 100%);
+            border-color: rgba(59, 130, 246, 0.25);
+            box-shadow: inset 0 0 10px rgba(59, 130, 246, 0.1);
+        }
+
+        .nav-item i {
+            font-size: 1.1rem;
+            width: 20px;
+            text-align: center;
+        }
+
+        .sidebar-footer {
+            padding: 16px 12px 0 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        /* Main Content Styling */
+        main {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Top Header */
+        header {
+            padding: 20px 32px;
+            border-bottom: 1px solid var(--card-border);
+            background: rgba(11, 15, 25, 0.4);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left h1 {
+            font-family: var(--font-title);
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .system-pill-container {
+            display: flex;
+            gap: 12px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .system-pill {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            padding: 4px 10px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .system-pill i {
+            color: var(--accent-primary);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-action {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-action:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-primary-action {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border: none;
+            color: white;
+            padding: 9px 16px;
+            border-radius: 6px;
+            font-size: 0.88rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+        }
+
+        .btn-primary-action:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3);
+        }
+
+        /* Content Viewport */
+        .viewport {
+            flex-grow: 1;
+            padding: 28px 32px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .viewport.active {
+            display: block;
+            animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Glass Cards Container */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .glass-card {
+            background: var(--card-color);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+        }
+
+        .glass-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+        }
+
+        /* Gauge Progress Design */
+        .gauge-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .gauge-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .gauge-label {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .gauge-value {
+            font-family: var(--font-title);
+            font-size: 1.85rem;
+            font-weight: 700;
+        }
+
+        .gauge-subtext {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+
+        .gauge-chart-circle {
+            position: relative;
+            width: 70px;
+            height: 70px;
+        }
+
+        .gauge-chart-circle svg {
+            width: 70px;
+            height: 70px;
+            transform: rotate(-90deg);
+        }
+
+        .gauge-chart-circle circle {
+            fill: none;
+            stroke-width: 6;
+        }
+
+        .gauge-chart-circle .bg-ring {
+            stroke: rgba(255, 255, 255, 0.05);
+        }
+
+        .gauge-chart-circle .progress-ring {
+            stroke-linecap: round;
+            stroke-dasharray: 201; /* 2 * PI * r (r=32) */
+            stroke-dashoffset: 201;
+            transition: stroke-dashoffset 0.8s ease-out;
+        }
+
+        .gauge-cpu .progress-ring { stroke: var(--accent-primary); filter: drop-shadow(0 0 4px var(--accent-primary)); }
+        .gauge-ram .progress-ring { stroke: var(--accent-secondary); filter: drop-shadow(0 0 4px var(--accent-secondary)); }
+        .gauge-disk .progress-ring { stroke: var(--success); filter: drop-shadow(0 0 4px var(--success)); }
+
+        /* Chart & Processes Panel Layout */
+        .dashboard-main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 992px) {
+            .dashboard-main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel-title {
+            font-family: var(--font-title);
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title i {
+            color: var(--accent-primary);
+        }
+
+        /* Table Design */
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.85rem;
+        }
+
+        th {
+            padding: 12px 16px;
+            color: var(--text-muted);
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            white-space: nowrap;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        /* Badges */
+        .badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .badge-running { background: rgba(16, 185, 129, 0.12); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.1); }
+        .badge-sleeping { background: rgba(59, 130, 246, 0.12); color: var(--accent-primary); border: 1px solid rgba(59, 130, 246, 0.1); }
+        .badge-stopped { background: rgba(239, 44, 44, 0.12); color: var(--danger); border: 1px solid rgba(239, 44, 44, 0.1); }
+
+        .btn-icon {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .btn-icon:hover {
+            color: var(--danger);
+            background: rgba(239, 44, 44, 0.1);
+        }
+
+        /* File Manager Panel Specifics */
+        .fm-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .fm-breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-code);
+            font-size: 0.85rem;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            flex-grow: 1;
+        }
+
+        .fm-breadcrumb span {
+            cursor: pointer;
+        }
+
+        .fm-breadcrumb span:hover {
+            color: var(--accent-primary);
+        }
+
+        .fm-breadcrumb-separator {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+
+        .file-icon {
+            margin-right: 8px;
+            font-size: 1rem;
+        }
+        .file-icon.folder { color: var(--warning); }
+        .file-icon.file { color: var(--text-muted); }
+        .file-icon.code { color: var(--accent-secondary); }
+
+        .clickable-row {
+            cursor: pointer;
+        }
+
+        /* DB Explorer Panel Specifics */
+        .db-layout {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .db-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .db-sidebar {
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 12px;
+            height: calc(100vh - 220px);
+            overflow-y: auto;
+        }
+
+        .db-table-item {
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-family: var(--font-code);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+
+        .db-table-item:hover {
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-main);
+        }
+
+        .db-table-item i {
+            font-size: 0.85rem;
+        }
+
+        .db-main {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .query-box {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .sql-textarea {
+            width: 100%;
+            height: 120px;
+            background: rgba(10, 15, 25, 0.6);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            color: #fff;
+            font-family: var(--font-code);
+            font-size: 0.88rem;
+            padding: 12px;
+            resize: vertical;
+            outline: none;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .sql-textarea:focus {
+            border-color: var(--accent-primary);
+        }
+
+        .db-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .db-results-card {
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* Services Panel */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .service-card {
+            background: var(--card-color);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+        }
+
+        .service-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .service-title {
+            font-family: var(--font-title);
+            font-size: 1.15rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .service-icon {
+            font-size: 1.5rem;
+            color: var(--accent-primary);
+        }
+
+        .service-status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-dot.active { background-color: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status-dot.inactive { background-color: var(--danger); box-shadow: 0 0 8px var(--danger); }
+        .status-dot.unknown { background-color: var(--text-muted); }
+
+        .service-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        .btn-service-control {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            padding: 8px 0;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-service-control:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-service-control:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Web Terminal Viewport */
+        .terminal-container {
+            background: #05070c;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            height: calc(100vh - 200px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+        }
+
+        .terminal-header {
+            background: #0f131a;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .terminal-dot.red { background: #ff5f56; }
+        .terminal-dot.yellow { background: #ffbd2e; }
+        .terminal-dot.green { background: #27c93f; }
+
+        .terminal-title {
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-family: var(--font-code);
+            margin-left: 10px;
+        }
+
+        .terminal-body {
+            flex-grow: 1;
+            padding: 16px;
+            font-family: var(--font-code);
+            font-size: 0.85rem;
+            color: #38bdf8; /* Light blue console text */
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .terminal-line {
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .terminal-output {
+            color: #e2e8f0;
+            padding-left: 12px;
+            margin-top: 4px;
+            margin-bottom: 8px;
+            border-left: 2px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .terminal-error {
+            color: var(--danger);
+        }
+
+        .terminal-input-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .terminal-prompt {
+            color: var(--success);
+            font-weight: 500;
+        }
+
+        .terminal-input-field {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #fff;
+            font-family: var(--font-code);
+            font-size: 0.85rem;
+        }
+
+        /* Modal Editor Overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(5, 7, 12, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .modal-card {
+            background: #0f1624;
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            width: 80%;
+            max-width: 900px;
+            height: 80%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            transform: scale(0.95);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .modal-overlay.active .modal-card {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-family: var(--font-title);
+            font-size: 1.15rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1.25rem;
+            transition: color 0.2s;
+        }
+
+        .modal-close:hover {
+            color: #fff;
+        }
+
+        .modal-body {
+            flex-grow: 1;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .editor-textarea {
+            flex-grow: 1;
+            width: 100%;
+            background: #070a12;
+            border: 1px solid rgba(255,255,255,0.04);
+            border-radius: 8px;
+            color: #f1f5f9;
+            font-family: var(--font-code);
+            font-size: 0.88rem;
+            padding: 16px;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        /* Toast notifications styling */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid var(--card-border);
+            padding: 14px 20px;
+            border-radius: 8px;
+            font-size: 0.88rem;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .toast.success { border-left: 4px solid var(--success); }
+        .toast.success i { color: var(--success); }
+        .toast.error { border-left: 4px solid var(--danger); }
+        .toast.error i { color: var(--danger); }
+    </style>
+</head>
+<body>
+
+    <!-- Gorilla CSRF hidden form field -->
+    <div class="csrf-container">
+        @csrf
+    </div>
+
+    <!-- Sidebar Navigation -->
+    <aside>
+        <div class="brand">
+            <div class="brand-logo">Z</div>
+            <div class="brand-name">ZenoPanel</div>
+        </div>
+        <nav class="nav-menu">
+            <div class="nav-item active" data-tab="dashboard">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>Dashboard</span>
+            </div>
+            <div class="nav-item" data-tab="files">
+                <i class="fa-solid fa-folder-open"></i>
+                <span>File Manager</span>
+            </div>
+            <div class="nav-item" data-tab="database">
+                <i class="fa-solid fa-database"></i>
+                <span>Database</span>
+            </div>
+            <div class="nav-item" data-tab="services">
+                <i class="fa-solid fa-server"></i>
+                <span>Services</span>
+            </div>
+            <div class="nav-item" data-tab="terminal">
+                <i class="fa-solid fa-terminal"></i>
+                <span>Command Shell</span>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            &copy; 2026 ZenoPanel v1.1.2
+        </div>
+    </aside>
+
+    <!-- Main Viewport -->
+    <main>
+        <header>
+            <div class="header-left">
+                <h1 id="page-title">Dashboard</h1>
+                <div class="system-pill-container" id="sys-pills">
+                    <!-- Dynamic Pill Details -->
+                    <div class="system-pill"><i class="fa-solid fa-desktop"></i> <span id="sys-os">Scanning...</span></div>
+                    <div class="system-pill"><i class="fa-solid fa-clock"></i> <span id="sys-uptime">Uptime: --</span></div>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="btn-action" onclick="refreshCurrentTab()">
+                    <i class="fa-solid fa-rotate"></i>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- 1. DASHBOARD TAB -->
+        <div class="viewport active" id="tab-dashboard">
+            <!-- Diagnostic circular metrics -->
+            <div class="stats-grid">
+                <div class="glass-card gauge-cpu">
+                    <div class="gauge-container">
+                        <div class="gauge-info">
+                            <span class="gauge-label">CPU Usage</span>
+                            <span class="gauge-value" id="cpu-val">0%</span>
+                            <span class="gauge-subtext" id="cpu-cores">-- Cores</span>
+                        </div>
+                        <div class="gauge-chart-circle">
+                            <svg>
+                                <circle class="bg-ring" cx="35" cy="35" r="32"></circle>
+                                <circle class="progress-ring" id="cpu-ring" cx="35" cy="35" r="32"></circle>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card gauge-ram">
+                    <div class="gauge-container">
+                        <div class="gauge-info">
+                            <span class="gauge-label">RAM Usage</span>
+                            <span class="gauge-value" id="ram-val">0%</span>
+                            <span class="gauge-subtext" id="ram-sub">-- / -- GB</span>
+                        </div>
+                        <div class="gauge-chart-circle">
+                            <svg>
+                                <circle class="bg-ring" cx="35" cy="35" r="32"></circle>
+                                <circle class="progress-ring" id="ram-ring" cx="35" cy="35" r="32"></circle>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card gauge-disk">
+                    <div class="gauge-container">
+                        <div class="gauge-info">
+                            <span class="gauge-label">Disk Storage</span>
+                            <span class="gauge-value" id="disk-val">0%</span>
+                            <span class="gauge-subtext" id="disk-sub">-- / -- GB</span>
+                        </div>
+                        <div class="gauge-chart-circle">
+                            <svg>
+                                <circle class="bg-ring" cx="35" cy="35" r="32"></circle>
+                                <circle class="progress-ring" id="disk-ring" cx="35" cy="35" r="32"></circle>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <div class="gauge-container">
+                        <div class="gauge-info">
+                            <span class="gauge-label">Network Traffic</span>
+                            <div style="font-size:0.95rem; font-weight:600; margin-top:4px; display:flex; flex-direction:column; gap:2px;">
+                                <span><i class="fa-solid fa-arrow-down" style="color:var(--success)"></i> Down: <span id="net-rx-val">0 KB/s</span></span>
+                                <span><i class="fa-solid fa-arrow-up" style="color:var(--accent-primary)"></i> Up: <span id="net-tx-val">0 KB/s</span></span>
+                            </div>
+                            <span class="gauge-subtext" style="margin-top:2px;">All interfaces active</span>
+                        </div>
+                        <div style="font-size: 2.2rem; opacity: 0.15; padding-right:10px;">
+                            <i class="fa-solid fa-network-wired"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Chart and Process Monitor -->
+            <div class="dashboard-main-grid">
+                <!-- Line Chart Card -->
+                <div class="glass-card">
+                    <div class="panel-title">
+                        <i class="fa-solid fa-chart-area"></i>
+                        <span>System Performance History</span>
+                    </div>
+                    <div style="position: relative; height: 320px; width: 100%;">
+                        <canvas id="performanceChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- CPU Model Info Card -->
+                <div class="glass-card" style="display:flex; flex-direction:column; justify-content:space-between;">
+                    <div>
+                        <div class="panel-title">
+                            <i class="fa-solid fa-microchip"></i>
+                            <span>Processor Details</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:12px; font-size:0.85rem; margin-top:10px;">
+                            <div>
+                                <div style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase;">Model</div>
+                                <div style="font-weight:600; line-height:1.4;" id="cpu-model-name">Scanning...</div>
+                            </div>
+                            <div>
+                                <div style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase;">Architecture</div>
+                                <div style="font-weight:600;" id="cpu-arch">--</div>
+                            </div>
+                            <div>
+                                <div style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase;">Host Target</div>
+                                <div style="font-weight:600;" id="sys-host">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.02); border-radius:8px; padding:12px; margin-top:20px; border:1px solid rgba(255,255,255,0.03); font-size:0.8rem; line-height:1.4;">
+                        <span style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> System healthy.</span> ZenoEngine process monitoring enabled.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processes list -->
+            <div class="glass-card">
+                <div class="panel-title" style="margin-bottom:12px;">
+                    <i class="fa-solid fa-list-check"></i>
+                    <span>Top Running Processes</span>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PID</th>
+                                <th>Command</th>
+                                <th>CPU %</th>
+                                <th>Memory %</th>
+                                <th>Status</th>
+                                <th style="text-align:right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="process-table-body">
+                            <tr>
+                                <td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted)">Scanning system processes...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. FILE MANAGER TAB -->
+        <div class="viewport" id="tab-files">
+            <div class="glass-card" style="min-height: calc(100vh - 200px); display:flex; flex-direction:column;">
+                <!-- Toolbar -->
+                <div class="fm-toolbar">
+                    <div class="fm-breadcrumb" id="file-breadcrumb">
+                        <span>/</span>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn-action" onclick="createFilePrompt()">
+                            <i class="fa-solid fa-file-circle-plus"></i>
+                            <span>New File</span>
+                        </button>
+                        <button class="btn-action" onclick="createFolderPrompt()">
+                            <i class="fa-solid fa-folder-plus"></i>
+                            <span>New Folder</span>
+                        </button>
+                        <button class="btn-action" onclick="goUpDirectory()">
+                            <i class="fa-solid fa-arrow-turn-up"></i>
+                            <span>Up</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Files Table List -->
+                <div class="table-container" style="flex-grow:1;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Size</th>
+                                <th>Type</th>
+                                <th>Modified</th>
+                                <th style="text-align:right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="files-table-body">
+                            <!-- Dynamic File list -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. DATABASE TAB -->
+        <div class="viewport" id="tab-database">
+            <div class="db-layout">
+                <!-- Database tables sidebar -->
+                <div class="db-sidebar">
+                    <div style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:12px; padding:0 8px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>Tables</span>
+                        <span id="db-driver-badge" class="badge badge-sleeping">Default</span>
+                    </div>
+                    <div id="db-tables-list">
+                        <div style="padding:16px; text-align:center; color:var(--text-muted); font-size:0.8rem;">Loading database...</div>
+                    </div>
+                </div>
+
+                <!-- Database main editor and results -->
+                <div class="db-main">
+                    <div class="glass-card query-box">
+                        <div class="panel-title" style="margin-bottom:0px;">
+                            <i class="fa-solid fa-code"></i>
+                            <span>SQL Query Editor</span>
+                        </div>
+                        <textarea class="sql-textarea" id="sql-query-input" placeholder="SELECT * FROM my_table LIMIT 10;"></textarea>
+                        <div class="db-actions">
+                            <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer;">
+                                <input type="checkbox" id="sql-is-select" checked style="accent-color:var(--accent-primary)">
+                                <span>SELECT / Read Query</span>
+                            </label>
+                            <button class="btn-primary-action" onclick="runSqlQuery()">
+                                <i class="fa-solid fa-play"></i>
+                                <span>Execute Query</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="glass-card db-results-card">
+                        <div class="panel-title" style="margin-bottom:12px;">
+                            <i class="fa-solid fa-table"></i>
+                            <span>Query Results</span>
+                        </div>
+                        <div class="table-container" id="db-results-container">
+                            <div style="padding:32px; text-align:center; color:var(--text-muted); font-size:0.85rem;">Run a query above to see results.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. SERVICES TAB -->
+        <div class="viewport" id="tab-services">
+            <div class="services-grid" id="services-container">
+                <!-- Services statuses cards -->
+            </div>
+        </div>
+
+        <!-- 5. TERMINAL TAB -->
+        <div class="viewport" id="tab-terminal">
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <div class="terminal-dot red"></div>
+                    <div class="terminal-dot yellow"></div>
+                    <div class="terminal-dot green"></div>
+                    <div class="terminal-title">Terminal Shell — bash</div>
+                </div>
+                <div class="terminal-body" id="terminal-viewport" onclick="focusTerminalInput()">
+                    <div class="terminal-line">Welcome to ZenoPanel Web Terminal. Type command to interact.</div>
+                    <div class="terminal-line">Tip: You are logged in as Go environment worker.</div>
+                    <br>
+                    <!-- Shell prompt input -->
+                    <div class="terminal-input-container">
+                        <span class="terminal-prompt" id="terminal-prompt-node">root@control-panel:~#</span>
+                        <input type="text" class="terminal-input-field" id="terminal-stdin" onkeydown="handleTerminalCommand(event)" autocomplete="off">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Code Editor Dialog -->
+    <div class="modal-overlay" id="editor-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title" id="editor-modal-filename">Editing File</div>
+                <div class="modal-close" onclick="closeEditorModal()">&times;</div>
+            </div>
+            <div class="modal-body">
+                <textarea class="editor-textarea" id="editor-textarea-field" autocomplete="off"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-action" onclick="closeEditorModal()">Cancel</button>
+                <button class="btn-primary-action" onclick="saveActiveFile()">
+                    <i class="fa-solid fa-save"></i>
+                    <span>Save Changes</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toasts -->
+    <div class="toast-container" id="toast-bin"></div>
+
+    <script>
+        // Tab Navigation state
+        let currentTab = 'dashboard';
+        let sysStatsInterval = null;
+        let performanceChart = null;
+        
+        // Navigation items
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const tab = item.getAttribute('data-tab');
+                switchTab(tab);
+            });
+        });
+
+        function switchTab(tab) {
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.viewport').forEach(el => el.classList.remove('active'));
+
+            const activeBtn = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            const activeViewport = document.getElementById(`tab-${tab}`);
+            if (activeViewport) activeViewport.classList.add('active');
+
+            currentTab = tab;
+            document.getElementById('page-title').innerText = tab.charAt(0).toUpperCase() + tab.slice(1);
+
+            // Tab initialization routines
+            if (tab === 'dashboard') {
+                loadSystemStats();
+                startStatsPolling();
+            } else {
+                stopStatsPolling();
+            }
+
+            if (tab === 'files') {
+                loadFilesList(currentFilePath);
+            }
+
+            if (tab === 'database') {
+                loadDatabaseTables();
+            }
+
+            if (tab === 'services') {
+                loadServicesStatus();
+            }
+
+            if (tab === 'terminal') {
+                setTimeout(focusTerminalInput, 50);
+            }
+        }
+
+        // Global refresh trigger
+        function refreshCurrentTab() {
+            switchTab(currentTab);
+            showToast('success', 'Refreshed tab data successfully');
+        }
+
+        // Retrieve CSRF token
+        function getCSRFToken() {
+            const tokenEl = document.querySelector('input[name="_token"]') || document.querySelector('input[name="gorilla.csrf.Token"]');
+            return tokenEl ? tokenEl.value : '';
+        }
+
+        // --- DASHBOARD AND DIAGNOSTICS CODE ---
+        const cpuRing = document.getElementById('cpu-ring');
+        const ramRing = document.getElementById('ram-ring');
+        const diskRing = document.getElementById('disk-ring');
+
+        function setRingProgress(ring, pct) {
+            const radius = ring.r.baseVal.value;
+            const circumference = 2 * Math.PI * radius;
+            const offset = circumference - (pct / 100) * circumference;
+            ring.style.strokeDashoffset = offset;
+        }
+
+        let chartDataPoints = { labels: [], cpu: [], ram: [] };
+        
+        function initPerformanceChart() {
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            
+            // Build gradient color
+            const cpuGrad = ctx.createLinearGradient(0, 0, 0, 300);
+            cpuGrad.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+            cpuGrad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+            const ramGrad = ctx.createLinearGradient(0, 0, 0, 300);
+            ramGrad.addColorStop(0, 'rgba(168, 85, 247, 0.4)');
+            ramGrad.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+
+            performanceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartDataPoints.labels,
+                    datasets: [
+                        {
+                            label: 'CPU Usage %',
+                            data: chartDataPoints.cpu,
+                            borderColor: '#3b82f6',
+                            borderWidth: 2,
+                            backgroundColor: cpuGrad,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            pointHoverRadius: 4
+                        },
+                        {
+                            label: 'RAM Usage %',
+                            data: chartDataPoints.ram,
+                            borderColor: '#a855f7',
+                            borderWidth: 2,
+                            backgroundColor: ramGrad,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            pointHoverRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#64748b', font: { size: 10 } }
+                        },
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#64748b', font: { size: 10 } }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#f1f5f9', font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updatePerformanceChart(cpuPct, ramPct) {
+            if (!performanceChart) return;
+
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            chartDataPoints.labels.push(now);
+            chartDataPoints.cpu.push(cpuPct);
+            chartDataPoints.ram.push(ramPct);
+
+            if (chartDataPoints.labels.length > 15) {
+                chartDataPoints.labels.shift();
+                chartDataPoints.cpu.shift();
+                chartDataPoints.ram.shift();
+            }
+
+            performanceChart.update();
+        }
+
+        // Stats history trackers
+        let lastRxBytes = 0;
+        let lastTxBytes = 0;
+        let lastNetCheckTime = 0;
+
+        function loadSystemStats() {
+            fetch('/zenopanel/api/stats')
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success && res.data) {
+                        const s = res.data;
+                        
+                        // Update values
+                        document.getElementById('cpu-val').innerText = s.cpu.toFixed(1) + '%';
+                        setRingProgress(cpuRing, s.cpu);
+
+                        document.getElementById('ram-val').innerText = s.mem_pct.toFixed(1) + '%';
+                        setRingProgress(ramRing, s.mem_pct);
+                        document.getElementById('ram-sub').innerText = (s.mem_used / (1024*1024*1024)).toFixed(2) + ' / ' + (s.mem_total / (1024*1024*1024)).toFixed(2) + ' GB';
+
+                        document.getElementById('disk-val').innerText = s.disk_pct.toFixed(1) + '%';
+                        setRingProgress(diskRing, s.disk_pct);
+                        document.getElementById('disk-sub').innerText = (s.disk_used / (1024*1024*1024)).toFixed(1) + ' / ' + (s.disk_total / (1024*1024*1024)).toFixed(1) + ' GB';
+
+                        // Net speed calculations
+                        const now = Date.now();
+                        if (lastNetCheckTime > 0) {
+                            const timeSec = (now - lastNetCheckTime) / 1000;
+                            const rxDiff = s.net_rx - lastRxBytes;
+                            const txDiff = s.net_tx - lastTxBytes;
+
+                            const rxSpeedKB = (rxDiff / 1024) / timeSec;
+                            const txSpeedKB = (txDiff / 1024) / timeSec;
+
+                            document.getElementById('net-rx-val').innerText = formatSpeed(rxSpeedKB);
+                            document.getElementById('net-tx-val').innerText = formatSpeed(txSpeedKB);
+                        }
+
+                        lastRxBytes = s.net_rx;
+                        lastTxBytes = s.net_tx;
+                        lastNetCheckTime = now;
+
+                        // Update chart
+                        updatePerformanceChart(s.cpu, s.mem_pct);
+                    }
+                })
+                .catch(err => console.error("Error polling system stats:", err));
+        }
+
+        function formatSpeed(speedKB) {
+            if (speedKB > 1024) {
+                return (speedKB / 1024).toFixed(1) + ' MB/s';
+            }
+            return speedKB.toFixed(1) + ' KB/s';
+        }
+
+        function loadStaticSystemInfo() {
+            fetch('/zenopanel/api/info')
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success && res.data) {
+                        const d = res.data;
+                        document.getElementById('sys-os').innerText = d.os;
+                        document.getElementById('sys-uptime').innerText = 'Uptime: ' + d.uptime;
+                        document.getElementById('cpu-cores').innerText = d.cores + ' Cores';
+                        document.getElementById('cpu-model-name').innerText = d.cpu_model;
+                        document.getElementById('cpu-arch').innerText = d.arch;
+                        document.getElementById('sys-host').innerText = d.hostname;
+                    }
+                })
+                .catch(err => console.error(err));
+        }
+
+        function loadProcesses() {
+            fetch('/zenopanel/api/processes?limit=15')
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success && res.data) {
+                        const tbody = document.getElementById('process-table-body');
+                        tbody.innerHTML = '';
+                        res.data.forEach(p => {
+                            const tr = document.createElement('tr');
+                            
+                            // Determine badge state
+                            let stateClass = 'badge-sleeping';
+                            let stateLabel = 'Sleeping';
+                            if (p.status === 'R') { stateClass = 'badge-running'; stateLabel = 'Running'; }
+                            if (p.status === 'T') { stateClass = 'badge-stopped'; stateLabel = 'Stopped'; }
+
+                            tr.innerHTML = `
+                                <td style="font-family:var(--font-code); font-weight:600;">${p.pid}</td>
+                                <td style="font-family:var(--font-code); max-width:240px; overflow:hidden; text-overflow:ellipsis;" title="${p.name}">${p.name}</td>
+                                <td>${p.cpu.toFixed(1)}%</td>
+                                <td>${p.memory.toFixed(1)}%</td>
+                                <td><span class="badge ${stateClass}">${stateLabel}</span></td>
+                                <td style="text-align:right;">
+                                    <button class="btn-icon" onclick="killProcess(${p.pid})" title="Kill process">
+                                        <i class="fa-solid fa-skull"></i>
+                                    </button>
+                                </td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+                    }
+                })
+                .catch(err => console.error("Error loading processes:", err));
+        }
+
+        function killProcess(pid) {
+            if (confirm(`Apakah Anda yakin ingin mematikan paksa (SIGKILL) proses dengan PID: ${pid}?`)) {
+                fetch('/zenopanel/api/processes/kill', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCSRFToken()
+                    },
+                    body: JSON.stringify({ pid: pid })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        showToast('success', res.message || 'Proses berhasil dihentikan');
+                        loadProcesses();
+                    } else {
+                        showToast('error', res.message || 'Gagal mematikan proses');
+                    }
+                })
+                .catch(err => {
+                    showToast('error', 'Gagal memanggil API: ' + err.toString());
+                });
+            }
+        }
+
+        function startStatsPolling() {
+            if (!sysStatsInterval) {
+                loadSystemStats();
+                loadProcesses();
+                sysStatsInterval = setInterval(() => {
+                    loadSystemStats();
+                    loadProcesses();
+                }, 3000);
+            }
+        }
+
+        function stopStatsPolling() {
+            if (sysStatsInterval) {
+                clearInterval(sysStatsInterval);
+                sysStatsInterval = null;
+            }
+        }
+
+        // --- FILE MANAGER CODE ---
+        let currentFilePath = '.';
+        let activeEditorPath = '';
+
+        function loadFilesList(path) {
+            currentFilePath = path;
+            
+            // Build Breadcrumb UI
+            const bc = document.getElementById('file-breadcrumb');
+            bc.innerHTML = '';
+            
+            // Normalize path separators
+            const parts = path.split('/').filter(x => x && x !== '.');
+            
+            let rootSpan = document.createElement('span');
+            rootSpan.innerText = 'Root';
+            rootSpan.onclick = () => loadFilesList('.');
+            bc.appendChild(rootSpan);
+
+            let cumPath = '.';
+            parts.forEach((p, idx) => {
+                cumPath += '/' + p;
+                const pathTarget = cumPath; // capture current block
+                
+                const sep = document.createElement('span');
+                sep.className = 'fm-breadcrumb-separator';
+                sep.innerText = '>';
+                bc.appendChild(sep);
+
+                const span = document.createElement('span');
+                span.innerText = p;
+                span.onclick = () => loadFilesList(pathTarget);
+                bc.appendChild(span);
+            });
+
+            // Fetch directories
+            fetch('/zenopanel/api/files/list?path=' + encodeURIComponent(path))
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success && res.data) {
+                        const tbody = document.getElementById('files-table-body');
+                        tbody.innerHTML = '';
+
+                        // Render folders and files
+                        res.data.forEach(item => {
+                            const tr = document.createElement('tr');
+                            tr.className = 'clickable-row';
+
+                            let iconClass = 'fa-solid fa-file file';
+                            if (item.is_dir) {
+                                iconClass = 'fa-solid fa-folder folder';
+                            } else if (item.name.endsWith('.zl') || item.name.endsWith('.html') || item.name.endsWith('.json') || item.name.endsWith('.go') || item.name.endsWith('.css') || item.name.endsWith('.js')) {
+                                iconClass = 'fa-solid fa-file-code code';
+                            }
+
+                            const sizeText = item.is_dir ? '-' : formatBytes(item.size);
+                            const itemPath = currentFilePath === '.' ? item.name : currentFilePath + '/' + item.name;
+
+                            tr.innerHTML = `
+                                <td>
+                                    <i class="${iconClass} file-icon"></i>
+                                    <span>${item.name}</span>
+                                </td>
+                                <td>${sizeText}</td>
+                                <td>${item.is_dir ? 'Directory' : 'File'}</td>
+                                <td>${new Date(item.mod_time).toLocaleString()}</td>
+                                <td style="text-align:right;">
+                                    ${!item.is_dir ? `<button class="btn-icon" style="color:var(--accent-primary)" onclick="editFile('${itemPath}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
+                                    <button class="btn-icon" style="color:var(--danger)" onclick="deleteFile('${itemPath}')" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+                                </td>
+                            `;
+                            
+                            // Row click event (skip click trigger on buttons)
+                            tr.onclick = (e) => {
+                                if (e.target.tagName !== 'BUTTON' && e.target.parentElement.tagName !== 'BUTTON' && e.target.tagName !== 'I') {
+                                    if (item.is_dir) {
+                                        loadFilesList(itemPath);
+                                    } else {
+                                        editFile(itemPath);
+                                    }
+                                }
+                            };
+
+                            tbody.appendChild(tr);
+                        });
+                    }
+                })
+                .catch(err => showToast('error', 'Gagal memuat file: ' + err.toString()));
+        }
+
+        function goUpDirectory() {
+            if (currentFilePath === '.' || currentFilePath === '/' || !currentFilePath.includes('/')) {
+                loadFilesList('.');
+                return;
+            }
+            const parts = currentFilePath.split('/');
+            parts.pop();
+            loadFilesList(parts.join('/'));
+        }
+
+        function createFilePrompt() {
+            const name = prompt('Masukkan nama file baru:');
+            if (name) {
+                const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
+                fetch('/zenopanel/api/files/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCSRFToken()
+                    },
+                    body: JSON.stringify({ path: fullPath, is_dir: false })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        showToast('success', res.message);
+                        loadFilesList(currentFilePath);
+                    } else {
+                        showToast('error', res.message);
+                    }
+                });
+            }
+        }
+
+        function createFolderPrompt() {
+            const name = prompt('Masukkan nama folder baru:');
+            if (name) {
+                const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
+                fetch('/zenopanel/api/files/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCSRFToken()
+                    },
+                    body: JSON.stringify({ path: fullPath, is_dir: true })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        showToast('success', res.message);
+                        loadFilesList(currentFilePath);
+                    } else {
+                        showToast('error', res.message);
+                    }
+                });
+            }
+        }
+
+        function deleteFile(path) {
+            if (confirm(`Apakah Anda yakin ingin menghapus '${path}'?`)) {
+                fetch('/zenopanel/api/files/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCSRFToken()
+                    },
+                    body: JSON.stringify({ path: path })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        showToast('success', res.message);
+                        loadFilesList(currentFilePath);
+                    } else {
+                        showToast('error', res.message);
+                    }
+                });
+            }
+        }
+
+        function editFile(path) {
+            activeEditorPath = path;
+            document.getElementById('editor-modal-filename').innerText = 'Editing: ' + path;
+            
+            fetch('/zenopanel/api/files/read?path=' + encodeURIComponent(path))
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        document.getElementById('editor-textarea-field').value = res.content || '';
+                        document.getElementById('editor-modal').classList.add('active');
+                    } else {
+                        showToast('error', 'Gagal membaca isi file');
+                    }
+                });
+        }
+
+        function closeEditorModal() {
+            document.getElementById('editor-modal').classList.remove('active');
+            activeEditorPath = '';
+        }
+
+        function saveActiveFile() {
+            const content = document.getElementById('editor-textarea-field').value;
+            fetch('/zenopanel/api/files/write', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ path: activeEditorPath, content: content })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message);
+                    closeEditorModal();
+                    loadFilesList(currentFilePath);
+                } else {
+                    showToast('error', res.message);
+                }
+            });
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        // --- DATABASE EXPLORER CODE ---
+        function loadDatabaseTables() {
+            fetch('/zenopanel/api/database/tables')
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success && res.data) {
+                        const list = document.getElementById('db-tables-list');
+                        list.innerHTML = '';
+                        
+                        document.getElementById('db-driver-badge').innerText = res.driver.toUpperCase();
+
+                        if (res.data.length === 0) {
+                            list.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted); font-size:0.8rem;">No tables found.</div>';
+                            return;
+                        }
+
+                        res.data.forEach(item => {
+                            // Extract key name depending on driver output
+                            const tableName = item.name || Object.values(item)[0];
+                            const div = document.createElement('div');
+                            div.className = 'db-table-item';
+                            div.innerHTML = `<i class="fa-solid fa-table"></i> <span>${tableName}</span>`;
+                            div.onclick = () => {
+                                const q = `SELECT * FROM ${tableName} LIMIT 15;`;
+                                document.getElementById('sql-query-input').value = q;
+                                document.getElementById('sql-is-select').checked = true;
+                            };
+                            list.appendChild(div);
+                        });
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('db-tables-list').innerHTML = '<div style="padding:16px; text-align:center; color:var(--danger); font-size:0.8rem;">Error loading tables</div>';
+                });
+        }
+
+        function runSqlQuery() {
+            const sql = document.getElementById('sql-query-input').value;
+            const isSelect = document.getElementById('sql-is-select').checked;
+
+            if (!sql.trim()) {
+                showToast('error', 'Masukkan query SQL terlebih dahulu');
+                return;
+            }
+
+            const resultsContainer = document.getElementById('db-results-container');
+            resultsContainer.innerHTML = '<div style="padding:32px; text-align:center;"><i class="fa-solid fa-spinner fa-spin" style="font-size:1.5rem; color:var(--accent-primary)"></i><p style="margin-top:10px; color:var(--text-muted)">Running query...</p></div>';
+
+            fetch('/zenopanel/api/database/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ sql: sql, is_select: isSelect })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', 'Query dijalankan sukses');
+                    if (res.type === 'select') {
+                        renderDbSelectResult(res.data);
+                    } else {
+                        resultsContainer.innerHTML = `
+                            <div style="padding: 24px; background: rgba(16, 185, 129, 0.08); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); line-height: 1.6;">
+                                <div style="color:var(--success); font-weight:600; font-size:1rem; margin-bottom:8px;"><i class="fa-solid fa-circle-check"></i> Command SQL Berhasil Dijalankan!</div>
+                                <div style="font-size:0.85rem;">Rows Affected: <strong style="font-size:0.95rem; font-family:var(--font-code);">${res.affected}</strong></div>
+                                <div style="font-size:0.85rem;">Last Inserted ID: <strong style="font-size:0.95rem; font-family:var(--font-code);">${res.last_id}</strong></div>
+                            </div>
+                        `;
+                    }
+                } else {
+                    resultsContainer.innerHTML = `
+                        <div style="padding: 24px; background: rgba(239, 68, 68, 0.08); border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2); line-height: 1.5;">
+                            <div style="color:var(--danger); font-weight:600; font-size:1rem; margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> SQL Execution Failed!</div>
+                            <div style="font-family:var(--font-code); font-size:0.82rem; color:#fca5a5; word-break: break-all;">${res.message || 'Unknown database error'}</div>
+                        </div>
+                    `;
+                }
+            })
+            .catch(err => {
+                resultsContainer.innerHTML = `<div style="padding:32px; text-align:center; color:var(--danger)">API request failed: ${err.toString()}</div>`;
+            });
+        }
+
+        function renderDbSelectResult(data) {
+            const container = document.getElementById('db-results-container');
+            if (!data || data.length === 0) {
+                container.innerHTML = '<div style="padding:32px; text-align:center; color:var(--text-muted)">Query completed successfully, but returned 0 rows.</div>';
+                return;
+            }
+
+            const keys = Object.keys(data[0]);
+            
+            let tableHtml = `
+                <table style="width:100%">
+                    <thead>
+                        <tr>
+                            ${keys.map(k => `<th>${k}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.map(row => `
+                            <tr>
+                                ${keys.map(k => `<td>${row[k] !== null ? escapeHtml(row[k].toString()) : '<em style="opacity:0.4">NULL</em>'}</td>`).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            container.innerHTML = tableHtml;
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // --- SERVICES MANAGER CODE ---
+        function loadServicesStatus() {
+            const container = document.getElementById('services-container');
+            container.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text-muted); grid-column: 1/-1;"><i class="fa-solid fa-spinner fa-spin"></i> Checking services...</div>';
+
+            fetch('/zenopanel/api/services')
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success && res.data) {
+                        container.innerHTML = '';
+                        
+                        const items = [
+                            { key: 'docker', name: 'Docker daemon', icon: 'fa-brands fa-docker' },
+                            { key: 'nginx', name: 'Nginx server', icon: 'fa-solid fa-globe' },
+                            { key: 'mysql', name: 'MySQL Database', icon: 'fa-solid fa-server' },
+                            { key: 'postgresql', name: 'PostgreSQL Database', icon: 'fa-solid fa-server' }
+                        ];
+
+                        items.forEach(svc => {
+                            const data = res.data[svc.key];
+                            const div = document.createElement('div');
+                            div.className = 'service-card';
+
+                            let statusClass = 'unknown';
+                            let statusLabel = 'Offline / Unavailable';
+
+                            if (data) {
+                                if (data.active) {
+                                    statusClass = 'active';
+                                    statusLabel = 'Active (running)';
+                                } else if (data.status === 'inactive') {
+                                    statusClass = 'inactive';
+                                    statusLabel = 'Inactive (dead)';
+                                } else if (data.error && data.status === 'unknown') {
+                                    statusLabel = 'Not installed';
+                                } else {
+                                    statusClass = 'inactive';
+                                    statusLabel = data.status || 'Offline';
+                                }
+                            }
+
+                            const isInstallable = data && data.status !== 'unknown';
+
+                            div.innerHTML = `
+                                <div class="service-header">
+                                    <div class="service-title">
+                                        <i class="${svc.icon} service-icon"></i>
+                                        <span>${svc.name}</span>
+                                    </div>
+                                    <div class="service-status-indicator">
+                                        <div class="status-dot ${statusClass}"></div>
+                                        <span style="font-size:0.75rem; color:var(--text-muted);">${statusLabel}</span>
+                                    </div>
+                                </div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); line-height:1.4;">
+                                    Systemd service identification name: <strong style="font-family:var(--font-code); color:var(--text-main);">${svc.key}</strong>.service
+                                </div>
+                                <div class="service-actions">
+                                    <button class="btn-service-control" ${!isInstallable || (data && data.active) ? 'disabled' : ''} onclick="controlService('${svc.key}', 'start')">
+                                        <i class="fa-solid fa-play"></i> Start
+                                    </button>
+                                    <button class="btn-service-control" ${!isInstallable || (data && !data.active) ? 'disabled' : ''} onclick="controlService('${svc.key}', 'stop')">
+                                        <i class="fa-solid fa-stop"></i> Stop
+                                    </button>
+                                </div>
+                                <div style="display:grid; grid-template-columns: 1fr; margin-top: -6px;">
+                                    <button class="btn-service-control" ${!isInstallable ? 'disabled' : ''} onclick="controlService('${svc.key}', 'restart')">
+                                        <i class="fa-solid fa-rotate-right"></i> Restart service
+                                    </button>
+                                </div>
+                            `;
+                            container.appendChild(div);
+                        });
+                    }
+                })
+                .catch(err => {
+                    container.innerHTML = `<div style="grid-column: 1/-1; color:var(--danger)">Error querying services: ${err.toString()}</div>`;
+                });
+        }
+
+        function controlService(service, action) {
+            showToast('warning', `Memproses service action: ${action} ${service}...`);
+            fetch('/zenopanel/api/services/control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ service: service, action: action })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message || `Service ${service} ${action} berhasil`);
+                    loadServicesStatus();
+                } else {
+                    showToast('error', res.message || `Gagal menjalankan aksi ${action}`);
+                }
+            })
+            .catch(err => {
+                showToast('error', 'Aksi service gagal: ' + err.toString());
+            });
+        }
+
+        // --- WEB SHELL TERMINAL CODE ---
+        const terminalHistory = [];
+        let terminalHistoryIndex = -1;
+
+        function focusTerminalInput() {
+            document.getElementById('terminal-stdin').focus();
+        }
+
+        function handleTerminalCommand(event) {
+            if (event.key === 'Enter') {
+                const inputField = document.getElementById('terminal-stdin');
+                const command = inputField.value.trim();
+                inputField.value = '';
+
+                if (!command) return;
+
+                terminalHistory.push(command);
+                terminalHistoryIndex = terminalHistory.length;
+
+                // Print command to console output viewport
+                const viewport = document.getElementById('terminal-viewport');
+                const promptLine = document.createElement('div');
+                promptLine.className = 'terminal-line';
+                promptLine.innerHTML = `<span class="terminal-prompt">root@control-panel:~#</span> ${escapeHtml(command)}`;
+                viewport.insertBefore(promptLine, inputField.parentElement);
+
+                if (command === 'clear') {
+                    // Remove all previous children except the input line
+                    const lines = Array.from(viewport.querySelectorAll('.terminal-line'));
+                    const outputs = Array.from(viewport.querySelectorAll('.terminal-output'));
+                    lines.forEach(l => l.remove());
+                    outputs.forEach(o => o.remove());
+                    return;
+                }
+
+                // Send request to execute command
+                fetch('/zenopanel/api/terminal/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCSRFToken()
+                    },
+                    body: JSON.stringify({ command: command })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    const resultContainer = document.createElement('div');
+                    resultContainer.className = 'terminal-output';
+                    
+                    if (res.success) {
+                        const outText = res.stdout || 'Command completed with exit code 0';
+                        resultContainer.innerText = outText;
+                    } else {
+                        const errText = res.stderr || `Command failed with exit code ${res.exit_code}`;
+                        resultContainer.innerHTML = `<span class="terminal-error">${escapeHtml(errText)}</span>`;
+                    }
+                    viewport.insertBefore(resultContainer, inputField.parentElement);
+                    
+                    // Scroll to bottom
+                    viewport.scrollTop = viewport.scrollHeight;
+                })
+                .catch(err => {
+                    const errLine = document.createElement('div');
+                    errLine.className = 'terminal-output terminal-error';
+                    errLine.innerText = 'Gagal memanggil shell execution: ' + err.toString();
+                    viewport.insertBefore(errLine, inputField.parentElement);
+                    viewport.scrollTop = viewport.scrollHeight;
+                });
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (terminalHistory.length > 0 && terminalHistoryIndex > 0) {
+                    terminalHistoryIndex--;
+                    document.getElementById('terminal-stdin').value = terminalHistory[terminalHistoryIndex];
+                }
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (terminalHistory.length > 0 && terminalHistoryIndex < terminalHistory.length - 1) {
+                    terminalHistoryIndex++;
+                    document.getElementById('terminal-stdin').value = terminalHistory[terminalHistoryIndex];
+                } else {
+                    terminalHistoryIndex = terminalHistory.length;
+                    document.getElementById('terminal-stdin').value = '';
+                }
+            }
+        }
+
+        // --- TOAST NOTIFICATIONS CODE ---
+        function showToast(type, message) {
+            const container = document.getElementById('toast-bin');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const icon = type === 'success' ? 'fa-solid fa-circle-check' : (type === 'warning' ? 'fa-solid fa-triangle-exclamation' : 'fa-solid fa-circle-exclamation');
+            toast.innerHTML = `<i class="${icon}"></i> <span>${message}</span>`;
+            
+            container.appendChild(toast);
+            
+            // Auto dismiss toast
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease reverse forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        // --- GLOBAL STARTUP INITIALIZER ---
+        window.addEventListener('DOMContentLoaded', () => {
+            // Load static metadata details
+            loadStaticSystemInfo();
+            // Start chart and performance metrics polling
+            initPerformanceChart();
+            startStatsPolling();
+        });
+    </script>
+</body>
+</html>

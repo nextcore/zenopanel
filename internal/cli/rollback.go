@@ -1,0 +1,61 @@
+package cli
+
+import (
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"zeno/internal/app"
+	"zeno/pkg/dbmanager"
+	"zeno/pkg/engine"
+	"zeno/pkg/logger"
+	"zeno/pkg/migrator"
+	"zeno/pkg/worker"
+)
+
+func HandleRollback() {
+	logger.Setup("development")
+	dbMgr := dbmanager.NewDBManager()
+	dbDriver := os.Getenv("DB_DRIVER")
+	if dbDriver == "" {
+		dbDriver = "mysql"
+	}
+
+	var dsn string
+	if dbDriver == "sqlite" {
+		dsn = os.Getenv("DB_NAME")
+		dir := filepath.Dir(dsn)
+		if dir != "." {
+			os.MkdirAll(dir, 0755)
+		}
+	} else {
+		dsn = fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true&multiStatements=true",
+			os.Getenv("DB_USER"), os.Getenv("DB_PASS"),
+			os.Getenv("DB_HOST"), os.Getenv("DB_NAME"))
+	}
+
+	if err := dbMgr.AddConnection("default", dbDriver, dsn, 10, 5); err != nil {
+		slog.Error("❌ Fatal: DB Connection Failed", "error", err)
+		os.Exit(1)
+	}
+
+	eng := engine.NewEngine()
+	queue := worker.NewDBQueue(dbMgr, "default")
+	app.RegisterAllSlots(eng, nil, dbMgr, queue, nil)
+
+	migrationDir := "migrations"
+	if len(os.Args) > 2 {
+		migrationDir = os.Args[2]
+	}
+	if _, err := os.Stat(migrationDir); os.IsNotExist(err) {
+		slog.Info("✨ No migration directory found", "dir", migrationDir)
+		os.Exit(0)
+	}
+
+	mig := migrator.New(eng, dbMgr, migrationDir)
+	if err := mig.Rollback(); err != nil {
+		slog.Error("❌ Rollback Failed", "error", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}

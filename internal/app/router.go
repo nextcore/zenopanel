@@ -1,0 +1,234 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+	"zeno/internal/console"
+	"zeno/pkg/apidoc"
+	"zeno/pkg/engine"
+	"zeno/pkg/logger"
+	"zeno/pkg/metrics"
+	"zeno/pkg/middleware"
+
+	"github.com/go-chi/chi/v5"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/go-chi/httprate"
+	"github.com/gorilla/csrf"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// BuildRouter: Membaca main.zl dan membangun Router Chi baru
+func BuildRouter(app *AppContext) (*chi.Mux, error) {
+	r := chi.NewRouter()
+	r.Use(logger.Middleware)
+	r.Use(metrics.Middleware)          // PROMETHEUS METRICS (Place early)
+	r.Use(middleware.IPBlocker)        // [IP] Block known bad IPs first
+	r.Use(middleware.WAF)              // [WAF] Shield up early
+	r.Use(middleware.HostDispatcher)   // [VHOST] O(1) Scalable Host Routing
+	r.Use(middleware.BotDefense)       // [BOT] JS Challenge Interstitial
+	r.Use(chiMiddleware.Compress(5))
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.SecurityHeaders) // New Security Middleware
+
+	// Rate Limiting
+	// Rate Limiting
+	rlReqStr := os.Getenv("RATE_LIMIT_REQUESTS")
+	if rlReqStr == "" {
+		slog.Info("⚠️  Rate Limiting Disabled (RATE_LIMIT_REQUESTS not set)")
+	} else {
+		rlRequests, _ := strconv.Atoi(rlReqStr)
+		if rlRequests == 0 {
+			rlRequests = 100
+		}
+		rlWindow, _ := strconv.Atoi(os.Getenv("RATE_LIMIT_WINDOW"))
+		if rlWindow == 0 {
+			rlWindow = 60
+		}
+		r.Use(httprate.LimitByIP(rlRequests, time.Duration(rlWindow)*time.Second))
+	}
+
+	// CORS
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowCredentials: true,
+	}))
+
+	// CSRF Protection
+	port := os.Getenv("APP_PORT")
+
+	// Base trusted origins
+	trustedOrigins := []string{
+		"localhost",
+		"localhost:3000",
+		"http://localhost",
+		"http://localhost:" + port,
+		"127.0.0.1",
+		"127.0.0.1:" + port,
+		"http://127.0.0.1",
+		"http://127.0.0.1:" + port,
+	}
+
+	// Add user-defined trusted origins from .env
+	if envOrigins := os.Getenv("TRUSTED_ORIGINS"); envOrigins != "" {
+		for _, origin := range strings.Split(envOrigins, ",") {
+			origin = strings.TrimSpace(origin)
+			if origin != "" {
+				trustedOrigins = append(trustedOrigins, origin)
+			}
+		}
+	}
+
+	// CSRF Configuration
+	csrfEnabled := true
+	if enabledStr := os.Getenv("CSRF_ENABLED"); enabledStr != "" {
+		csrfEnabled, _ = strconv.ParseBool(enabledStr)
+	}
+
+	var CSRF func(http.Handler) http.Handler
+
+	if csrfEnabled {
+		// 1. Secure Token Padding (Must be 32 bytes)
+		tokenBytes := []byte(os.Getenv("CSRF_TOKEN"))
+		if len(tokenBytes) < 32 {
+			padded := make([]byte, 32)
+			copy(padded, tokenBytes)
+			tokenBytes = padded
+		} else if len(tokenBytes) > 32 {
+			tokenBytes = tokenBytes[:32]
+		}
+
+		// 2. Secure Cookie Option
+		csrfSecure := app.Env == "production" // Default to true in production
+		if secureStr := os.Getenv("CSRF_SECURE"); secureStr != "" {
+			csrfSecure, _ = strconv.ParseBool(secureStr)
+		}
+
+		// 3. SameSite Option
+		sameSite := csrf.SameSiteLaxMode
+		switch strings.ToLower(os.Getenv("CSRF_SAMESITE")) {
+		case "strict":
+			sameSite = csrf.SameSiteStrictMode
+		case "none":
+			sameSite = csrf.SameSiteNoneMode
+		}
+
+		// Configure Gorilla CSRF
+		CSRF = csrf.Protect(
+			tokenBytes,
+			csrf.Secure(csrfSecure),
+			csrf.Path("/"),
+			csrf.TrustedOrigins(trustedOrigins),
+			csrf.SameSite(sameSite),
+		)
+
+		// 4. Parse Exceptional Routes
+		exceptPaths := []string{"/api", "/health"}
+		if envExcept := os.Getenv("CSRF_EXCEPT"); envExcept != "" {
+			for _, p := range strings.Split(envExcept, ",") {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					exceptPaths = append(exceptPaths, p)
+				}
+			}
+		}
+
+		// Apply CSRF Middleware conditionally
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				path := req.URL.Path
+
+				// Check exclusions
+				for _, exempt := range exceptPaths {
+					if strings.HasPrefix(path, exempt) {
+						next.ServeHTTP(w, req)
+						return
+					}
+				}
+
+				// Apply CSRF
+				CSRF(next).ServeHTTP(w, req)
+			})
+		})
+	}
+
+	// Health Check (No CSRF)
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+		if err := app.DBMgr.GetConnection("default").Ping(); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("DOWN: Database Error"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Bot Challenge Verification Endpoint
+	r.Post("/_zeno/challenge", middleware.BotChallengeHandler)
+
+	// Prometheus Metrics Endpoint
+	r.Handle("/metrics", promhttp.Handler())
+
+	// 4. Update signatures
+	eng := engine.NewEngine()
+	RegisterAllSlots(eng, r, app.DBMgr, app.Queue, func(queues []string) {
+		app.WorkerQueues = queues
+		slog.Info("🔧 Worker Configuration Updated", "queues", queues)
+	})
+
+	// Static Files
+	workDir, _ := os.Getwd()
+	filesDir := filepath.Join(workDir, "public")
+	r.Get("/public/*", func(w http.ResponseWriter, req *http.Request) {
+		rctx := chi.RouteContext(req.Context())
+		pathPrefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
+		fs := http.StripPrefix(pathPrefix, http.FileServer(http.Dir(filesDir)))
+		fs.ServeHTTP(w, req)
+	})
+
+	// Console Developer & API Docs
+	if app.Env == "development" {
+		console.RegisterRoutes(r, eng)
+
+		// OpenAPI JSON
+		r.Get("/api/docs/json", func(w http.ResponseWriter, req *http.Request) {
+			json, err := apidoc.Registry.ToJSON()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(json)
+		})
+
+		// Swagger UI
+		r.Get("/api/docs", apidoc.SwaggerUIHandler("/api/docs/json"))
+	}
+
+	// Exec Main Script
+	mainScriptPath := "src/main.zl"
+	root, err := engine.LoadScript(mainScriptPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load script: %v", err)
+	}
+
+	// Global Scope must persist for the lifetime of the application
+	// Do NOT use GetScope() as we never return it to the pool.
+	globalScope := engine.NewScope(nil)
+	globalScope.Set("APP_ENV", app.Env)
+
+	if err := eng.Execute(context.Background(), root, globalScope); err != nil {
+		return nil, fmt.Errorf("execution error: %v", err)
+	}
+
+	return r, nil
+}
