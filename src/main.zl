@@ -296,7 +296,7 @@ http.post: '/api/managed/add' {
         auto_restart: $clean_auto_restart
         as: $id
     }
-    http.ok: { success: true, id: $id, message: "Proses managed berhasil ditambahkan" }
+    http.ok: { id: $id, message: "Proses managed berhasil ditambahkan" }
 }
 
 http.post: '/api/managed/start' {
@@ -304,10 +304,10 @@ http.post: '/api/managed/start' {
     proc.start: $body.id { as: $success }
     if: $success {
         then: {
-            http.ok: { success: true, message: "Proses managed berhasil dijalankan" }
+            http.ok: { message: "Proses managed berhasil dijalankan" }
         }
         else: {
-            http.bad_request: { success: false, message: $error }
+            http.bad_request: { message: $error }
         }
     }
 }
@@ -317,10 +317,10 @@ http.post: '/api/managed/stop' {
     proc.stop: $body.id { as: $success }
     if: $success {
         then: {
-            http.ok: { success: true, message: "Proses managed berhasil dihentikan" }
+            http.ok: { message: "Proses managed berhasil dihentikan" }
         }
         else: {
-            http.bad_request: { success: false, message: $error }
+            http.bad_request: { message: $error }
         }
     }
 }
@@ -330,10 +330,10 @@ http.post: '/api/managed/restart' {
     proc.restart: $body.id { as: $success }
     if: $success {
         then: {
-            http.ok: { success: true, message: "Proses managed berhasil direstart" }
+            http.ok: { message: "Proses managed berhasil direstart" }
         }
         else: {
-            http.bad_request: { success: false, message: $error }
+            http.bad_request: { message: $error }
         }
     }
 }
@@ -343,10 +343,10 @@ http.post: '/api/managed/delete' {
     proc.delete: $body.id { as: $success }
     if: $success {
         then: {
-            http.ok: { success: true, message: "Proses managed berhasil dihapus" }
+            http.ok: { message: "Proses managed berhasil dihapus" }
         }
         else: {
-            http.bad_request: { success: false, message: $error }
+            http.bad_request: { message: $error }
         }
     }
 }

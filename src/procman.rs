@@ -70,36 +70,54 @@ impl ProcessManager {
             .await
             .map_err(|e| e.to_string())?;
 
-        let mut procs = self.processes.write().await;
-        for row in rows {
-            use sqlx::Row;
-            let id: String = row.get("id");
-            let name: String = row.get("name");
-            let command: String = row.get("command");
-            let cwd: String = row.get("cwd");
-            let env_str: String = row.get("env");
-            let auto_restart_int: i32 = row.get("auto_restart");
+        let mut to_start = Vec::new();
 
-            let env: HashMap<String, String> = serde_json::from_str(&env_str).unwrap_or_default();
-            let auto_restart = auto_restart_int != 0;
+        {
+            let mut procs = self.processes.write().await;
+            for row in rows {
+                use sqlx::Row;
+                let id: String = row.get("id");
+                let name: String = row.get("name");
+                let command: String = row.get("command");
+                let cwd: String = row.get("cwd");
+                let env_str: String = row.get("env");
+                let auto_restart_int: i32 = row.get("auto_restart");
 
-            procs.insert(
-                id.clone(),
-                Arc::new(RwLock::new(ProcessState {
-                    id,
-                    name,
-                    command,
-                    cwd,
-                    env,
-                    auto_restart,
-                    status: "stopped".to_string(),
-                    pid: None,
-                    exit_code: None,
-                    logs: VecDeque::with_capacity(1000),
-                    stop_tx: None,
-                    stop_requested: false,
-                })),
-            );
+                let env: HashMap<String, String> = serde_json::from_str(&env_str).unwrap_or_default();
+                let auto_restart = auto_restart_int != 0;
+
+                if auto_restart {
+                    to_start.push(id.clone());
+                }
+
+                procs.insert(
+                    id.clone(),
+                    Arc::new(RwLock::new(ProcessState {
+                        id,
+                        name,
+                        command,
+                        cwd,
+                        env,
+                        auto_restart,
+                        status: "stopped".to_string(),
+                        pid: None,
+                        exit_code: None,
+                        logs: VecDeque::with_capacity(1000),
+                        stop_tx: None,
+                        stop_requested: false,
+                    })),
+                );
+            }
+        }
+
+        // Spawn starting tasks for auto_restart processes
+        for id in to_start {
+            let this = self.clone();
+            tokio::spawn(async move {
+                if let Err(e) = this.start_process(&id).await {
+                    eprintln!("Failed to auto-start process {}: {}", id, e);
+                }
+            });
         }
 
         Ok(())
@@ -210,6 +228,11 @@ impl ProcessManager {
                 } else {
                     let mut c = Command::new("sh");
                     c.args(&["-c", &command]);
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::CommandExt;
+                        c.as_std_mut().process_group(0);
+                    }
                     c
                 };
 
@@ -218,6 +241,7 @@ impl ProcessManager {
                 cmd.stdout(Stdio::piped());
                 cmd.stderr(Stdio::piped());
 
+                let start_time = std::time::Instant::now();
                 let mut child = match cmd.spawn() {
                     Ok(c) => c,
                     Err(e) => {
@@ -282,6 +306,7 @@ impl ProcessManager {
                 // Wait for exit or stop request
                 tokio::select! {
                     status_res = child.wait() => {
+                        let elapsed = start_time.elapsed().as_secs();
                         let exit_code = match status_res {
                             Ok(st) => st.code(),
                             Err(_) => None,
@@ -300,14 +325,18 @@ impl ProcessManager {
                         if !lock.auto_restart || lock.stop_requested {
                             break;
                         }
-                        
-                        // Imitate supervisord delay before restarting (1s)
-                        backoff = 1; 
+
+                        // If it exited too quickly (less than 3 seconds), increase backoff
+                        if elapsed < 3 {
+                            backoff = std::cmp::min(backoff + 2, 10);
+                        } else {
+                            backoff = 1;
+                        }
                     }
                     _ = &mut stop_rx => {
                         // Kill the process group / process
-                        let _ = child.kill().await;
                         let mut lock = state_arc_clone.write().await;
+                        let pid = lock.pid;
                         lock.status = "stopped".to_string();
                         lock.pid = None;
                         lock.exit_code = None;
@@ -315,6 +344,19 @@ impl ProcessManager {
                         if lock.logs.len() > 1000 {
                             lock.logs.pop_front();
                         }
+
+                        #[cfg(unix)]
+                        {
+                            if let Some(p) = pid {
+                                // Kill process group
+                                let _ = std::process::Command::new("kill")
+                                    .args(&["-9", &format!("-{}", p)])
+                                    .status();
+                            }
+                        }
+                        #[cfg(not(unix))]
+                        let _ = child.kill().await;
+
                         break;
                     }
                 }

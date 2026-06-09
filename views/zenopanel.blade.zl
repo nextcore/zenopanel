@@ -2632,11 +2632,11 @@
                     showToast('success', res.message);
                     loadManagedProcesses();
                 } else {
-                    showToast('danger', res.message || 'Gagal menjalankan proses');
+                    showToast('error', res.message || 'Gagal menjalankan proses');
                 }
             })
             .catch(err => {
-                showToast('danger', 'Error connecting to server');
+                showToast('error', 'Error connecting to server');
             });
         }
 
@@ -2655,11 +2655,11 @@
                     showToast('success', res.message);
                     loadManagedProcesses();
                 } else {
-                    showToast('danger', res.message || 'Gagal menghentikan proses');
+                    showToast('error', res.message || 'Gagal menghentikan proses');
                 }
             })
             .catch(err => {
-                showToast('danger', 'Error connecting to server');
+                showToast('error', 'Error connecting to server');
             });
         }
 
@@ -2678,11 +2678,11 @@
                     showToast('success', res.message);
                     loadManagedProcesses();
                 } else {
-                    showToast('danger', res.message || 'Gagal merestart proses');
+                    showToast('error', res.message || 'Gagal merestart proses');
                 }
             })
             .catch(err => {
-                showToast('danger', 'Error connecting to server');
+                showToast('error', 'Error connecting to server');
             });
         }
 
@@ -2702,11 +2702,11 @@
                     showToast('success', res.message);
                     loadManagedProcesses();
                 } else {
-                    showToast('danger', res.message || 'Gagal menghapus proses');
+                    showToast('error', res.message || 'Gagal menghapus proses');
                 }
             })
             .catch(err => {
-                showToast('danger', 'Error connecting to server');
+                showToast('error', 'Error connecting to server');
             });
         }
 
@@ -2767,11 +2767,11 @@
                     closeAddProcessModal();
                     loadManagedProcesses();
                 } else {
-                    showToast('danger', res.message || 'Gagal menambahkan proses');
+                    showToast('error', res.message || 'Gagal menambahkan proses');
                 }
             })
             .catch(err => {
-                showToast('danger', 'Error connecting to server');
+                showToast('error', 'Error connecting to server');
             });
         }
 
