@@ -1,5 +1,6 @@
 mod db;
 mod slots;
+pub mod procman;
 
 use axum::{
     body::Bytes,
@@ -28,6 +29,7 @@ struct AppState {
     router: MatchitRouter<MethodRouter>,
     parent_scope: Arc<Scope>,
     db_manager: DBManager,
+    process_manager: Arc<crate::procman::ProcessManager>,
     csrf_enabled: bool,
     csrf_excepts: Vec<String>,
 }
@@ -54,6 +56,16 @@ async fn main() {
 
     let mut engine = zenoengine::new_engine();
     register_custom_slots(&mut engine);
+
+    // Retrieve default pool to init ProcessManager
+    let default_pool = match db_manager.get_pool("default").await {
+        Some(crate::db::DbPool::Sqlite(pool)) => pool,
+        _ => panic!("Default DB pool not initialized"),
+    };
+    let process_manager = Arc::new(procman::ProcessManager::new(default_pool).await);
+    if let Err(e) = process_manager.load_from_db().await {
+        eprintln!("Failed to load processes from DB: {}", e);
+    }
 
     #[derive(Clone)]
     struct RouteReg {
@@ -115,6 +127,7 @@ async fn main() {
 
     let mut init_ctx = zenocore::Context::new();
     init_ctx.set("db_manager", db_manager.clone());
+    init_ctx.set("process_manager", process_manager.clone());
 
     if let Err(e) = engine.execute(&mut init_ctx, &main_node, &parent_scope) {
         panic!("Failed to execute src/main.zl during startup: {}", e);
@@ -151,6 +164,7 @@ async fn main() {
         router,
         parent_scope,
         db_manager,
+        process_manager: process_manager.clone(),
         csrf_enabled,
         csrf_excepts,
     });
@@ -354,6 +368,8 @@ async fn wildcard_handler(
     ctx.set("httpWriter", html_buffer);
 
     ctx.set("db_manager", state.db_manager.clone());
+    ctx.set("process_manager", state.process_manager.clone());
+
 
     for child in &handler_node.children {
         if let Err(diag) = state.engine.execute(&mut ctx, child, &req_scope) {
