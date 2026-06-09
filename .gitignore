@@ -44,3 +44,4 @@ ref/
 # Rust zeno-rs
 /zeno-rs/target/
 /zeno-rs/Cargo.lock
+target/

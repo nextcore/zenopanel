@@ -1,0 +1,8 @@
+fn: 'greet_user' {
+    var: $greeting { val: "Hello from modular ZenoLang fn!" }
+}
+
+http.get: '/api/test/modular' {
+    call: 'greet_user'
+    http.ok: { message: $greeting }
+}

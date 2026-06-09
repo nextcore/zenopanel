@@ -508,8 +508,31 @@
         .file-icon.file { color: var(--text-muted); }
         .file-icon.code { color: var(--accent-secondary); }
 
+        .file-icon.zip { color: var(--accent-primary); }
+
         .clickable-row {
             cursor: pointer;
+        }
+
+        /* Sortable table headers */
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        th.sortable:hover {
+            color: var(--accent-primary);
+        }
+        th.sortable .sort-icon {
+            margin-left: 5px;
+            font-size: 0.7rem;
+            opacity: 0.4;
+            transition: opacity 0.2s, color 0.2s;
+        }
+        th.sortable.sort-asc .sort-icon,
+        th.sortable.sort-desc .sort-icon {
+            opacity: 1;
+            color: var(--accent-primary);
         }
 
         /* DB Explorer Panel Specifics */
@@ -1114,6 +1137,25 @@
                     <div class="fm-breadcrumb" id="file-breadcrumb">
                         <span>/</span>
                     </div>
+                    <div style="display:flex; gap:10px; align-items:center; flex:1; margin-right:10px;">
+                        <button class="btn-action" onclick="goUpDirectory()" title="Up">
+                            <i class="fa-solid fa-arrow-turn-up"></i>
+                        </button>
+                        <button class="btn-action" onclick="loadFilesList('/')" title="Root System">
+                            <i class="fa-solid fa-server"></i>
+                            <span>Root</span>
+                        </button>
+                        <button class="btn-action" onclick="loadFilesList('.')" title="Working Directory">
+                            <i class="fa-solid fa-folder-open"></i>
+                            <span>CWD</span>
+                        </button>
+                        <form onsubmit="event.preventDefault(); loadFilesList(document.getElementById('fm-path-input').value.trim() || '.');" style="display:flex; flex:1; gap:6px;">
+                            <input id="fm-path-input" type="text" value="." placeholder="/path/to/directory" style="flex:1; background:var(--glass-bg); border:1px solid var(--border-color); color:var(--text-primary); padding:6px 12px; border-radius:8px; font-size:0.85rem; outline:none;">
+                            <button type="submit" class="btn-action">
+                                <i class="fa-solid fa-arrow-right"></i>
+                            </button>
+                        </form>
+                    </div>
                     <div style="display:flex; gap:10px;">
                         <button class="btn-action" onclick="createFilePrompt()">
                             <i class="fa-solid fa-file-circle-plus"></i>
@@ -1123,11 +1165,21 @@
                             <i class="fa-solid fa-folder-plus"></i>
                             <span>New Folder</span>
                         </button>
-                        <button class="btn-action" onclick="goUpDirectory()">
-                            <i class="fa-solid fa-arrow-turn-up"></i>
-                            <span>Up</span>
-                        </button>
                     </div>
+                </div>
+
+                <!-- Bulk Action Bar (hidden by default, shown when items are selected) -->
+                <div id="fm-bulk-bar" style="display:none; align-items:center; gap:12px; padding:10px 16px; background:rgba(var(--accent-rgb,99,102,241),0.12); border-radius:10px; margin-bottom:10px; border:1px solid rgba(99,102,241,0.25);">
+                    <span id="fm-bulk-count" style="font-size:0.85rem; color:var(--text-secondary); font-weight:600;">0 dipilih</span>
+                    <button class="btn-action" style="background:rgba(239,68,68,0.15); color:var(--danger); border-color:rgba(239,68,68,0.3);" onclick="bulkDelete()">
+                        <i class="fa-solid fa-trash-can"></i><span>Hapus Terpilih</span>
+                    </button>
+                    <button class="btn-action" style="background:rgba(34,197,94,0.15); color:var(--success); border-color:rgba(34,197,94,0.3);" onclick="bulkArchive()">
+                        <i class="fa-solid fa-file-zipper"></i><span>Kompres Terpilih</span>
+                    </button>
+                    <button class="btn-action" style="margin-left:auto; background:transparent; color:var(--text-muted);" onclick="clearSelection()">
+                        <i class="fa-solid fa-xmark"></i><span>Batal Pilih</span>
+                    </button>
                 </div>
 
                 <!-- Files Table List -->
@@ -1135,10 +1187,11 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Size</th>
-                                <th>Type</th>
-                                <th>Modified</th>
+                                <th style="width:36px;"><input type="checkbox" id="fm-select-all" title="Pilih Semua" onchange="toggleSelectAll(this.checked)"></th>
+                                <th class="sortable" id="th-name" onclick="setSortBy('name')">Name <i class="fa-solid fa-sort sort-icon"></i></th>
+                                <th class="sortable" id="th-size" onclick="setSortBy('size')">Size <i class="fa-solid fa-sort sort-icon"></i></th>
+                                <th class="sortable" id="th-type" onclick="setSortBy('type')">Type <i class="fa-solid fa-sort sort-icon"></i></th>
+                                <th class="sortable" id="th-mod" onclick="setSortBy('mod_time')">Modified <i class="fa-solid fa-sort sort-icon"></i></th>
                                 <th style="text-align:right;">Action</th>
                             </tr>
                         </thead>
@@ -1416,7 +1469,7 @@
         let lastNetCheckTime = 0;
 
         function loadSystemStats() {
-            fetch('/zenopanel/api/stats')
+            fetch('/api/stats')
                 .then(res => res.json())
                 .then(res => {
                     if (res.success && res.data) {
@@ -1467,7 +1520,7 @@
         }
 
         function loadStaticSystemInfo() {
-            fetch('/zenopanel/api/info')
+            fetch('/api/info')
                 .then(res => res.json())
                 .then(res => {
                     if (res.success && res.data) {
@@ -1484,7 +1537,7 @@
         }
 
         function loadProcesses() {
-            fetch('/zenopanel/api/processes?limit=15')
+            fetch('/api/processes?limit=15')
                 .then(res => res.json())
                 .then(res => {
                     if (res.success && res.data) {
@@ -1520,7 +1573,7 @@
 
         function killProcess(pid) {
             if (confirm(`Apakah Anda yakin ingin mematikan paksa (SIGKILL) proses dengan PID: ${pid}?`)) {
-                fetch('/zenopanel/api/processes/kill', {
+                fetch('/api/processes/kill', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1564,27 +1617,240 @@
         // --- FILE MANAGER CODE ---
         let currentFilePath = '.';
         let activeEditorPath = '';
+        let fmCurrentData = [];       // cached file list for re-sort
+        let fmSortKey   = 'name';     // active sort column
+        let fmSortAsc   = true;       // ascending = true
+
+        // ---- Sort helpers ----
+        function setSortBy(key) {
+            if (fmSortKey === key) {
+                fmSortAsc = !fmSortAsc;   // toggle direction
+            } else {
+                fmSortKey = key;
+                // Default direction: asc for name/type, desc for size/time
+                fmSortAsc = (key === 'name' || key === 'type');
+            }
+            updateSortHeaders();
+            renderFileRows(fmCurrentData);
+        }
+
+        function updateSortHeaders() {
+            const cols = { name: 'th-name', size: 'th-size', type: 'th-type', mod_time: 'th-mod' };
+            const icons = { name: 'fa-sort', size: 'fa-sort', type: 'fa-sort', mod_time: 'fa-sort' };
+            Object.entries(cols).forEach(([k, id]) => {
+                const th = document.getElementById(id);
+                if (!th) return;
+                th.classList.remove('sort-asc', 'sort-desc');
+                const icon = th.querySelector('.sort-icon');
+                if (k === fmSortKey) {
+                    th.classList.add(fmSortAsc ? 'sort-asc' : 'sort-desc');
+                    if (icon) {
+                        icon.className = `fa-solid ${fmSortAsc ? 'fa-sort-up' : 'fa-sort-down'} sort-icon`;
+                    }
+                } else {
+                    if (icon) icon.className = 'fa-solid fa-sort sort-icon';
+                }
+            });
+        }
+
+        function sortData(data) {
+            return [...data].sort((a, b) => {
+                // Folders always first
+                if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+
+                let va, vb;
+                if (fmSortKey === 'name')     { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
+                else if (fmSortKey === 'size') { va = a.size; vb = b.size; }
+                else if (fmSortKey === 'type') { va = a.is_dir ? 'dir' : a.name.split('.').pop().toLowerCase(); vb = b.is_dir ? 'dir' : b.name.split('.').pop().toLowerCase(); }
+                else if (fmSortKey === 'mod_time') { va = a.mod_time; vb = b.mod_time; }
+                else { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
+
+                if (va < vb) return fmSortAsc ? -1 : 1;
+                if (va > vb) return fmSortAsc ?  1 : -1;
+                return 0;
+            });
+        }
+
+        function renderFileRows(data) {
+            const tbody = document.getElementById('files-table-body');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const sorted = sortData(data);
+            sorted.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = 'clickable-row';
+
+                let iconClass = 'fa-solid fa-file file';
+                if (item.is_dir) {
+                    iconClass = 'fa-solid fa-folder folder';
+                } else if (item.name.endsWith('.zl') || item.name.endsWith('.html') || item.name.endsWith('.json') || item.name.endsWith('.go') || item.name.endsWith('.css') || item.name.endsWith('.js')) {
+                    iconClass = 'fa-solid fa-file-code code';
+                } else if (item.name.endsWith('.zip') || item.name.endsWith('.tar') || item.name.endsWith('.gz') || item.name.endsWith('.7z')) {
+                    iconClass = 'fa-solid fa-file-zipper zip';
+                }
+
+                const sizeText = item.is_dir ? '-' : formatBytes(item.size);
+                const itemPath = currentFilePath === '.' ? item.name :
+                                 currentFilePath === '/' ? '/' + item.name :
+                                 currentFilePath + '/' + item.name;
+                const isZip = item.name.endsWith('.zip') || item.name.endsWith('.tar.gz') || item.name.endsWith('.7z');
+                const typeText = item.is_dir ? 'Directory' : (item.name.includes('.') ? item.name.split('.').pop().toUpperCase() : 'File');
+
+                tr.innerHTML = `
+                    <td style="width:36px;" onclick="event.stopPropagation()">
+                        <input type="checkbox" class="fm-row-check" data-path="${itemPath}" onchange="onRowCheckChange()">
+                    </td>
+                    <td>
+                        <i class="${iconClass} file-icon"></i>
+                        <span>${item.name}</span>
+                    </td>
+                    <td>${sizeText}</td>
+                    <td>${typeText}</td>
+                    <td>${new Date(item.mod_time).toLocaleString()}</td>
+                    <td style="text-align:right;">
+                        ${!item.is_dir ? `<button class="btn-icon" style="color:var(--accent-primary)" onclick="editFile('${itemPath}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
+                        <button class="btn-icon" style="color:var(--success)" onclick="archiveFile('${itemPath}')" title="Compress to ZIP"><i class="fa-solid fa-file-zipper"></i></button>
+                        ${isZip ? `<button class="btn-icon" style="color:var(--warning)" onclick="extractFile('${itemPath}')" title="Extract Archive"><i class="fa-solid fa-folder-open"></i></button>` : ''}
+                        <button class="btn-icon" style="color:var(--danger)" onclick="deleteFile('${itemPath}')" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+                    </td>
+                `;
+
+                tr.onclick = (e) => {
+                    if (e.target.type === 'checkbox') return;
+                    if (e.target.tagName !== 'BUTTON' && e.target.parentElement.tagName !== 'BUTTON' && e.target.tagName !== 'I') {
+                        if (item.is_dir) loadFilesList(itemPath);
+                        else editFile(itemPath);
+                    }
+                };
+
+                tbody.appendChild(tr);
+            });
+        }
+
+
+        function updateBulkBar() {
+            const checked = document.querySelectorAll('.fm-row-check:checked');
+            const bar = document.getElementById('fm-bulk-bar');
+            const count = document.getElementById('fm-bulk-count');
+            if (checked.length > 0) {
+                bar.style.display = 'flex';
+                count.textContent = checked.length + ' dipilih';
+            } else {
+                bar.style.display = 'none';
+            }
+            const all = document.querySelectorAll('.fm-row-check');
+            const selectAll = document.getElementById('fm-select-all');
+            if (selectAll) selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+            if (selectAll) selectAll.checked = all.length > 0 && checked.length === all.length;
+        }
+
+        function onRowCheckChange() {
+            updateBulkBar();
+        }
+
+        function toggleSelectAll(checked) {
+            document.querySelectorAll('.fm-row-check').forEach(cb => cb.checked = checked);
+            updateBulkBar();
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.fm-row-check').forEach(cb => cb.checked = false);
+            const selectAll = document.getElementById('fm-select-all');
+            if (selectAll) { selectAll.checked = false; selectAll.indeterminate = false; }
+            updateBulkBar();
+        }
+
+        function getSelectedPaths() {
+            return Array.from(document.querySelectorAll('.fm-row-check:checked')).map(cb => cb.dataset.path);
+        }
+
+        function bulkDelete() {
+            const paths = getSelectedPaths();
+            if (paths.length === 0) return;
+            if (!confirm(`Hapus ${paths.length} item yang dipilih? Tindakan ini tidak dapat dibatalkan.`)) return;
+            Promise.all(paths.map(path =>
+                fetch('/api/files/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+                    body: JSON.stringify({ path })
+                }).then(r => r.json())
+            )).then(results => {
+                const failed = results.filter(r => !r.success).length;
+                if (failed > 0) {
+                    showToast('error', `${failed} item gagal dihapus`);
+                } else {
+                    showToast('success', `${paths.length} item berhasil dihapus`);
+                }
+                loadFilesList(currentFilePath);
+            }).catch(err => showToast('error', 'Gagal menghapus: ' + err.toString()));
+        }
+
+        function bulkArchive() {
+            const paths = getSelectedPaths();
+            if (paths.length === 0) return;
+            let defaultName = paths.length === 1 ? paths[0].split('/').pop() + '.zip' : 'archive.zip';
+            let zipName = prompt('Masukkan nama file ZIP untuk item yang dipilih:', defaultName);
+            if (!zipName) return;
+            const dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
+            // For bulk: archive only the first selected item (multi-source is a future feature)
+            // or archive all paths by compressing them into one directory-sourced zip
+            // Simple approach: archive each separately with index suffix
+            const promises = paths.length === 1
+                ? [fetch('/api/files/archive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+                    body: JSON.stringify({ path: paths[0], dest })
+                }).then(r => r.json())]
+                : paths.map((path, i) => {
+                    const parts = dest.split('.');
+                    const ext = parts.pop();
+                    const destI = parts.join('.') + '_' + (i + 1) + '.' + ext;
+                    return fetch('/api/files/archive', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+                        body: JSON.stringify({ path, dest: destI })
+                    }).then(r => r.json());
+                });
+            Promise.all(promises).then(results => {
+                showToast('success', `${results.length} archive berhasil dibuat`);
+                loadFilesList(currentFilePath);
+            }).catch(err => showToast('error', 'Gagal mengarsipkan: ' + err.toString()));
+        }
 
         function loadFilesList(path) {
             currentFilePath = path;
             
+            clearSelection();
+
+            // Update path input
+            const pathInput = document.getElementById('fm-path-input');
+            if (pathInput) pathInput.value = path;
+
             // Build Breadcrumb UI
             const bc = document.getElementById('file-breadcrumb');
             bc.innerHTML = '';
-            
-            // Normalize path separators
+
+            const isAbsolute = path.startsWith('/');
+            // Filter out empty segments; for absolute paths, leading '/' produces one empty segment
             const parts = path.split('/').filter(x => x && x !== '.');
-            
+
+            // Root / CWD anchor
             let rootSpan = document.createElement('span');
-            rootSpan.innerText = 'Root';
-            rootSpan.onclick = () => loadFilesList('.');
+            if (isAbsolute) {
+                rootSpan.innerText = '/';
+                rootSpan.onclick = () => loadFilesList('/');
+            } else {
+                rootSpan.innerText = 'CWD';
+                rootSpan.onclick = () => loadFilesList('.');
+            }
             bc.appendChild(rootSpan);
 
-            let cumPath = '.';
-            parts.forEach((p, idx) => {
-                cumPath += '/' + p;
-                const pathTarget = cumPath; // capture current block
-                
+            // Build cumulative path for each segment
+            let cumPath = isAbsolute ? '' : '.';
+            parts.forEach((p) => {
+                cumPath = isAbsolute ? (cumPath + '/' + p) : (cumPath + '/' + p);
+                const pathTarget = cumPath;
+
                 const sep = document.createElement('span');
                 sep.className = 'fm-breadcrumb-separator';
                 sep.innerText = '>';
@@ -1597,81 +1863,54 @@
             });
 
             // Fetch directories
-            fetch('/zenopanel/api/files/list?path=' + encodeURIComponent(path))
+            fetch('/api/files/list?path=' + encodeURIComponent(path))
                 .then(res => res.json())
                 .then(res => {
                     if (res.success && res.data) {
-                        const tbody = document.getElementById('files-table-body');
-                        tbody.innerHTML = '';
-
-                        // Render folders and files
-                        res.data.forEach(item => {
-                            const tr = document.createElement('tr');
-                            tr.className = 'clickable-row';
-
-                            let iconClass = 'fa-solid fa-file file';
-                            if (item.is_dir) {
-                                iconClass = 'fa-solid fa-folder folder';
-                            } else if (item.name.endsWith('.zl') || item.name.endsWith('.html') || item.name.endsWith('.json') || item.name.endsWith('.go') || item.name.endsWith('.css') || item.name.endsWith('.js')) {
-                                iconClass = 'fa-solid fa-file-code code';
-                            }
-
-                            const sizeText = item.is_dir ? '-' : formatBytes(item.size);
-                            const itemPath = currentFilePath === '.' ? item.name : currentFilePath + '/' + item.name;
-
-                            tr.innerHTML = `
-                                <td>
-                                    <i class="${iconClass} file-icon"></i>
-                                    <span>${item.name}</span>
-                                </td>
-                                <td>${sizeText}</td>
-                                <td>${item.is_dir ? 'Directory' : 'File'}</td>
-                                <td>${new Date(item.mod_time).toLocaleString()}</td>
-                                <td style="text-align:right;">
-                                    ${!item.is_dir ? `<button class="btn-icon" style="color:var(--accent-primary)" onclick="editFile('${itemPath}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
-                                    <button class="btn-icon" style="color:var(--danger)" onclick="deleteFile('${itemPath}')" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
-                                </td>
-                            `;
-                            
-                            // Row click event (skip click trigger on buttons)
-                            tr.onclick = (e) => {
-                                if (e.target.tagName !== 'BUTTON' && e.target.parentElement.tagName !== 'BUTTON' && e.target.tagName !== 'I') {
-                                    if (item.is_dir) {
-                                        loadFilesList(itemPath);
-                                    } else {
-                                        editFile(itemPath);
-                                    }
-                                }
-                            };
-
-                            tbody.appendChild(tr);
-                        });
+                        fmCurrentData = res.data;       // cache for sort
+                        updateSortHeaders();            // apply current sort indicator
+                        renderFileRows(fmCurrentData);  // render with current sort
                     }
                 })
                 .catch(err => showToast('error', 'Gagal memuat file: ' + err.toString()));
         }
 
         function goUpDirectory() {
-            if (currentFilePath === '.' || currentFilePath === '/' || !currentFilePath.includes('/')) {
+            const p = currentFilePath;
+            // Already at filesystem root
+            if (p === '/' || p === '') {
+                return;
+            }
+            // At CWD root (relative paths)
+            if (p === '.' || p === '') {
                 loadFilesList('.');
                 return;
             }
-            const parts = currentFilePath.split('/');
+            // Absolute path: go one level up
+            if (p.startsWith('/')) {
+                const parts = p.replace(/\/+$/, '').split('/');
+                parts.pop();
+                const parent = parts.join('/') || '/';
+                loadFilesList(parent);
+                return;
+            }
+            // Relative path: go one level up, fallback to CWD
+            const parts = p.split('/');
             parts.pop();
-            loadFilesList(parts.join('/'));
+            loadFilesList(parts.length > 0 ? parts.join('/') : '.');
         }
 
         function createFilePrompt() {
             const name = prompt('Masukkan nama file baru:');
             if (name) {
                 const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
-                fetch('/zenopanel/api/files/create', {
+                fetch('/api/files/create-file', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRF-Token': getCSRFToken()
                     },
-                    body: JSON.stringify({ path: fullPath, is_dir: false })
+                    body: JSON.stringify({ path: fullPath })
                 })
                 .then(res => res.json())
                 .then(res => {
@@ -1681,7 +1920,8 @@
                     } else {
                         showToast('error', res.message);
                     }
-                });
+                })
+                .catch(err => showToast('error', 'Gagal membuat file: ' + err.toString()));
             }
         }
 
@@ -1689,13 +1929,13 @@
             const name = prompt('Masukkan nama folder baru:');
             if (name) {
                 const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
-                fetch('/zenopanel/api/files/create', {
+                fetch('/api/files/create-dir', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRF-Token': getCSRFToken()
                     },
-                    body: JSON.stringify({ path: fullPath, is_dir: true })
+                    body: JSON.stringify({ path: fullPath })
                 })
                 .then(res => res.json())
                 .then(res => {
@@ -1705,13 +1945,14 @@
                     } else {
                         showToast('error', res.message);
                     }
-                });
+                })
+                .catch(err => showToast('error', 'Gagal membuat folder: ' + err.toString()));
             }
         }
 
         function deleteFile(path) {
             if (confirm(`Apakah Anda yakin ingin menghapus '${path}'?`)) {
-                fetch('/zenopanel/api/files/delete', {
+                fetch('/api/files/delete', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1731,11 +1972,64 @@
             }
         }
 
+        function archiveFile(path) {
+            let defaultZipName = path.split('/').pop() + '.zip';
+            let zipName = prompt("Masukkan nama file ZIP tujuan kompresi:", defaultZipName);
+            if (zipName) {
+                let dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
+                
+                fetch('/api/files/archive', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCSRFToken()
+                    },
+                    body: JSON.stringify({ path: path, dest: dest })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        showToast('success', res.message || 'Archive berhasil dibuat');
+                        loadFilesList(currentFilePath);
+                    } else {
+                        showToast('error', res.message || 'Gagal membuat archive');
+                    }
+                })
+                .catch(err => showToast('error', 'Gagal memanggil API: ' + err.toString()));
+            }
+        }
+
+        function extractFile(path) {
+            let defaultDest = currentFilePath;
+            let dest = prompt("Masukkan folder tujuan ekstraksi:", defaultDest);
+            if (dest) {
+                fetch('/api/files/extract', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCSRFToken()
+                    },
+                    body: JSON.stringify({ path: path, dest: dest })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.success) {
+                        showToast('success', res.message || 'Archive berhasil diekstrak');
+                        loadFilesList(currentFilePath);
+                    } else {
+                        showToast('error', res.message || 'Gagal mengekstrak archive');
+                    }
+                })
+                .catch(err => showToast('error', 'Gagal memanggil API: ' + err.toString()));
+            }
+        }
+
+
         function editFile(path) {
             activeEditorPath = path;
             document.getElementById('editor-modal-filename').innerText = 'Editing: ' + path;
             
-            fetch('/zenopanel/api/files/read?path=' + encodeURIComponent(path))
+            fetch('/api/files/read?path=' + encodeURIComponent(path))
                 .then(res => res.json())
                 .then(res => {
                     if (res.success) {
@@ -1754,7 +2048,7 @@
 
         function saveActiveFile() {
             const content = document.getElementById('editor-textarea-field').value;
-            fetch('/zenopanel/api/files/write', {
+            fetch('/api/files/write', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1785,7 +2079,7 @@
 
         // --- DATABASE EXPLORER CODE ---
         function loadDatabaseTables() {
-            fetch('/zenopanel/api/database/tables')
+            fetch('/api/database/tables')
                 .then(res => res.json())
                 .then(res => {
                     if (res.success && res.data) {
@@ -1831,7 +2125,7 @@
             const resultsContainer = document.getElementById('db-results-container');
             resultsContainer.innerHTML = '<div style="padding:32px; text-align:center;"><i class="fa-solid fa-spinner fa-spin" style="font-size:1.5rem; color:var(--accent-primary)"></i><p style="margin-top:10px; color:var(--text-muted)">Running query...</p></div>';
 
-            fetch('/zenopanel/api/database/query', {
+            fetch('/api/database/query', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1910,7 +2204,7 @@
             const container = document.getElementById('services-container');
             container.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text-muted); grid-column: 1/-1;"><i class="fa-solid fa-spinner fa-spin"></i> Checking services...</div>';
 
-            fetch('/zenopanel/api/services')
+            fetch('/api/services')
                 .then(res => res.json())
                 .then(res => {
                     if (res.success && res.data) {
@@ -1987,7 +2281,7 @@
 
         function controlService(service, action) {
             showToast('warning', `Memproses service action: ${action} ${service}...`);
-            fetch('/zenopanel/api/services/control', {
+            fetch('/api/services/control', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -2045,7 +2339,7 @@
                 }
 
                 // Send request to execute command
-                fetch('/zenopanel/api/terminal/run', {
+                fetch('/api/terminal/run', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

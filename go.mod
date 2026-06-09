@@ -1,29 +1,29 @@
 module zeno
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
 	github.com/go-chi/httprate v0.15.0
 	github.com/go-sql-driver/mysql v1.7.1
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gosimple/slug v1.15.0
 	github.com/joho/godotenv v1.5.1
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/shopspring/decimal v1.4.0
-	github.com/spf13/cast v1.10.0
+	github.com/spf13/cast v1.10.0 // indirect
 	golang.org/x/crypto v0.47.0
 )
 
 require (
 	github.com/dchest/captcha v1.1.0
-	github.com/expr-lang/expr v1.17.7
-	github.com/goccy/go-json v0.10.5
+	github.com/expr-lang/expr v1.17.8
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/microsoft/go-mssqldb v1.9.6
 	github.com/minio/minio-go/v7 v7.1.0
+	github.com/nextcore/zeno-go v0.0.0-20260608033911-226a7cdd3473
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	modernc.org/sqlite v1.41.0
@@ -34,6 +34,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
+	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
