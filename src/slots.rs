@@ -55,7 +55,7 @@ pub struct HttpResponseBuilder {
     pub body: Mutex<Option<Vec<u8>>>,
 }
 
-fn resolve_node_value(engine: &Engine, node: &Node, scope: &Arc<Scope>) -> Value {
+pub(crate) fn resolve_node_value(engine: &Engine, node: &Node, scope: &Arc<Scope>) -> Value {
     if let Some(ref val_str) = node.value {
         let dummy = Node {
             name: String::new(),

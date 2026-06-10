@@ -1,6 +1,7 @@
 mod db;
 mod slots;
 pub mod procman;
+pub mod proxyman;
 
 use axum::{
     body::Bytes,
@@ -30,6 +31,8 @@ struct AppState {
     parent_scope: Arc<Scope>,
     db_manager: DBManager,
     process_manager: Arc<crate::procman::ProcessManager>,
+    proxy_manager: Arc<crate::proxyman::ProxyManager>,
+    reqwest_client: reqwest::Client,
     csrf_enabled: bool,
     csrf_excepts: Vec<String>,
 }
@@ -56,15 +59,21 @@ async fn main() {
 
     let mut engine = zenoengine::new_engine();
     register_custom_slots(&mut engine);
+    crate::proxyman::register_proxy_slots(&mut engine);
 
     // Retrieve default pool to init ProcessManager
     let default_pool = match db_manager.get_pool("default").await {
         Some(crate::db::DbPool::Sqlite(pool)) => pool,
         _ => panic!("Default DB pool not initialized"),
     };
-    let process_manager = Arc::new(procman::ProcessManager::new(default_pool).await);
+    let process_manager = Arc::new(procman::ProcessManager::new(default_pool.clone()).await);
     if let Err(e) = process_manager.load_from_db().await {
         eprintln!("Failed to load processes from DB: {}", e);
+    }
+
+    let proxy_manager = Arc::new(proxyman::ProxyManager::new(default_pool).await);
+    if let Err(e) = proxy_manager.load_from_db().await {
+        eprintln!("Failed to load proxies from DB: {}", e);
     }
 
     #[derive(Clone)]
@@ -128,6 +137,7 @@ async fn main() {
     let mut init_ctx = zenocore::Context::new();
     init_ctx.set("db_manager", db_manager.clone());
     init_ctx.set("process_manager", process_manager.clone());
+    init_ctx.set("proxy_manager", proxy_manager.clone());
 
     if let Err(e) = engine.execute(&mut init_ctx, &main_node, &parent_scope) {
         panic!("Failed to execute src/main.zl during startup: {}", e);
@@ -159,12 +169,15 @@ async fn main() {
     let csrf_except_str = std::env::var("CSRF_EXCEPT").unwrap_or_else(|_| "/api,/health".to_string());
     let csrf_excepts: Vec<String> = csrf_except_str.split(',').map(|s| s.trim().to_string()).collect();
 
+    let reqwest_client = reqwest::Client::new();
     let state = Arc::new(AppState {
         engine,
         router,
         parent_scope,
         db_manager,
         process_manager: process_manager.clone(),
+        proxy_manager: proxy_manager.clone(),
+        reqwest_client,
         csrf_enabled,
         csrf_excepts,
     });
@@ -266,9 +279,33 @@ async fn wildcard_handler(
     headers: HeaderMap,
     Query(query_params): Query<HashMap<String, String>>,
     body_bytes: Bytes,
-) -> impl IntoResponse {
+) -> Response {
     let path = uri.path();
     let method_str = method.as_str();
+
+    // Extract Host header
+    let host = headers.get("Host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    // Check if request matches any proxy rule
+    if let Some(rule) = state.proxy_manager.match_rule(&host, path).await {
+        match forward_request(&state.reqwest_client, &rule, method.clone(), uri.clone(), headers.clone(), body_bytes.clone()).await {
+            Ok(response) => return response,
+            Err(e) => {
+                eprintln!("Reverse proxy error for {} {}: {}", method, uri, e);
+                return Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .header("Content-Type", "text/plain")
+                    .body(axum::body::Body::from(format!("Bad Gateway: {}", e)))
+                    .unwrap();
+            }
+        }
+    }
 
     let mut new_cookie = None;
     let mut csrf_token = String::new();
@@ -369,6 +406,8 @@ async fn wildcard_handler(
 
     ctx.set("db_manager", state.db_manager.clone());
     ctx.set("process_manager", state.process_manager.clone());
+    ctx.set("proxy_manager", state.proxy_manager.clone());
+
 
 
     for child in &handler_node.children {
@@ -419,3 +458,87 @@ async fn wildcard_handler(
 
     response
 }
+
+async fn forward_request(
+    client: &reqwest::Client,
+    rule: &crate::proxyman::ProxyRule,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body_bytes: Bytes,
+) -> Result<Response, reqwest::Error> {
+    let mut target_url = rule.target.trim_end_matches('/').to_string();
+    let path_to_forward = if rule.strip_path {
+        let prefix = rule.path.trim_end_matches('/');
+        if !prefix.is_empty() {
+            uri.path().strip_prefix(prefix).unwrap_or(uri.path())
+        } else {
+            uri.path()
+        }
+    } else {
+        uri.path()
+    };
+
+    if !target_url.ends_with('/') && !path_to_forward.starts_with('/') {
+        target_url.push('/');
+    } else if target_url.ends_with('/') && path_to_forward.starts_with('/') {
+        target_url.pop();
+    }
+    target_url.push_str(path_to_forward);
+
+    if let Some(query) = uri.query() {
+        target_url.push('?');
+        target_url.push_str(query);
+    }
+
+    let mut req_builder = client.request(method.clone(), &target_url);
+
+    let mut req_headers = reqwest::header::HeaderMap::new();
+    for (name, value) in headers.iter() {
+        let name_str = name.as_str().to_lowercase();
+        if name_str == "host"
+            || name_str == "content-length"
+            || name_str == "connection"
+            || name_str == "keep-alive"
+            || name_str == "proxy-connection"
+            || name_str == "transfer-encoding"
+            || name_str == "upgrade"
+        {
+            continue;
+        }
+        req_headers.insert(name.clone(), value.clone());
+    }
+
+    if let Some(host_val) = headers.get("Host").and_then(|h| h.to_str().ok()) {
+        if let Ok(hdr) = reqwest::header::HeaderValue::from_str(host_val) {
+            req_headers.insert("X-Forwarded-Host", hdr);
+        }
+    }
+
+    if let Ok(hdr) = reqwest::header::HeaderValue::from_str("http") {
+        req_headers.insert("X-Forwarded-Proto", hdr);
+    }
+
+    if !body_bytes.is_empty() {
+        req_builder = req_builder.body(body_bytes);
+    }
+
+    req_builder = req_builder.headers(req_headers);
+
+    let res = req_builder.send().await?;
+
+    let mut builder = Response::builder().status(res.status().as_u16());
+    let builder_headers = builder.headers_mut().unwrap();
+    for (name, value) in res.headers().iter() {
+        let name_str = name.as_str().to_lowercase();
+        if name_str == "connection" || name_str == "transfer-encoding" {
+            continue;
+        }
+        builder_headers.insert(name.clone(), value.clone());
+    }
+
+    let bytes = res.bytes().await?;
+    let response = builder.body(axum::body::Body::from(bytes)).unwrap();
+    Ok(response)
+}
+

@@ -29,6 +29,11 @@
             <i class="fa-solid fa-gears"></i>
             <span>Managed Procs</span>
         </div>
+        <div class="nav-item" data-tab="proxy">
+            <i class="fa-solid fa-network-wired"></i>
+            <span>Reverse Proxy</span>
+        </div>
+
     </nav>
     <div class="sidebar-footer">
         &copy; 2026 ZenoPanel v1.1.2

@@ -1,0 +1,27 @@
+<!-- 7. REVERSE PROXY TAB -->
+<div class="viewport" id="tab-proxy">
+    <div class="card" style="margin-top:0;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:15px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-network-wired" style="color:var(--accent-primary);"></i> Reverse Proxy Rules</h3>
+            <button class="btn-primary-action" onclick="openAddProxyModal()"><i class="fa-solid fa-plus"></i> Add Proxy Rule</button>
+        </div>
+        <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Rule Name</th>
+                        <th>Domain / Host</th>
+                        <th>Source Path</th>
+                        <th>Target Destination</th>
+                        <th>Strip Prefix</th>
+                        <th>Status</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="proxy-table-body">
+                    <!-- Populated dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

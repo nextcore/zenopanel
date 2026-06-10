@@ -23,7 +23,10 @@
         @include('partials/tab_terminal')
 
         @include('partials/tab_managed')
+
+        @include('partials/tab_proxy')
     </main>
+
 
     @include('partials/modals')
 

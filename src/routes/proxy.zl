@@ -1,0 +1,105 @@
+# 17. Reverse Proxy API
+http.get: '/api/proxy/list' {
+    proxy.list: { as: $proxies }
+    http.ok: { data: $proxies }
+}
+
+http.post: '/api/proxy/add' {
+    http.json_body: { as: $body }
+    coalesce: $body.domain {
+        default: ''
+        as: $clean_domain
+    }
+    coalesce: $body.path {
+        default: '/'
+        as: $clean_path
+    }
+    coalesce: $body.strip_path {
+        default: false
+        as: $clean_strip_path
+    }
+    coalesce: $body.enabled {
+        default: true
+        as: $clean_enabled
+    }
+
+    proxy.add: $body.name {
+        domain: $clean_domain
+        path: $clean_path
+        target: $body.target
+        strip_path: $clean_strip_path
+        enabled: $clean_enabled
+        as: $id
+    }
+    http.ok: {
+        id: $id
+        message: "Proxy rule berhasil ditambahkan"
+    }
+}
+
+http.post: '/api/proxy/update' {
+    http.json_body: { as: $body }
+    coalesce: $body.domain {
+        default: ''
+        as: $clean_domain
+    }
+    coalesce: $body.path {
+        default: '/'
+        as: $clean_path
+    }
+    coalesce: $body.strip_path {
+        default: false
+        as: $clean_strip_path
+    }
+    coalesce: $body.enabled {
+        default: true
+        as: $clean_enabled
+    }
+
+    proxy.update: $body.id {
+        name: $body.name
+        domain: $clean_domain
+        path: $clean_path
+        target: $body.target
+        strip_path: $clean_strip_path
+        enabled: $clean_enabled
+        as: $success
+    }
+    if: $success {
+        then: {
+            http.ok: { message: "Proxy rule berhasil diperbarui" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}
+
+http.post: '/api/proxy/delete' {
+    http.json_body: { as: $body }
+    proxy.delete: $body.id { as: $success }
+    if: $success {
+        then: {
+            http.ok: { message: "Proxy rule berhasil dihapus" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}
+
+http.post: '/api/proxy/toggle' {
+    http.json_body: { as: $body }
+    proxy.toggle: $body.id {
+        enabled: $body.enabled
+        as: $success
+    }
+    if: $success {
+        then: {
+            http.ok: { message: "Status proxy rule berhasil diubah" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}

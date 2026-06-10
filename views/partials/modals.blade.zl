@@ -109,5 +109,47 @@
     </div>
 </div>
 
+<!-- Add/Edit Proxy Modal -->
+<div class="modal-overlay" id="add-proxy-modal">
+    <div class="modal-card" style="max-width:550px;">
+        <div class="modal-header">
+            <div class="modal-title" id="modal-proxy-title">Add Reverse Proxy Rule</div>
+            <div class="modal-close" onclick="closeAddProxyModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="proxy-id-val" value="">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Rule Name</label>
+                <input type="text" id="proxy-name" placeholder="e.g. My Node App" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Domain / Host</label>
+                <input type="text" id="proxy-domain" placeholder="e.g. app.local or * (any domain)" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Source Path Prefix</label>
+                <input type="text" id="proxy-path" placeholder="e.g. /api or /" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Destination URL</label>
+                <input type="text" id="proxy-target" placeholder="e.g. http://127.0.0.1:8000" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                <input type="checkbox" id="proxy-strip-path" style="cursor:pointer; width:16px; height:16px;">
+                <label for="proxy-strip-path" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Strip path prefix before forwarding</label>
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                <input type="checkbox" id="proxy-enabled" checked style="cursor:pointer; width:16px; height:16px;">
+                <label for="proxy-enabled" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Enable this proxy rule immediately</label>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddProxyModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-proxy-submit" onclick="submitAddProxy()">Add Rule</button>
+        </div>
+    </div>
+</div>
+
 <!-- Notification Toasts -->
 <div class="toast-container" id="toast-bin"></div>
+

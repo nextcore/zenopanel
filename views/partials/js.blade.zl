@@ -55,7 +55,12 @@
         } else {
             stopManagedPolling();
         }
+
+        if (tab === 'proxy') {
+            loadProxyRules();
+        }
     }
+
 
     // Global refresh trigger
     function refreshCurrentTab() {
@@ -1561,8 +1566,226 @@
         }
     }
 
+    // --- REVERSE PROXY TAB CODE ---
+    let allProxyRules = [];
+
+    function loadProxyRules() {
+        const tbody = document.getElementById('proxy-table-body');
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading proxy rules...</td></tr>';
+        
+        fetch('/api/proxy/list')
+            .then(res => res.json())
+            .then(res => {
+                if (res.data) {
+                    allProxyRules = res.data;
+                    renderProxyRules(res.data);
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--danger);">Failed to load proxy rules.</td></tr>';
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load proxy rules:', err);
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align:center; padding:30px; color:var(--danger);">
+                            Failed to load proxy rules: ${escapeHtml(err.toString())}
+                        </td>
+                    </tr>
+                `;
+            });
+    }
+
+    function renderProxyRules(rules) {
+        const tbody = document.getElementById('proxy-table-body');
+        tbody.innerHTML = '';
+
+        if (rules.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">
+                        <i class="fa-solid fa-network-wired" style="font-size:2rem; margin-bottom:10px; display:block; opacity:0.3;"></i>
+                        No proxy rules registered yet.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        rules.forEach(rule => {
+            const tr = document.createElement('tr');
+            
+            const isEnabled = rule.enabled;
+            const statusToggle = `
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label class="switch" style="position:relative; display:inline-block; width:36px; height:20px;">
+                        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleProxy('${rule.id}', this.checked)" style="opacity:0; width:0; height:0;">
+                        <span class="slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; transition:.3s; border-radius:20px; border:1px solid var(--card-border);"></span>
+                    </label>
+                    <span style="font-size:0.75rem; color:${isEnabled ? 'var(--success)' : 'var(--text-muted)'}; font-weight:500;">
+                        ${isEnabled ? 'Active' : 'Disabled'}
+                    </span>
+                </div>
+            `;
+
+            tr.innerHTML = `
+                <td style="font-weight:600; color:var(--text-main);">${escapeHtml(rule.name)}</td>
+                <td style="font-family:var(--font-code); font-size:0.85rem;">${rule.domain ? escapeHtml(rule.domain) : '*'}</td>
+                <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(rule.path)}</td>
+                <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--accent-primary);">${escapeHtml(rule.target)}</td>
+                <td>
+                    <span class="badge" style="background:${rule.strip_path ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.05)'}; color:${rule.strip_path ? 'var(--accent-primary)' : 'var(--text-muted)'}; border:1px solid ${rule.strip_path ? 'rgba(59,130,246,0.1)' : 'var(--card-border)'};">
+                        ${rule.strip_path ? 'Yes' : 'No'}
+                    </span>
+                </td>
+                <td>${statusToggle}</td>
+                <td style="text-align:right;">
+                    <div style="display:inline-flex; gap:8px;">
+                        <button class="btn-action" onclick="openEditProxyModal('${rule.id}')" title="Edit Rule" style="padding:4px 8px; font-size:0.75rem; color:var(--warning); border-color:rgba(245,158,11,0.2); background:rgba(245,158,11,0.05);">
+                            <i class="fa-solid fa-pen-to-square"></i> Edit
+                        </button>
+                        <button class="btn-action" onclick="deleteProxy('${rule.id}')" title="Delete Rule" style="padding:4px 8px; font-size:0.75rem; color:#ef4444; border-color:transparent; background:transparent;">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function openAddProxyModal() {
+        document.getElementById('proxy-id-val').value = '';
+        document.getElementById('proxy-name').value = '';
+        document.getElementById('proxy-domain').value = '';
+        document.getElementById('proxy-path').value = '/';
+        document.getElementById('proxy-target').value = '';
+        document.getElementById('proxy-strip-path').checked = false;
+        document.getElementById('proxy-enabled').checked = true;
+
+        document.getElementById('modal-proxy-title').innerText = 'Add Reverse Proxy Rule';
+        document.getElementById('btn-proxy-submit').innerText = 'Add Rule';
+
+        document.getElementById('add-proxy-modal').classList.add('active');
+    }
+
+    function openEditProxyModal(id) {
+        const rule = allProxyRules.find(r => r.id === id);
+        if (!rule) return;
+
+        document.getElementById('proxy-id-val').value = rule.id;
+        document.getElementById('proxy-name').value = rule.name;
+        document.getElementById('proxy-domain').value = rule.domain;
+        document.getElementById('proxy-path').value = rule.path;
+        document.getElementById('proxy-target').value = rule.target;
+        document.getElementById('proxy-strip-path').checked = rule.strip_path;
+        document.getElementById('proxy-enabled').checked = rule.enabled;
+
+        document.getElementById('modal-proxy-title').innerText = 'Edit Reverse Proxy Rule';
+        document.getElementById('btn-proxy-submit').innerText = 'Save Changes';
+
+        document.getElementById('add-proxy-modal').classList.add('active');
+    }
+
+    function closeAddProxyModal() {
+        document.getElementById('add-proxy-modal').classList.remove('active');
+    }
+
+    function submitAddProxy() {
+        const id = document.getElementById('proxy-id-val').value;
+        const name = document.getElementById('proxy-name').value.trim();
+        const domain = document.getElementById('proxy-domain').value.trim();
+        const path = document.getElementById('proxy-path').value.trim();
+        const target = document.getElementById('proxy-target').value.trim();
+        const strip_path = document.getElementById('proxy-strip-path').checked;
+        const enabled = document.getElementById('proxy-enabled').checked;
+
+        if (!name || !path || !target) {
+            showToast('warning', 'Name, Path, and Target Destination are required');
+            return;
+        }
+
+        const url = id ? '/api/proxy/update' : '/api/proxy/add';
+        const body = { name, domain, path, target, strip_path, enabled };
+        if (id) {
+            body.id = id;
+        }
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify(body)
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                closeAddProxyModal();
+                loadProxyRules();
+            } else {
+                showToast('error', res.message || 'Failed to save proxy rule');
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
+    function toggleProxy(id, enabled) {
+        fetch('/api/proxy/toggle', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ id, enabled })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                loadProxyRules();
+            } else {
+                showToast('error', res.message || 'Failed to toggle proxy rule status');
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
+    function deleteProxy(id) {
+        if (!confirm('Are you sure you want to delete this reverse proxy rule?')) {
+            return;
+        }
+
+        fetch('/api/proxy/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ id })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                loadProxyRules();
+            } else {
+                showToast('error', res.message || 'Failed to delete proxy rule');
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
     // --- GLOBAL STARTUP INITIALIZER ---
     window.addEventListener('DOMContentLoaded', () => {
+
         // Load static metadata details
         loadStaticSystemInfo();
         // Start chart and performance metrics polling

@@ -21,4 +21,5 @@ zeno-blade = "0.1.0"
 zeno-std = "0.1.0"
 zenoengine = "0.1.0"
 zip = "0.6"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 
