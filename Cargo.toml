@@ -22,4 +22,12 @@ zeno-std = "0.1.0"
 zenoengine = "0.1.0"
 zip = "0.6"
 reqwest = { version = "0.12", features = ["json", "stream"] }
+rcgen = "0.13"
+rustls = { version = "0.23", features = ["ring"] }
+tokio-rustls = "0.26"
+rustls-pki-types = "1.14"
+once_cell = "1.19"
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+
 

@@ -17,10 +17,7 @@
             <i class="fa-solid fa-database"></i>
             <span>Database</span>
         </div>
-        <div class="nav-item" data-tab="services">
-            <i class="fa-solid fa-server"></i>
-            <span>Services</span>
-        </div>
+
         <div class="nav-item" data-tab="terminal">
             <i class="fa-solid fa-terminal"></i>
             <span>Command Shell</span>

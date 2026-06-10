@@ -2,12 +2,13 @@ mod db;
 mod slots;
 pub mod procman;
 pub mod proxyman;
+pub mod sslman;
 
 use axum::{
     body::Bytes,
     extract::{State, Query},
     http::{HeaderMap, Method, StatusCode, Uri},
-    response::{IntoResponse, Response},
+    response::Response,
     routing::any,
     Router,
 };
@@ -39,6 +40,7 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let _ = dotenvy::dotenv();
 
     let db_manager = DBManager::new();
@@ -198,6 +200,24 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
     println!("Server running on http://localhost:{}", port);
+
+    // Initialize shared certificate resolver
+    let cert_resolver = Arc::new(sslman::ZenoCertResolver::new(proxy_manager.clone(), "./certs"));
+
+    // Spawn HTTPS/TLS server in the background
+    let cert_resolver_server_clone = cert_resolver.clone();
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        sslman::run_tls_server(cert_resolver_server_clone, app_clone).await;
+    });
+
+    // Spawn SSL Auto-Renewal worker in the background
+    let pm_renew_clone = proxy_manager.clone();
+    let resolver_renew_clone = cert_resolver.clone();
+    tokio::spawn(async move {
+        sslman::start_auto_renewal_worker(pm_renew_clone, resolver_renew_clone).await;
+    });
+
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -282,6 +302,20 @@ async fn wildcard_handler(
 ) -> Response {
     let path = uri.path();
     let method_str = method.as_str();
+
+    // Intercept ACME HTTP-01 challenges
+    if path.starts_with("/.well-known/acme-challenge/") {
+        let token = path.trim_start_matches("/.well-known/acme-challenge/");
+        let challenges = sslman::ACME_CHALLENGES.lock().unwrap();
+        if let Some(key_auth) = challenges.get(token) {
+            println!("[SSL] Serving ACME challenge response for token: {}", token);
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/plain")
+                .body(axum::body::Body::from(key_auth.clone()))
+                .unwrap();
+        }
+    }
 
     // Extract Host header
     let host = headers.get("Host")

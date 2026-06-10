@@ -14,6 +14,7 @@
                         <th>Source Path</th>
                         <th>Target Destination</th>
                         <th>Strip Prefix</th>
+                        <th>SSL / HTTPS</th>
                         <th>Status</th>
                         <th style="text-align:right;">Actions</th>
                     </tr>

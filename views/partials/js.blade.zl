@@ -41,9 +41,6 @@
             loadDatabaseTables();
         }
 
-        if (tab === 'services') {
-            loadServicesStatus();
-        }
 
         if (tab === 'terminal') {
             setTimeout(focusTerminalInput, 50);
@@ -904,109 +901,6 @@
             .replace(/'/g, "&#039;");
     }
 
-    // --- SERVICES MANAGER CODE ---
-    function loadServicesStatus() {
-        const container = document.getElementById('services-container');
-        container.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text-muted); grid-column: 1/-1;"><i class="fa-solid fa-spinner fa-spin"></i> Checking services...</div>';
-
-        fetch('/api/services')
-            .then(res => res.json())
-            .then(res => {
-                if (res.success && res.data) {
-                    container.innerHTML = '';
-                    
-                    const items = [
-                        { key: 'docker', name: 'Docker daemon', icon: 'fa-brands fa-docker' },
-                        { key: 'nginx', name: 'Nginx server', icon: 'fa-solid fa-globe' },
-                        { key: 'mysql', name: 'MySQL Database', icon: 'fa-solid fa-server' },
-                        { key: 'postgresql', name: 'PostgreSQL Database', icon: 'fa-solid fa-server' }
-                    ];
-
-                    items.forEach(svc => {
-                        const data = res.data[svc.key];
-                        const div = document.createElement('div');
-                        div.className = 'service-card';
-
-                        let statusClass = 'unknown';
-                        let statusLabel = 'Offline / Unavailable';
-
-                        if (data) {
-                            if (data.active) {
-                                statusClass = 'active';
-                                statusLabel = 'Active (running)';
-                            } else if (data.status === 'inactive') {
-                                statusClass = 'inactive';
-                                statusLabel = 'Inactive (dead)';
-                            } else if (data.error && data.status === 'unknown') {
-                                statusLabel = 'Not installed';
-                            } else {
-                                statusClass = 'inactive';
-                                statusLabel = data.status || 'Offline';
-                            }
-                        }
-
-                        const isInstallable = data && data.status !== 'unknown';
-
-                        div.innerHTML = `
-                            <div class="service-header">
-                                <div class="service-title">
-                                    <i class="${svc.icon} service-icon"></i>
-                                    <span>${svc.name}</span>
-                                </div>
-                                <div class="service-status-indicator">
-                                    <div class="status-dot ${statusClass}"></div>
-                                    <span style="font-size:0.75rem; color:var(--text-muted);">${statusLabel}</span>
-                                </div>
-                            </div>
-                            <div style="font-size:0.8rem; color:var(--text-muted); line-height:1.4;">
-                                Systemd service identification name: <strong style="font-family:var(--font-code); color:var(--text-main);">${svc.key}</strong>.service
-                            </div>
-                            <div class="service-actions">
-                                <button class="btn-service-control" ${!isInstallable || (data && data.active) ? 'disabled' : ''} onclick="controlService('${svc.key}', 'start')">
-                                    <i class="fa-solid fa-play"></i> Start
-                                </button>
-                                <button class="btn-service-control" ${!isInstallable || (data && !data.active) ? 'disabled' : ''} onclick="controlService('${svc.key}', 'stop')">
-                                    <i class="fa-solid fa-stop"></i> Stop
-                                </button>
-                            </div>
-                            <div style="display:grid; grid-template-columns: 1fr; margin-top: -6px;">
-                                <button class="btn-service-control" ${!isInstallable ? 'disabled' : ''} onclick="controlService('${svc.key}', 'restart')">
-                                    <i class="fa-solid fa-rotate-right"></i> Restart service
-                                </button>
-                            </div>
-                        `;
-                        container.appendChild(div);
-                    });
-                }
-            })
-            .catch(err => {
-                container.innerHTML = `<div style="grid-column: 1/-1; color:var(--danger)">Error querying services: ${err.toString()}</div>`;
-            });
-    }
-
-    function controlService(service, action) {
-        showToast('warning', `Memproses service action: ${action} ${service}...`);
-        fetch('/api/services/control', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCSRFToken()
-            },
-            body: JSON.stringify({ service: service, action: action })
-        })
-        .then(res => res.json())
-        .then(res => {
-            if (res.success) {
-                showToast('success', res.message || `Service ${service} ${action} berhasil`);
-                loadServicesStatus();
-            } else {
-                showToast('error', res.message || `Gagal menjalankan aksi ${action}`);
-            }
-        })
-        .catch(err => {
-            showToast('error', 'Aksi service gagal: ' + err.toString());
-        });
-    }
 
     // --- WEB SHELL TERMINAL CODE ---
     const terminalHistory = [];
@@ -1441,7 +1335,6 @@
         document.getElementById('proc-name').value = '';
         document.getElementById('proc-command').value = '';
         document.getElementById('proc-cwd').value = '';
-        document.getElementById('proc-env').value = '';
         document.getElementById('proc-autorestart').checked = true;
 
         document.getElementById('modal-proc-title').innerText = 'Add Managed Process';
@@ -1459,7 +1352,6 @@
         document.getElementById('proc-name').value = proc.name;
         document.getElementById('proc-command').value = proc.command;
         document.getElementById('proc-cwd').value = proc.cwd;
-        document.getElementById('proc-env').value = JSON.stringify(proc.env || {}, null, 2);
         document.getElementById('proc-autorestart').checked = proc.auto_restart;
 
         document.getElementById('modal-proc-title').innerText = 'Edit Managed Process';
@@ -1479,7 +1371,6 @@
         const name = document.getElementById('proc-name').value.trim();
         const command = document.getElementById('proc-command').value.trim();
         const cwd = document.getElementById('proc-cwd').value.trim() || '.';
-        const envStr = document.getElementById('proc-env').value.trim() || '{}';
         const autoRestart = document.getElementById('proc-autorestart').checked;
 
         if (!name || !command) {
@@ -1487,13 +1378,7 @@
             return;
         }
 
-        let env = {};
-        try {
-            env = JSON.parse(envStr);
-        } catch (e) {
-            showToast('warning', 'Environment Variables must be a valid JSON object');
-            return;
-        }
+        const env = {};
 
         const url = id ? '/api/managed/update' : '/api/managed/add';
         const body = id ? { id, name, command, cwd, env, auto_restart: autoRestart } : { name, command, cwd, env, auto_restart: autoRestart };
@@ -1571,7 +1456,7 @@
 
     function loadProxyRules() {
         const tbody = document.getElementById('proxy-table-body');
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading proxy rules...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading proxy rules...</td></tr>';
         
         fetch('/api/proxy/list')
             .then(res => res.json())
@@ -1580,14 +1465,14 @@
                     allProxyRules = res.data;
                     renderProxyRules(res.data);
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--danger);">Failed to load proxy rules.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--danger);">Failed to load proxy rules.</td></tr>';
                 }
             })
             .catch(err => {
                 console.error('Failed to load proxy rules:', err);
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="7" style="text-align:center; padding:30px; color:var(--danger);">
+                        <td colspan="8" style="text-align:center; padding:30px; color:var(--danger);">
                             Failed to load proxy rules: ${escapeHtml(err.toString())}
                         </td>
                     </tr>
@@ -1602,7 +1487,7 @@
         if (rules.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">
+                    <td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">
                         <i class="fa-solid fa-network-wired" style="font-size:2rem; margin-bottom:10px; display:block; opacity:0.3;"></i>
                         No proxy rules registered yet.
                     </td>
@@ -1627,6 +1512,24 @@
                 </div>
             `;
 
+            // SSL Badge rendering
+            let sslBadge = '';
+            if (rule.ssl_enabled) {
+                if (rule.ssl_status === 'active_letsencrypt') {
+                    sslBadge = `<span class="badge" style="background:rgba(16,185,129,0.12); color:var(--success); border:1px solid rgba(16,185,129,0.15);" title="Active (Let's Encrypt)"><i class="fa-solid fa-lock" style="margin-right:4px;"></i> Let's Encrypt</span>`;
+                } else if (rule.ssl_status === 'active_self_signed') {
+                    sslBadge = `<span class="badge" style="background:rgba(245,158,11,0.12); color:var(--warning); border:1px solid rgba(245,158,11,0.15);" title="Active (Self-Signed)"><i class="fa-solid fa-lock-open" style="margin-right:4px;"></i> Self-Signed</span>`;
+                } else if (rule.ssl_status === 'pending') {
+                    sslBadge = `<span class="badge" style="background:rgba(255,255,255,0.05); color:var(--text-muted); border:1px solid var(--card-border);" title="Issuing certificate..."><i class="fa-solid fa-spinner fa-spin" style="margin-right:4px;"></i> Pending</span>`;
+                } else if (rule.ssl_status === 'failed') {
+                    sslBadge = `<span class="badge" style="background:rgba(239,68,68,0.12); color:#ef4444; border:1px solid rgba(239,68,68,0.15);" title="Let's Encrypt challenge failed. Fallback to self-signed certificate."><i class="fa-solid fa-circle-exclamation" style="margin-right:4px;"></i> Failed</span>`;
+                } else {
+                    sslBadge = `<span class="badge" style="background:rgba(255,255,255,0.05); color:var(--text-muted); border:1px solid var(--card-border);"><i class="fa-solid fa-lock-open" style="margin-right:4px;"></i> Enabled</span>`;
+                }
+            } else {
+                sslBadge = `<span class="badge" style="background:rgba(255,255,255,0.02); color:var(--text-muted); border:1px solid transparent; opacity:0.5;"><i class="fa-solid fa-unlock" style="margin-right:4px;"></i> Disabled</span>`;
+            }
+
             tr.innerHTML = `
                 <td style="font-weight:600; color:var(--text-main);">${escapeHtml(rule.name)}</td>
                 <td style="font-family:var(--font-code); font-size:0.85rem;">${rule.domain ? escapeHtml(rule.domain) : '*'}</td>
@@ -1637,6 +1540,7 @@
                         ${rule.strip_path ? 'Yes' : 'No'}
                     </span>
                 </td>
+                <td>${sslBadge}</td>
                 <td>${statusToggle}</td>
                 <td style="text-align:right;">
                     <div style="display:inline-flex; gap:8px;">
@@ -1661,6 +1565,7 @@
         document.getElementById('proxy-target').value = '';
         document.getElementById('proxy-strip-path').checked = false;
         document.getElementById('proxy-enabled').checked = true;
+        document.getElementById('proxy-ssl-enabled').checked = false;
 
         document.getElementById('modal-proxy-title').innerText = 'Add Reverse Proxy Rule';
         document.getElementById('btn-proxy-submit').innerText = 'Add Rule';
@@ -1679,6 +1584,7 @@
         document.getElementById('proxy-target').value = rule.target;
         document.getElementById('proxy-strip-path').checked = rule.strip_path;
         document.getElementById('proxy-enabled').checked = rule.enabled;
+        document.getElementById('proxy-ssl-enabled').checked = rule.ssl_enabled;
 
         document.getElementById('modal-proxy-title').innerText = 'Edit Reverse Proxy Rule';
         document.getElementById('btn-proxy-submit').innerText = 'Save Changes';
@@ -1698,6 +1604,7 @@
         const target = document.getElementById('proxy-target').value.trim();
         const strip_path = document.getElementById('proxy-strip-path').checked;
         const enabled = document.getElementById('proxy-enabled').checked;
+        const ssl_enabled = document.getElementById('proxy-ssl-enabled').checked;
 
         if (!name || !path || !target) {
             showToast('warning', 'Name, Path, and Target Destination are required');
@@ -1705,7 +1612,7 @@
         }
 
         const url = id ? '/api/proxy/update' : '/api/proxy/add';
-        const body = { name, domain, path, target, strip_path, enabled };
+        const body = { name, domain, path, target, strip_path, enabled, ssl_enabled };
         if (id) {
             body.id = id;
         }

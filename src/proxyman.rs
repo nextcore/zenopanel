@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use sqlx::SqlitePool;
 use serde::{Serialize, Deserialize};
-use zenocore::{Engine, Node, Scope, Value, SlotMeta, Diagnostic};
+use zenocore::{Engine, Value, SlotMeta, Diagnostic};
 use crate::slots::resolve_node_value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +15,8 @@ pub struct ProxyRule {
     pub target: String,
     pub strip_path: bool,
     pub enabled: bool,
+    pub ssl_enabled: bool,
+    pub ssl_status: String,
 }
 
 #[derive(Clone)]
@@ -40,6 +42,12 @@ impl ProxyManager {
             eprintln!("Failed to create proxy_rules table: {}", e);
         }
 
+        // Alter table to add SSL columns if they do not exist
+        let alter_ssl_enabled = "ALTER TABLE proxy_rules ADD COLUMN ssl_enabled INTEGER NOT NULL DEFAULT 0;";
+        let alter_ssl_status = "ALTER TABLE proxy_rules ADD COLUMN ssl_status TEXT NOT NULL DEFAULT 'none';";
+        let _ = sqlx::query(alter_ssl_enabled).execute(&pool).await;
+        let _ = sqlx::query(alter_ssl_status).execute(&pool).await;
+
         Self {
             pool,
             rules: Arc::new(RwLock::new(HashMap::new())),
@@ -47,7 +55,7 @@ impl ProxyManager {
     }
 
     pub async fn load_from_db(&self) -> Result<(), String> {
-        let rows = sqlx::query("SELECT id, name, domain, path, target, strip_path, enabled FROM proxy_rules")
+        let rows = sqlx::query("SELECT id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status FROM proxy_rules")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -63,6 +71,8 @@ impl ProxyManager {
             let target: String = row.get("target");
             let strip_path_int: i32 = row.get("strip_path");
             let enabled_int: i32 = row.get("enabled");
+            let ssl_enabled_int: i32 = row.get("ssl_enabled");
+            let ssl_status: String = row.get("ssl_status");
 
             rules.insert(
                 id.clone(),
@@ -74,6 +84,8 @@ impl ProxyManager {
                     target,
                     strip_path: strip_path_int != 0,
                     enabled: enabled_int != 0,
+                    ssl_enabled: ssl_enabled_int != 0,
+                    ssl_status,
                 },
             );
         }
@@ -88,17 +100,20 @@ impl ProxyManager {
         target: String,
         strip_path: bool,
         enabled: bool,
+        ssl_enabled: bool,
     ) -> Result<String, String> {
         let id = format!("{:x}", rand::random::<u32>());
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
+        let ssl_enabled_int = if ssl_enabled { 1 } else { 0 };
+        let ssl_status = if ssl_enabled { "pending".to_string() } else { "none".to_string() };
 
         let mut clean_path = path.trim().to_string();
         if !clean_path.starts_with('/') {
             clean_path = format!("/{}", clean_path);
         }
 
-        sqlx::query("INSERT INTO proxy_rules (id, name, domain, path, target, strip_path, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO proxy_rules (id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&name)
             .bind(&domain)
@@ -106,6 +121,8 @@ impl ProxyManager {
             .bind(&target)
             .bind(strip_path_int)
             .bind(enabled_int)
+            .bind(ssl_enabled_int)
+            .bind(&ssl_status)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -118,6 +135,8 @@ impl ProxyManager {
             target,
             strip_path,
             enabled,
+            ssl_enabled,
+            ssl_status,
         };
 
         self.rules.write().await.insert(id.clone(), rule);
@@ -133,22 +152,39 @@ impl ProxyManager {
         target: String,
         strip_path: bool,
         enabled: bool,
+        ssl_enabled: bool,
     ) -> Result<(), String> {
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
+        let ssl_enabled_int = if ssl_enabled { 1 } else { 0 };
 
         let mut clean_path = path.trim().to_string();
         if !clean_path.starts_with('/') {
             clean_path = format!("/{}", clean_path);
         }
 
-        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, path = ?, target = ?, strip_path = ?, enabled = ? WHERE id = ?")
+        // Get existing rule to preserve ssl_status if ssl_enabled didn't change from true to true
+        let existing = self.rules.read().await.get(id).cloned();
+        let new_status = match existing {
+            Some(old) => {
+                if ssl_enabled {
+                    if old.ssl_enabled { old.ssl_status } else { "pending".to_string() }
+                } else {
+                    "none".to_string()
+                }
+            }
+            None => if ssl_enabled { "pending".to_string() } else { "none".to_string() }
+        };
+
+        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ? WHERE id = ?")
             .bind(&name)
             .bind(&domain)
             .bind(&clean_path)
             .bind(&target)
             .bind(strip_path_int)
             .bind(enabled_int)
+            .bind(ssl_enabled_int)
+            .bind(&new_status)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -161,8 +197,24 @@ impl ProxyManager {
             rule.target = target;
             rule.strip_path = strip_path;
             rule.enabled = enabled;
+            rule.ssl_enabled = ssl_enabled;
+            rule.ssl_status = new_status;
         }
 
+        Ok(())
+    }
+
+    pub async fn update_ssl_status(&self, id: &str, status: &str) -> Result<(), String> {
+        sqlx::query("UPDATE proxy_rules SET ssl_status = ? WHERE id = ?")
+            .bind(status)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if let Some(rule) = self.rules.write().await.get_mut(id) {
+            rule.ssl_status = status.to_string();
+        }
         Ok(())
     }
 
@@ -254,6 +306,8 @@ fn proxy_rule_to_value(rule: &ProxyRule) -> Value {
     map.insert("target".to_string(), Value::String(rule.target.clone()));
     map.insert("strip_path".to_string(), Value::Bool(rule.strip_path));
     map.insert("enabled".to_string(), Value::Bool(rule.enabled));
+    map.insert("ssl_enabled".to_string(), Value::Bool(rule.ssl_enabled));
+    map.insert("ssl_status".to_string(), Value::String(rule.ssl_status.clone()));
     Value::Map(map)
 }
 
@@ -313,6 +367,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
             let mut target_url = String::new();
             let mut strip_path = false;
             let mut enabled = true;
+            let mut ssl_enabled = false;
             let mut target = "id".to_string();
 
             if node.value.is_some() {
@@ -333,12 +388,14 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                     strip_path = val.to_bool();
                 } else if child.name == "enabled" {
                     enabled = val.to_bool();
+                } else if child.name == "ssl_enabled" {
+                    ssl_enabled = val.to_bool();
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
             }
 
-            let add_fut = pm.add_rule(name, domain, path, target_url, strip_path, enabled);
+            let add_fut = pm.add_rule(name, domain, path, target_url, strip_path, enabled, ssl_enabled);
             let id = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(add_fut)
             }).map_err(|e| Diagnostic {
@@ -378,6 +435,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
             let mut target_url = String::new();
             let mut strip_path = false;
             let mut enabled = true;
+            let mut ssl_enabled = false;
             let mut target = "success".to_string();
 
             if node.value.is_some() {
@@ -400,12 +458,14 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                     strip_path = val.to_bool();
                 } else if child.name == "enabled" {
                     enabled = val.to_bool();
+                } else if child.name == "ssl_enabled" {
+                    ssl_enabled = val.to_bool();
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
             }
 
-            let update_fut = pm.update_rule(&id, name, domain, path, target_url, strip_path, enabled);
+            let update_fut = pm.update_rule(&id, name, domain, path, target_url, strip_path, enabled, ssl_enabled);
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(update_fut)
             });

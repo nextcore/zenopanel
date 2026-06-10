@@ -18,7 +18,6 @@
 
         @include('partials/tab_database')
 
-        @include('partials/tab_services')
 
         @include('partials/tab_terminal')
 
