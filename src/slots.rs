@@ -176,7 +176,7 @@ pub fn register_custom_slots(engine: &mut Engine) {
 
             let is_nil = match &val {
                 Value::Nil => true,
-                Value::String(s) => s.is_empty() || s == "nil" || s == "<nil>",
+                Value::String(s) => s.is_empty() || s == "nil" || s == "<nil>" || s.starts_with('$'),
                 _ => false,
             };
 
@@ -641,6 +641,16 @@ pub fn register_custom_slots(engine: &mut Engine) {
     engine.register("http.not_found", Arc::new(|engine, ctx, node, scope| send_json_response(engine, ctx, 404, node, scope, false)), SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() });
     engine.register("http.validation_error", Arc::new(|engine, ctx, node, scope| send_json_response(engine, ctx, 422, node, scope, false)), SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() });
     engine.register("http.server_error", Arc::new(|engine, ctx, node, scope| send_json_response(engine, ctx, 500, node, scope, false)), SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() });
+
+    engine.register(
+        "debug.print",
+        Arc::new(|engine, _ctx, node, scope| {
+            let val = resolve_node_value(engine, node, scope);
+            println!("DEBUG.PRINT: {:?}", val);
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 
     // ==========================================
     // 2. FILESYSTEM SLOTS
@@ -1234,11 +1244,14 @@ pub fn register_custom_slots(engine: &mut Engine) {
 
             let sys = System::new_all();
             let sys_pid = Pid::from(pid as usize);
+            let found = sys.process(sys_pid).is_some();
             let success = if let Some(proc) = sys.process(sys_pid) {
                 proc.kill()
             } else {
                 false
             };
+
+            println!("SYSTEM.KILL: pid={}, found={}, success={}", pid, found, success);
 
             scope.set(&target, Value::Bool(success));
             Ok(())
@@ -1663,6 +1676,8 @@ pub fn register_custom_slots(engine: &mut Engine) {
                 tokio::runtime::Handle::current().block_on(start_fut)
             });
 
+            println!("proc.start: id='{}', result={:?}", id, res);
+
             match res {
                 Ok(_) => {
                     scope.set(&target, Value::Bool(true));
@@ -1712,6 +1727,8 @@ pub fn register_custom_slots(engine: &mut Engine) {
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(stop_fut)
             });
+
+            println!("PROC.STOP: id='{}', target='{}', res={:?}", id, target, res);
 
             match res {
                 Ok(_) => {
@@ -1880,5 +1897,123 @@ pub fn register_custom_slots(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "if",
+        Arc::new(|engine, ctx, node, scope| {
+            let cond_val = if let Some(ref val_str) = node.value {
+                evaluate_condition(engine, val_str, scope)
+            } else {
+                false
+            };
+
+            let mut then_node = None;
+            let mut else_node = None;
+
+            for child in &node.children {
+                if child.name == "then" {
+                    then_node = Some(child);
+                } else if child.name == "else" {
+                    else_node = Some(child);
+                }
+            }
+
+            if cond_val {
+                if let Some(then_n) = then_node {
+                    for child in &then_n.children {
+                        engine.execute(ctx, child, scope)?;
+                    }
+                }
+            } else {
+                if let Some(else_n) = else_node {
+                    for child in &else_n.children {
+                        engine.execute(ctx, child, scope)?;
+                    }
+                }
+            }
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+}
+
+fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<Scope>) -> bool {
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return false;
+    }
+
+    if expr.contains("||") {
+        for part in expr.split("||") {
+            if evaluate_condition(engine, part, scope) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if expr.contains("&&") {
+        for part in expr.split("&&") {
+            if !evaluate_condition(engine, part, scope) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    let ops = ["==", "!=", ">=", "<=", ">", "<"];
+    for op in &ops {
+        if expr.contains(op) {
+            let parts: Vec<&str> = expr.splitn(2, op).collect();
+            if parts.len() == 2 {
+                let left_str = parts[0].trim();
+                let right_str = parts[1].trim();
+
+                let left_val = resolve_expression_value(engine, left_str, scope);
+                let right_val = resolve_expression_value(engine, right_str, scope);
+
+                return match *op {
+                    "==" => left_val.to_string_coerce() == right_val.to_string_coerce(),
+                    "!=" => left_val.to_string_coerce() != right_val.to_string_coerce(),
+                    ">" => left_val.to_float() > right_val.to_float(),
+                    "<" => left_val.to_float() < right_val.to_float(),
+                    ">=" => left_val.to_float() >= right_val.to_float(),
+                    "<=" => left_val.to_float() <= right_val.to_float(),
+                    _ => false,
+                };
+            }
+        }
+    }
+
+    let resolved = resolve_expression_value(engine, expr, scope);
+    resolved.to_bool()
+}
+
+fn resolve_expression_value(_engine: &Engine, s: &str, scope: &Arc<Scope>) -> Value {
+    let s = s.trim();
+    if s.starts_with('$') {
+        let key = &s[1..];
+        return scope.get(key).unwrap_or(Value::Nil);
+    }
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        return Value::String(s[1..s.len()-1].to_string());
+    }
+    if s == "true" {
+        return Value::Bool(true);
+    }
+    if s == "false" {
+        return Value::Bool(false);
+    }
+    if s == "null" || s == "nil" {
+        return Value::Nil;
+    }
+    if let Ok(i) = s.parse::<i64>() {
+        return Value::Int(i);
+    }
+    if let Ok(f) = s.parse::<f64>() {
+        return Value::Float(f);
+    }
+    Value::String(s.to_string())
 }
 

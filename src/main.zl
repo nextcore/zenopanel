@@ -277,14 +277,11 @@ http.get: '/api/managed/list' {
 
 http.post: '/api/managed/add' {
     http.json_body: { as: $body }
-    var: $env { val: $body.env }
-    coalesce: $env {
+    coalesce: $body.env {
         default: {}
         as: $clean_env
     }
-    
-    var: $auto_restart { val: $body.auto_restart }
-    coalesce: $auto_restart {
+    coalesce: $body.auto_restart {
         default: true
         as: $clean_auto_restart
     }
@@ -296,7 +293,10 @@ http.post: '/api/managed/add' {
         auto_restart: $clean_auto_restart
         as: $id
     }
-    http.ok: { id: $id, message: "Proses managed berhasil ditambahkan" }
+    http.ok: {
+        id: $id
+        message: "Proses managed berhasil ditambahkan"
+    }
 }
 
 http.post: '/api/managed/start' {
@@ -315,6 +315,7 @@ http.post: '/api/managed/start' {
 http.post: '/api/managed/stop' {
     http.json_body: { as: $body }
     proc.stop: $body.id { as: $success }
+    debug.print: $success
     if: $success {
         then: {
             http.ok: { message: "Proses managed berhasil dihentikan" }
@@ -359,7 +360,10 @@ http.get: '/api/managed/logs' {
         as: $lines_str
     }
     cast.to_int: $lines_str { as: $lines }
-    proc.logs: $proc_id { lines: $lines, as: $logs }
+    proc.logs: $proc_id {
+        lines: $lines
+        as: $logs
+    }
     http.ok: { data: $logs }
 }
 
