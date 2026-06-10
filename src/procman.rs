@@ -397,7 +397,6 @@ impl ProcessManager {
                     _ = &mut stop_rx => {
                         // Kill the process group / process
                         let mut lock = state_arc_clone.write().await;
-                        let pid = lock.pid;
                         lock.status = "stopped".to_string();
                         lock.pid = None;
                         lock.exit_code = None;
@@ -413,9 +412,12 @@ impl ProcessManager {
                                 let _ = std::process::Command::new("kill")
                                     .args(&["-9", &format!("-{}", p)])
                                     .status();
+                                // Kill individual pid
+                                let _ = std::process::Command::new("kill")
+                                    .args(&["-9", &format!("{}", p)])
+                                    .status();
                             }
                         }
-                        #[cfg(not(unix))]
                         let _ = child.kill().await;
 
                         break;

@@ -1260,6 +1260,79 @@ pub fn register_custom_slots(engine: &mut Engine) {
     );
 
     engine.register(
+        "system.port_check",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut port = 0;
+            let mut target = "port_info".to_string();
+
+            if node.value.is_some() {
+                port = resolve_node_value(engine, node, scope).to_int();
+            }
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "port" {
+                    port = val.to_int();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            if port <= 0 || port > 65535 {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "system.port_check: invalid port number".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("system.port_check".to_string()),
+                });
+            }
+
+            let mut res = HashMap::new();
+            res.insert("port".to_string(), Value::Int(port));
+
+            let output = std::process::Command::new("lsof")
+                .args(&["-i", &format!(":{}", port), "-s", "tcp:listen", "-F", "pc"])
+                .output();
+
+            let mut in_use = false;
+            let mut pid = None;
+            let mut name = None;
+
+            if let Ok(out) = output {
+                if out.status.success() {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    for line in stdout.lines() {
+                        if line.starts_with('p') {
+                            if let Ok(p) = line[1..].parse::<i64>() {
+                                pid = Some(p);
+                                in_use = true;
+                            }
+                        } else if line.starts_with('c') {
+                            name = Some(line[1..].to_string());
+                        }
+                    }
+                }
+            }
+
+            res.insert("in_use".to_string(), Value::Bool(in_use));
+            res.insert("pid".to_string(), match pid {
+                Some(p) => Value::Int(p),
+                None => Value::Nil,
+            });
+            res.insert("process_name".to_string(), match name {
+                Some(n) => Value::String(n),
+                None => Value::Nil,
+            });
+
+            scope.set(&target, Value::Map(res));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
         "system.dir_list",
         Arc::new(|engine, _ctx, node, scope| {
             let mut path = ".".to_string();

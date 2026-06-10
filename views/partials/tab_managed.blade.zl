@@ -3,7 +3,10 @@
     <div class="card" style="margin-top:0;">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:15px;">
             <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-gears" style="color:var(--accent-primary);"></i> Managed Processes</h3>
-            <button class="btn-primary-action" onclick="openAddProcessModal()"><i class="fa-solid fa-plus"></i> Add Process</button>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-action" onclick="openPortCheckModal()" style="display:flex; align-items:center; gap:6px;"><i class="fa-solid fa-circle-question"></i> Check Port</button>
+                <button class="btn-primary-action" onclick="openAddProcessModal()"><i class="fa-solid fa-plus"></i> Add Process</button>
+            </div>
         </div>
         <div style="overflow-x:auto;">
             <table class="data-table">

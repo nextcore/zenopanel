@@ -45,3 +45,12 @@ http.post: '/api/processes/kill' {
         }
     }
 }
+
+# 6. Check Port API
+http.post: '/api/system/check_port' {
+    http.json_body: { as: $body }
+    var: $port { val: $body.port }
+    cast.to_int: $port { as: $port_int }
+    system.port_check: $port_int { as: $info }
+    http.ok: { data: $info }
+}

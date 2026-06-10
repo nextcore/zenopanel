@@ -150,6 +150,34 @@
     </div>
 </div>
 
+<!-- Port Check Modal -->
+<div class="modal-overlay" id="port-check-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:15px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;" id="modal-port-title">
+                <i class="fa-solid fa-circle-question" style="color:var(--accent-primary);"></i> Check Port in Use
+            </h3>
+            <button onclick="closePortCheckModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.2rem;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Port Number</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="number" id="check-port-num" placeholder="e.g. 3000, 8080, 80" min="1" max="65535" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-primary-action" onclick="submitPortCheck()" style="padding:0 20px; display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-magnifying-glass"></i> Check
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Result Panel -->
+            <div id="port-check-result" style="display:none; margin-top:20px; padding:15px; border-radius:8px; border:1px solid var(--card-border); background:rgba(255,255,255,0.02);">
+                <!-- Populated dynamically by JS -->
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Notification Toasts -->
 <div class="toast-container" id="toast-bin"></div>
 
