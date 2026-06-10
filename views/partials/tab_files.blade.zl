@@ -26,6 +26,11 @@
                 </form>
             </div>
             <div style="display:flex; gap:10px;">
+                <button class="btn-primary-action" onclick="triggerFileUpload()" style="display:flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                    <span>Upload File</span>
+                </button>
+                <input type="file" id="file-upload-input" multiple style="display:none;" onchange="handleFileUpload(event)">
                 <button class="btn-action" onclick="createFilePrompt()">
                     <i class="fa-solid fa-file-circle-plus"></i>
                     <span>New File</span>

@@ -9,7 +9,7 @@ use axum::{
     extract::{State, Query},
     http::{HeaderMap, Method, StatusCode, Uri},
     response::Response,
-    routing::any,
+    routing::{any, post},
     Router,
 };
 use std::collections::HashMap;
@@ -188,6 +188,7 @@ async fn main() {
 
     let app = Router::new()
         .nest_service("/public", static_service)
+        .route("/api/files/upload", post(upload_file_handler).layer(axum::extract::DefaultBodyLimit::disable()))
         .fallback(any(wildcard_handler))
         .with_state(state)
         .layer(CorsLayer::permissive());
@@ -776,6 +777,54 @@ fn render_error_page(status: &str, app_name: &str, details: &str) -> String {
         status_desc = status_desc,
         details = details
     )
+}
+
+async fn upload_file_handler(
+    State(_state): State<Arc<AppState>>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<impl axum::response::IntoResponse, (axum::http::StatusCode, String)> {
+    let mut upload_path = None;
+    let mut files = Vec::new();
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        (axum::http::StatusCode::BAD_REQUEST, format!("Multipart error: {}", e))
+    })? {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "path" {
+            let val = field.text().await.map_err(|e| {
+                (axum::http::StatusCode::BAD_REQUEST, format!("Failed to read path field: {}", e))
+            })?;
+            upload_path = Some(val);
+        } else if name == "file" || name == "files" || field.file_name().is_some() {
+            let filename = field.file_name().unwrap_or("uploaded_file").to_string();
+            let data = field.bytes().await.map_err(|e| {
+                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read file data: {}", e))
+            })?;
+            files.push((filename, data));
+        }
+    }
+
+    let dest_dir = upload_path.ok_or_else(|| {
+        (axum::http::StatusCode::BAD_REQUEST, "Missing 'path' field".to_string())
+    })?;
+
+    let dest_dir_path = std::path::Path::new(&dest_dir);
+    if !dest_dir_path.exists() {
+        return Err((axum::http::StatusCode::BAD_REQUEST, format!("Destination directory does not exist: {}", dest_dir)));
+    }
+
+    for (filename, bytes) in files {
+        let file_dest = dest_dir_path.join(&filename);
+        tokio::fs::write(&file_dest, bytes).await.map_err(|e| {
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file '{}': {}", filename, e))
+        })?;
+        println!("[FileManager] Uploaded file successfully to {:?}", file_dest);
+    }
+
+    Ok(axum::Json(serde_json::json!({
+        "success": true,
+        "message": "File uploaded successfully"
+    })))
 }
 
 
