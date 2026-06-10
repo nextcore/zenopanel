@@ -54,3 +54,9 @@ http.post: '/api/system/check_port' {
     system.port_check: $port_int { as: $info }
     http.ok: { data: $info }
 }
+
+# 7. Download Log API
+http.get: '/api/processes/download_log' {
+    http.query: 'id' { as: $proc_id }
+    http.download_log: $proc_id
+}

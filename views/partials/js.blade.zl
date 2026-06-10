@@ -1030,7 +1030,7 @@
         if (processes.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">
+                    <td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">
                         <i class="fa-solid fa-gears" style="font-size:2rem; margin-bottom:10px; display:block; opacity:0.3;"></i>
                         No managed processes registered yet.
                     </td>
@@ -1050,9 +1050,15 @@
             }
 
             const tr = document.createElement('tr');
+            
+            const cpuVal = proc.status === 'running' && typeof proc.cpu_usage === 'number' ? proc.cpu_usage.toFixed(1) + '%' : '-';
+            const memVal = proc.status === 'running' && typeof proc.memory_usage === 'number' ? proc.memory_usage.toFixed(1) + ' MB' : '-';
+
             tr.innerHTML = `
                 <td style="font-weight:600; color:var(--text-main);">${escapeHtml(proc.name)}</td>
                 <td style="font-family:var(--font-code); font-size:0.85rem; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(proc.command)}">${escapeHtml(proc.command)}</td>
+                <td style="font-family:var(--font-code); font-size:0.85rem; color:#10b981; font-weight:600;">${cpuVal}</td>
+                <td style="font-family:var(--font-code); font-size:0.85rem; color:#6366f1; font-weight:600;">${memVal}</td>
                 <td style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(proc.cwd)}</td>
                 <td>${statusBadge}</td>
                 <td style="font-family:var(--font-code); font-size:0.85rem;">${proc.pid ? proc.pid : '-'}</td>
@@ -1441,6 +1447,11 @@
             });
     }
 
+    function downloadProcessLogs() {
+        if (!activeLogProcessId) return;
+        window.open(`/api/processes/download_log?id=${activeLogProcessId}`, '_blank');
+    }
+
     function closeProcLogsModal() {
         const modal = document.getElementById('proc-logs-modal');
         modal.classList.remove('active');
@@ -1557,6 +1568,21 @@
         });
     }
 
+    function populateManagedProcessesDropdown(selectedValue) {
+        const select = document.getElementById('proxy-managed-process-id');
+        if (!select) return;
+        select.innerHTML = '<option value="">None</option>';
+        allManagedProcesses.forEach(proc => {
+            const opt = document.createElement('option');
+            opt.value = proc.id;
+            opt.innerText = proc.name;
+            if (proc.id === selectedValue) {
+                opt.selected = true;
+            }
+            select.appendChild(opt);
+        });
+    }
+
     function openAddProxyModal() {
         document.getElementById('proxy-id-val').value = '';
         document.getElementById('proxy-name').value = '';
@@ -1566,6 +1592,8 @@
         document.getElementById('proxy-strip-path').checked = false;
         document.getElementById('proxy-enabled').checked = true;
         document.getElementById('proxy-ssl-enabled').checked = false;
+        
+        populateManagedProcessesDropdown('');
 
         document.getElementById('modal-proxy-title').innerText = 'Add Reverse Proxy Rule';
         document.getElementById('btn-proxy-submit').innerText = 'Add Rule';
@@ -1586,6 +1614,8 @@
         document.getElementById('proxy-enabled').checked = rule.enabled;
         document.getElementById('proxy-ssl-enabled').checked = rule.ssl_enabled;
 
+        populateManagedProcessesDropdown(rule.managed_process_id || '');
+
         document.getElementById('modal-proxy-title').innerText = 'Edit Reverse Proxy Rule';
         document.getElementById('btn-proxy-submit').innerText = 'Save Changes';
 
@@ -1605,6 +1635,7 @@
         const strip_path = document.getElementById('proxy-strip-path').checked;
         const enabled = document.getElementById('proxy-enabled').checked;
         const ssl_enabled = document.getElementById('proxy-ssl-enabled').checked;
+        const managed_process_id = document.getElementById('proxy-managed-process-id').value;
 
         if (!name || !path || !target) {
             showToast('warning', 'Name, Path, and Target Destination are required');
@@ -1612,7 +1643,7 @@
         }
 
         const url = id ? '/api/proxy/update' : '/api/proxy/add';
-        const body = { name, domain, path, target, strip_path, enabled, ssl_enabled };
+        const body = { name, domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id };
         if (id) {
             body.id = id;
         }

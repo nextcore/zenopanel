@@ -26,6 +26,10 @@ http.post: '/api/proxy/add' {
         default: false
         as: $clean_ssl_enabled
     }
+    coalesce: $body.managed_process_id {
+        default: ''
+        as: $clean_process_id
+    }
 
     proxy.add: $body.name {
         domain: $clean_domain
@@ -34,6 +38,7 @@ http.post: '/api/proxy/add' {
         strip_path: $clean_strip_path
         enabled: $clean_enabled
         ssl_enabled: $clean_ssl_enabled
+        managed_process_id: $clean_process_id
         as: $id
     }
     http.ok: {
@@ -64,6 +69,10 @@ http.post: '/api/proxy/update' {
         default: false
         as: $clean_ssl_enabled
     }
+    coalesce: $body.managed_process_id {
+        default: ''
+        as: $clean_process_id
+    }
 
     proxy.update: $body.id {
         name: $body.name
@@ -73,6 +82,7 @@ http.post: '/api/proxy/update' {
         strip_path: $clean_strip_path
         enabled: $clean_enabled
         ssl_enabled: $clean_ssl_enabled
+        managed_process_id: $clean_process_id
         as: $success
     }
     if: $success {

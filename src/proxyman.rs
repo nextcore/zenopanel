@@ -17,6 +17,7 @@ pub struct ProxyRule {
     pub enabled: bool,
     pub ssl_enabled: bool,
     pub ssl_status: String,
+    pub managed_process_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -45,8 +46,10 @@ impl ProxyManager {
         // Alter table to add SSL columns if they do not exist
         let alter_ssl_enabled = "ALTER TABLE proxy_rules ADD COLUMN ssl_enabled INTEGER NOT NULL DEFAULT 0;";
         let alter_ssl_status = "ALTER TABLE proxy_rules ADD COLUMN ssl_status TEXT NOT NULL DEFAULT 'none';";
+        let alter_managed_process_id = "ALTER TABLE proxy_rules ADD COLUMN managed_process_id TEXT;";
         let _ = sqlx::query(alter_ssl_enabled).execute(&pool).await;
         let _ = sqlx::query(alter_ssl_status).execute(&pool).await;
+        let _ = sqlx::query(alter_managed_process_id).execute(&pool).await;
 
         Self {
             pool,
@@ -55,7 +58,7 @@ impl ProxyManager {
     }
 
     pub async fn load_from_db(&self) -> Result<(), String> {
-        let rows = sqlx::query("SELECT id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status FROM proxy_rules")
+        let rows = sqlx::query("SELECT id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id FROM proxy_rules")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -73,6 +76,7 @@ impl ProxyManager {
             let enabled_int: i32 = row.get("enabled");
             let ssl_enabled_int: i32 = row.get("ssl_enabled");
             let ssl_status: String = row.get("ssl_status");
+            let managed_process_id: Option<String> = row.try_get("managed_process_id").ok();
 
             rules.insert(
                 id.clone(),
@@ -86,6 +90,7 @@ impl ProxyManager {
                     enabled: enabled_int != 0,
                     ssl_enabled: ssl_enabled_int != 0,
                     ssl_status,
+                    managed_process_id,
                 },
             );
         }
@@ -101,6 +106,7 @@ impl ProxyManager {
         strip_path: bool,
         enabled: bool,
         ssl_enabled: bool,
+        managed_process_id: Option<String>,
     ) -> Result<String, String> {
         let id = format!("{:x}", rand::random::<u32>());
         let strip_path_int = if strip_path { 1 } else { 0 };
@@ -113,7 +119,7 @@ impl ProxyManager {
             clean_path = format!("/{}", clean_path);
         }
 
-        sqlx::query("INSERT INTO proxy_rules (id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO proxy_rules (id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&name)
             .bind(&domain)
@@ -123,6 +129,7 @@ impl ProxyManager {
             .bind(enabled_int)
             .bind(ssl_enabled_int)
             .bind(&ssl_status)
+            .bind(&managed_process_id)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -137,6 +144,7 @@ impl ProxyManager {
             enabled,
             ssl_enabled,
             ssl_status,
+            managed_process_id,
         };
 
         self.rules.write().await.insert(id.clone(), rule);
@@ -153,6 +161,7 @@ impl ProxyManager {
         strip_path: bool,
         enabled: bool,
         ssl_enabled: bool,
+        managed_process_id: Option<String>,
     ) -> Result<(), String> {
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
@@ -176,7 +185,7 @@ impl ProxyManager {
             None => if ssl_enabled { "pending".to_string() } else { "none".to_string() }
         };
 
-        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ? WHERE id = ?")
+        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ? WHERE id = ?")
             .bind(&name)
             .bind(&domain)
             .bind(&clean_path)
@@ -185,6 +194,7 @@ impl ProxyManager {
             .bind(enabled_int)
             .bind(ssl_enabled_int)
             .bind(&new_status)
+            .bind(&managed_process_id)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -199,6 +209,7 @@ impl ProxyManager {
             rule.enabled = enabled;
             rule.ssl_enabled = ssl_enabled;
             rule.ssl_status = new_status;
+            rule.managed_process_id = managed_process_id;
         }
 
         Ok(())
@@ -297,6 +308,40 @@ impl ProxyManager {
     }
 }
 
+fn get_cert_details(domain: &str, ssl_status: &str) -> (String, String, i64) {
+    let certs_dir = "./certs";
+    let cert_path = format!("{}/{}.crt", certs_dir, domain);
+    
+    if std::path::Path::new(&cert_path).exists() {
+        if let Ok(metadata) = std::fs::metadata(&cert_path) {
+            if let Ok(modified) = metadata.modified() {
+                let validity_days = if ssl_status == "active_letsencrypt" { 90 } else { 365 };
+                let duration = std::time::Duration::from_secs(validity_days * 24 * 3600);
+                if let Some(expires_at) = modified.checked_add(duration) {
+                    let now = std::time::SystemTime::now();
+                    
+                    let days_remaining = match expires_at.duration_since(now) {
+                        Ok(d) => (d.as_secs() / 86400) as i64,
+                        Err(_) => 0,
+                    };
+                    
+                    let expires_chrono: chrono::DateTime<chrono::Local> = expires_at.into();
+                    let expiration_str = expires_chrono.format("%Y-%m-%d %H:%M:%S").to_string();
+                    
+                    let issuer = if ssl_status == "active_letsencrypt" {
+                        "Let's Encrypt".to_string()
+                    } else {
+                        "Self-Signed".to_string()
+                    };
+                    
+                    return (issuer, expiration_str, days_remaining);
+                }
+            }
+        }
+    }
+    ("None".to_string(), "N/A".to_string(), 0)
+}
+
 fn proxy_rule_to_value(rule: &ProxyRule) -> Value {
     let mut map = HashMap::new();
     map.insert("id".to_string(), Value::String(rule.id.clone()));
@@ -308,6 +353,13 @@ fn proxy_rule_to_value(rule: &ProxyRule) -> Value {
     map.insert("enabled".to_string(), Value::Bool(rule.enabled));
     map.insert("ssl_enabled".to_string(), Value::Bool(rule.ssl_enabled));
     map.insert("ssl_status".to_string(), Value::String(rule.ssl_status.clone()));
+    map.insert("managed_process_id".to_string(), Value::String(rule.managed_process_id.clone().unwrap_or_default()));
+
+    let (issuer, expiry, days) = get_cert_details(&rule.domain, &rule.ssl_status);
+    map.insert("ssl_issuer".to_string(), Value::String(issuer));
+    map.insert("ssl_expiration".to_string(), Value::String(expiry));
+    map.insert("ssl_days_remaining".to_string(), Value::Int(days));
+
     Value::Map(map)
 }
 
@@ -368,6 +420,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
             let mut strip_path = false;
             let mut enabled = true;
             let mut ssl_enabled = false;
+            let mut managed_process_id = None;
             let mut target = "id".to_string();
 
             if node.value.is_some() {
@@ -390,12 +443,17 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                     enabled = val.to_bool();
                 } else if child.name == "ssl_enabled" {
                     ssl_enabled = val.to_bool();
+                } else if child.name == "managed_process_id" {
+                    let s = val.to_string_coerce();
+                    if !s.is_empty() {
+                        managed_process_id = Some(s);
+                    }
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
             }
 
-            let add_fut = pm.add_rule(name, domain, path, target_url, strip_path, enabled, ssl_enabled);
+            let add_fut = pm.add_rule(name, domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
             let id = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(add_fut)
             }).map_err(|e| Diagnostic {
@@ -436,6 +494,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
             let mut strip_path = false;
             let mut enabled = true;
             let mut ssl_enabled = false;
+            let mut managed_process_id = None;
             let mut target = "success".to_string();
 
             if node.value.is_some() {
@@ -460,12 +519,17 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                     enabled = val.to_bool();
                 } else if child.name == "ssl_enabled" {
                     ssl_enabled = val.to_bool();
+                } else if child.name == "managed_process_id" {
+                    let s = val.to_string_coerce();
+                    if !s.is_empty() {
+                        managed_process_id = Some(s);
+                    }
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
             }
 
-            let update_fut = pm.update_rule(&id, name, domain, path, target_url, strip_path, enabled, ssl_enabled);
+            let update_fut = pm.update_rule(&id, name, domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(update_fut)
             });

@@ -7,6 +7,18 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use sqlx::SqlitePool;
 use serde::{Serialize, Deserialize};
 
+fn append_log_line(proc_id: &str, line: &str) {
+    let _ = std::fs::create_dir_all("./logs");
+    let log_path = format!("./logs/{}.log", proc_id);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path) {
+            use std::io::Write;
+            let _ = writeln!(file, "{}", line);
+        }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessInfo {
     pub id: String,
@@ -18,6 +30,8 @@ pub struct ProcessInfo {
     pub status: String, // "stopped", "running", "starting", "failed"
     pub pid: Option<u32>,
     pub exit_code: Option<i32>,
+    pub cpu_usage: f32,
+    pub memory_usage: f64,
 }
 
 pub struct ProcessState {
@@ -39,6 +53,7 @@ pub struct ProcessState {
 pub struct ProcessManager {
     pool: SqlitePool,
     processes: Arc<RwLock<HashMap<String, Arc<RwLock<ProcessState>>>>>,
+    sys: Arc<tokio::sync::Mutex<sysinfo::System>>,
 }
 
 impl ProcessManager {
@@ -61,6 +76,7 @@ impl ProcessManager {
         Self {
             pool,
             processes: Arc::new(RwLock::new(HashMap::new())),
+            sys: Arc::new(tokio::sync::Mutex::new(sysinfo::System::new_all())),
         }
     }
 
@@ -242,6 +258,7 @@ impl ProcessManager {
         let cwd = state.cwd.clone();
         let env = state.env.clone();
         let state_arc_clone = state_arc.clone();
+        let id = state.id.clone();
 
         // Spawn background supervisor task
         tokio::spawn(async move {
@@ -307,6 +324,7 @@ impl ProcessManager {
                     Ok(c) => c,
                     Err(e) => {
                         let err_msg = format!("Failed to spawn process: {}", e);
+                        append_log_line(&id, &err_msg);
                         {
                             let mut lock = state_arc_clone.write().await;
                             lock.status = "failed".to_string();
@@ -325,12 +343,14 @@ impl ProcessManager {
                 };
 
                 let pid = child.id();
+                let start_msg = format!("[ZenoPanel] Process started with PID {:?}", pid);
+                append_log_line(&id, &start_msg);
                 {
                     let mut lock = state_arc_clone.write().await;
                     lock.status = "running".to_string();
                     lock.pid = pid;
                     lock.exit_code = None;
-                    lock.logs.push_back(format!("[ZenoPanel] Process started with PID {:?}", pid));
+                    lock.logs.push_back(start_msg);
                     if lock.logs.len() > 1000 {
                         lock.logs.pop_front();
                     }
@@ -340,10 +360,12 @@ impl ProcessManager {
                 let stdout = child.stdout.take().unwrap();
                 let stderr = child.stderr.take().unwrap();
 
+                let proc_id_stdout = id.clone();
                 let state_ref_for_stdout = state_arc_clone.clone();
                 tokio::spawn(async move {
                     let mut reader = BufReader::new(stdout).lines();
                     while let Ok(Some(line)) = reader.next_line().await {
+                        append_log_line(&proc_id_stdout, &line);
                         let mut lock = state_ref_for_stdout.write().await;
                         lock.logs.push_back(line);
                         if lock.logs.len() > 1000 {
@@ -352,10 +374,12 @@ impl ProcessManager {
                     }
                 });
 
+                let proc_id_stderr = id.clone();
                 let state_ref_for_stderr = state_arc_clone.clone();
                 tokio::spawn(async move {
                     let mut reader = BufReader::new(stderr).lines();
                     while let Ok(Some(line)) = reader.next_line().await {
+                        append_log_line(&proc_id_stderr, &line);
                         let mut lock = state_ref_for_stderr.write().await;
                         lock.logs.push_back(line);
                         if lock.logs.len() > 1000 {
@@ -373,11 +397,14 @@ impl ProcessManager {
                             Err(_) => None,
                         };
 
+                        let exit_msg = format!("[ZenoPanel] Process exited with code {:?}", exit_code);
+                        append_log_line(&id, &exit_msg);
+
                         let mut lock = state_arc_clone.write().await;
                         lock.status = if exit_code == Some(0) { "stopped".to_string() } else { "failed".to_string() };
                         lock.pid = None;
                         lock.exit_code = exit_code;
-                        lock.logs.push_back(format!("[ZenoPanel] Process exited with code {:?}", exit_code));
+                        lock.logs.push_back(exit_msg);
                         if lock.logs.len() > 1000 {
                             lock.logs.pop_front();
                         }
@@ -396,11 +423,14 @@ impl ProcessManager {
                     }
                     _ = &mut stop_rx => {
                         // Kill the process group / process
+                        let stop_msg = "[ZenoPanel] Process stopped by user".to_string();
+                        append_log_line(&id, &stop_msg);
+
                         let mut lock = state_arc_clone.write().await;
                         lock.status = "stopped".to_string();
                         lock.pid = None;
                         lock.exit_code = None;
-                        lock.logs.push_back("[ZenoPanel] Process stopped by user".to_string());
+                        lock.logs.push_back(stop_msg);
                         if lock.logs.len() > 1000 {
                             lock.logs.pop_front();
                         }
@@ -469,10 +499,25 @@ impl ProcessManager {
     }
 
     pub async fn list_processes(&self) -> Vec<ProcessInfo> {
+        let mut sys = self.sys.lock().await;
+        sys.refresh_processes();
+
         let procs = self.processes.read().await;
         let mut list = Vec::new();
         for state_arc in procs.values() {
             let state = state_arc.read().await;
+            
+            let mut cpu_usage = 0.0;
+            let mut memory_usage = 0.0;
+            
+            if let Some(pid_val) = state.pid {
+                let sys_pid = sysinfo::Pid::from(pid_val as usize);
+                if let Some(proc) = sys.process(sys_pid) {
+                    cpu_usage = proc.cpu_usage();
+                    memory_usage = (proc.memory() as f64) / 1024.0 / 1024.0; // convert bytes to MB
+                }
+            }
+
             list.push(ProcessInfo {
                 id: state.id.clone(),
                 name: state.name.clone(),
@@ -483,8 +528,20 @@ impl ProcessManager {
                 status: state.status.clone(),
                 pid: state.pid,
                 exit_code: state.exit_code,
+                cpu_usage,
+                memory_usage,
             });
         }
         list
+    }
+
+    pub async fn get_process_status(&self, id: &str) -> Option<String> {
+        let procs = self.processes.read().await;
+        if let Some(state_arc) = procs.get(id) {
+            let state = state_arc.read().await;
+            Some(state.status.clone())
+        } else {
+            None
+        }
     }
 }
