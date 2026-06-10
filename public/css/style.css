@@ -84,3 +84,29 @@ body {
     box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
     border-color: var(--primary-color);
 }
+
+    .modal-content {
+        max-height: 90vh;            /* Membatasi tinggi modal maksimal 90% dari tinggi layar browser */
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;            /* Menyembunyikan pecahan konten luar */
+    }
+    
+    /* Membuat area form di dalam modal menjadi scrollable jika isinya terlalu panjang */
+    .modal-content form, 
+    .modal-body {
+        flex-grow: 1;
+        overflow-y: auto;            /* Memunculkan scrollbar vertikal otomatis hanya saat dibutuhkan */
+        padding-right: 8px;          /* Memberi ruang agar scrollbar tidak menutupi input */
+    }
+
+    /* Opsional: Mempercantik tampilan scrollbar di dalam modal */
+    .modal-content form::-webkit-scrollbar,
+    .modal-body::-webkit-scrollbar {
+        width: 6px;
+    }
+    .modal-content form::-webkit-scrollbar-thumb,
+    .modal-body::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+    }
