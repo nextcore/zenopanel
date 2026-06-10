@@ -1,0 +1,37 @@
+# 13. Service Manager - Status API
+http.get: '/api/services' {
+    system.service_status: 'docker' { as: $docker_status }
+    system.service_status: 'nginx' { as: $nginx_status }
+    system.service_status: 'mysql' { as: $mysql_status }
+    system.service_status: 'postgresql' { as: $postgres_status }
+    
+    http.ok: {
+        data: {
+            docker: $docker_status
+            nginx: $nginx_status
+            mysql: $mysql_status
+            postgresql: $postgres_status
+        }
+    }
+}
+
+# 14. Service Manager - Control Action API
+http.post: '/api/services/control' {
+    http.json_body: { as: $body }
+    var: $service { val: $body.service }
+    var: $action { val: $body.action }
+    
+    system.service_control: $service {
+        action: $action
+        as: $res
+    }
+    
+    if: $res.success {
+        then: {
+            http.ok: { message: "Aksi service berhasil dijalankan" }
+        }
+        else: {
+            http.bad_request: { message: $res.error }
+        }
+    }
+}

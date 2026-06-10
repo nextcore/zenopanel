@@ -1,0 +1,113 @@
+<!-- Modal Code Editor Dialog -->
+<div class="modal-overlay" id="editor-modal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title" id="editor-modal-filename">Editing File</div>
+            <div class="modal-close" onclick="closeEditorModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <textarea class="editor-textarea" id="editor-textarea-field" autocomplete="off"></textarea>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-action" onclick="closeEditorModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="saveActiveFile()">
+                <i class="fa-solid fa-save"></i>
+                <span>Save Changes</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Process Modal -->
+<div class="modal-overlay" id="add-proc-modal">
+    <div class="modal-card" style="max-width:550px;">
+        <div class="modal-header">
+            <div class="modal-title" id="modal-proc-title">Add Managed Process</div>
+            <div class="modal-close" onclick="closeAddProcessModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="proc-id-val" value="">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Process Name</label>
+                <input type="text" id="proc-name" placeholder="e.g. node-app" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Command</label>
+                <input type="text" id="proc-command" placeholder="e.g. node server.js" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Working Directory</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="proc-cwd" placeholder="e.g. /home/user/app (default: .)" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="openDirPicker()" style="padding:0 15px; display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-folder-open"></i> Browse
+                    </button>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Environment Variables (JSON Format)</label>
+                <textarea id="proc-env" placeholder='e.g. { "PORT": "8000", "NODE_ENV": "production" }' rows="3" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family:monospace; resize:vertical;"></textarea>
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                <input type="checkbox" id="proc-autorestart" checked style="cursor:pointer; width:16px; height:16px;">
+                <label for="proc-autorestart" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Auto Restart on Crash / Exit</label>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddProcessModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-proc-submit" onclick="submitAddProcess()">Add Process</button>
+        </div>
+    </div>
+</div>
+
+<!-- Directory Picker Modal -->
+<div class="modal-overlay" id="dir-picker-modal" style="z-index: 1000;">
+    <div class="modal-card" style="max-width:500px; display:flex; flex-direction:column; max-height:80vh;">
+        <div class="modal-header">
+            <div class="modal-title">Select Working Directory</div>
+            <div class="modal-close" onclick="closeDirPicker()">&times;</div>
+        </div>
+        <div class="modal-body" style="overflow-y:auto; flex-grow:1; padding:15px 0;">
+            <!-- Breadcrumb -->
+            <div id="dp-breadcrumb" style="padding:0 20px 10px 20px; border-bottom:1px solid var(--card-border); font-size:0.85rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+            </div>
+            <!-- Dir List -->
+            <div id="dp-dir-list" style="margin-top:10px;">
+                <!-- Rows will be injected here -->
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <div style="font-size:0.85rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">
+                Selected: <span id="dp-selected-path" style="color:var(--text-main); font-weight:bold;">.</span>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-action" onclick="closeDirPicker()">Cancel</button>
+                <button class="btn-primary-action" onclick="confirmDirSelection()">Select Directory</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Process Logs Modal -->
+<div class="modal-overlay" id="proc-logs-modal">
+    <div class="modal-card" style="max-width:850px; width:90%; padding:0; display:flex; flex-direction:column; overflow:hidden;">
+        <div class="modal-header" style="padding:15px 20px; border-bottom:1px solid var(--card-border);">
+            <div class="modal-title" id="proc-logs-title">Process Logs</div>
+            <div class="modal-close" onclick="closeProcLogsModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="padding:0; background:#0f172a; flex-grow:1; display:flex; flex-direction:column;">
+            <div class="terminal-body" id="proc-logs-viewport" style="height:450px; overflow-y:auto; font-family:var(--font-code); padding:20px; color:#f1f5f9; white-space:pre-wrap; font-size:0.85rem; line-height:1.5;">
+            </div>
+        </div>
+        <div class="modal-footer" style="padding:15px 20px; background:#0b0f19; border-top:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:8px; color:#94a3b8; font-size:0.8rem;">
+                <span class="pulse-indicator" id="log-polling-indicator"></span>
+                <span>Polling logs active</span>
+            </div>
+            <button class="btn-action" onclick="closeProcLogsModal()" style="border-color:#2e3c54; color:#94a3b8;">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Toasts -->
+<div class="toast-container" id="toast-bin"></div>

@@ -166,6 +166,46 @@ impl ProcessManager {
         Ok(id)
     }
 
+    pub async fn update_process(
+        &self,
+        id: &str,
+        name: String,
+        command: String,
+        cwd: String,
+        env: HashMap<String, String>,
+        auto_restart: bool,
+    ) -> Result<(), String> {
+        let env_str = serde_json::to_string(&env).unwrap_or_else(|_| "{}".to_string());
+        let auto_restart_int = if auto_restart { 1 } else { 0 };
+
+        sqlx::query("UPDATE managed_procs SET name = ?, command = ?, cwd = ?, env = ?, auto_restart = ? WHERE id = ?")
+            .bind(&name)
+            .bind(&command)
+            .bind(&cwd)
+            .bind(&env_str)
+            .bind(auto_restart_int)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let state_arc = {
+            let procs = self.processes.read().await;
+            procs.get(id).cloned().ok_or_else(|| "Process not found".to_string())?
+        };
+
+        {
+            let mut state = state_arc.write().await;
+            state.name = name;
+            state.command = command;
+            state.cwd = cwd;
+            state.env = env;
+            state.auto_restart = auto_restart;
+        }
+
+        Ok(())
+    }
+
     pub async fn remove_process(&self, id: &str) -> Result<(), String> {
         // Stop if running
         let _ = self.stop_process(id).await;
@@ -237,6 +277,27 @@ impl ProcessManager {
                 };
 
                 cmd.current_dir(&cwd);
+
+                // Clean ZenoPanel-specific environment variables that might pollute child processes
+                let zeno_keys = [
+                    "DB_DRIVER",
+                    "DB_HOST",
+                    "DB_USER",
+                    "DB_PASS",
+                    "DB_NAME",
+                    "DB_MAX_OPEN_CONNS",
+                    "DB_MAX_IDLE_CONNS",
+                    "APP_PORT",
+                    "APP_ENV",
+                    "JWT_SECRET",
+                    "CSRF_TOKEN",
+                ];
+                for key in &zeno_keys {
+                    if !env.contains_key(*key) {
+                        cmd.env_remove(key);
+                    }
+                }
+
                 cmd.envs(&env);
                 cmd.stdout(Stdio::piped());
                 cmd.stderr(Stdio::piped());

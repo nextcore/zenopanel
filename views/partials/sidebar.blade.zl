@@ -1,0 +1,36 @@
+<!-- Sidebar Navigation -->
+<aside>
+    <div class="brand">
+        <div class="brand-logo">Z</div>
+        <div class="brand-name">ZenoPanel</div>
+    </div>
+    <nav class="nav-menu">
+        <div class="nav-item active" data-tab="dashboard">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Dashboard</span>
+        </div>
+        <div class="nav-item" data-tab="files">
+            <i class="fa-solid fa-folder-open"></i>
+            <span>File Manager</span>
+        </div>
+        <div class="nav-item" data-tab="database">
+            <i class="fa-solid fa-database"></i>
+            <span>Database</span>
+        </div>
+        <div class="nav-item" data-tab="services">
+            <i class="fa-solid fa-server"></i>
+            <span>Services</span>
+        </div>
+        <div class="nav-item" data-tab="terminal">
+            <i class="fa-solid fa-terminal"></i>
+            <span>Command Shell</span>
+        </div>
+        <div class="nav-item" data-tab="managed">
+            <i class="fa-solid fa-gears"></i>
+            <span>Managed Procs</span>
+        </div>
+    </nav>
+    <div class="sidebar-footer">
+        &copy; 2026 ZenoPanel v1.1.2
+    </div>
+</aside>

@@ -1,0 +1,126 @@
+# 16. Managed Processes API
+http.get: '/api/managed/list' {
+    proc.list: { as: $procs }
+    http.ok: { data: $procs }
+}
+
+http.post: '/api/managed/add' {
+    http.json_body: { as: $body }
+    coalesce: $body.env {
+        default: {}
+        as: $clean_env
+    }
+    coalesce: $body.auto_restart {
+        default: true
+        as: $clean_auto_restart
+    }
+
+    proc.add: $body.name {
+        command: $body.command
+        cwd: $body.cwd
+        env: $clean_env
+        auto_restart: $clean_auto_restart
+        as: $id
+    }
+    http.ok: {
+        id: $id
+        message: "Proses managed berhasil ditambahkan"
+    }
+}
+
+http.post: '/api/managed/update' {
+    http.json_body: { as: $body }
+    coalesce: $body.env {
+        default: {}
+        as: $clean_env
+    }
+    coalesce: $body.auto_restart {
+        default: true
+        as: $clean_auto_restart
+    }
+
+    proc.update: $body.id {
+        name: $body.name
+        command: $body.command
+        cwd: $body.cwd
+        env: $clean_env
+        auto_restart: $clean_auto_restart
+        as: $success
+    }
+    if: $success {
+        then: {
+            http.ok: { message: "Proses managed berhasil diperbarui" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}
+
+http.post: '/api/managed/start' {
+    http.json_body: { as: $body }
+    proc.start: $body.id { as: $success }
+    if: $success {
+        then: {
+            http.ok: { message: "Proses managed berhasil dijalankan" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}
+
+http.post: '/api/managed/stop' {
+    http.json_body: { as: $body }
+    proc.stop: $body.id { as: $success }
+    debug.print: $success
+    if: $success {
+        then: {
+            http.ok: { message: "Proses managed berhasil dihentikan" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}
+
+http.post: '/api/managed/restart' {
+    http.json_body: { as: $body }
+    proc.restart: $body.id { as: $success }
+    if: $success {
+        then: {
+            http.ok: { message: "Proses managed berhasil direstart" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}
+
+http.post: '/api/managed/delete' {
+    http.json_body: { as: $body }
+    proc.delete: $body.id { as: $success }
+    if: $success {
+        then: {
+            http.ok: { message: "Proses managed berhasil dihapus" }
+        }
+        else: {
+            http.bad_request: { message: $error }
+        }
+    }
+}
+
+http.get: '/api/managed/logs' {
+    http.query: 'id' { as: $proc_id }
+    http.query: 'lines' { as: $lines_param }
+    coalesce: $lines_param {
+        default: '100'
+        as: $lines_str
+    }
+    cast.to_int: $lines_str { as: $lines }
+    proc.logs: $proc_id {
+        lines: $lines
+        as: $logs
+    }
+    http.ok: { data: $logs }
+}

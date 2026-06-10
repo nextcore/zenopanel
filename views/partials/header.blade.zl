@@ -1,0 +1,16 @@
+<header>
+    <div class="header-left">
+        <h1 id="page-title">Dashboard</h1>
+        <div class="system-pill-container" id="sys-pills">
+            <!-- Dynamic Pill Details -->
+            <div class="system-pill"><i class="fa-solid fa-desktop"></i> <span id="sys-os">Scanning...</span></div>
+            <div class="system-pill"><i class="fa-solid fa-clock"></i> <span id="sys-uptime">Uptime: --</span></div>
+        </div>
+    </div>
+    <div class="header-right">
+        <button class="btn-action" onclick="refreshCurrentTab()">
+            <i class="fa-solid fa-rotate"></i>
+            <span>Refresh</span>
+        </button>
+    </div>
+</header>

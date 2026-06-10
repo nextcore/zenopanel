@@ -1,0 +1,13 @@
+# 15. Web Terminal - Run Shell Command API
+http.post: '/api/terminal/run' {
+    http.json_body: { as: $body }
+    var: $command { val: $body.command }
+    
+    system.exec: $command { as: $res }
+    http.ok: {
+        stdout: $res.stdout
+        stderr: $res.stderr
+        exit_code: $res.exit_code
+        success: $res.success
+    }
+}

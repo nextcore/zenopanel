@@ -1,0 +1,56 @@
+# 11. Database Explorer - Tables List API
+http.get: '/api/database/tables' {
+    system.env: 'DB_DRIVER' { as: $driver_env }
+    coalesce: $driver_env {
+        default: 'mysql'
+        as: $driver
+    }
+    
+    var: $query { val: "SHOW TABLES" }
+    if: "$driver == 'sqlite'" {
+        then: {
+            var: $query { val: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'" }
+        }
+    }
+    if: "$driver == 'postgres' || $driver == 'postgresql'" {
+        then: {
+            var: $query { val: "SELECT table_name as name FROM information_schema.tables WHERE table_schema='public'" }
+        }
+    }
+    if: "$driver == 'sqlserver' || $driver == 'mssql'" {
+        then: {
+            var: $query { val: "SELECT table_name as name FROM information_schema.tables WHERE table_type='BASE TABLE'" }
+        }
+    }
+    
+    db.select: $query { as: $tables }
+    http.ok: {
+        data: $tables
+        driver: $driver
+    }
+}
+
+# 12. Database Explorer - Execute SQL Query API
+http.post: '/api/database/query' {
+    http.json_body: { as: $body }
+    var: $sql { val: $body.sql }
+    var: $is_select { val: $body.is_select }
+    
+    if: $is_select {
+        then: {
+            db.select: $sql { as: $rows }
+            http.ok: {
+                data: $rows
+                type: 'select'
+            }
+        }
+        else: {
+            db.execute: $sql
+            http.ok: {
+                affected: $db_affected
+                last_id: $db_last_id
+                type: 'execute'
+            }
+        }
+    }
+}

@@ -1,0 +1,26 @@
+<!-- 6. MANAGED PROCESSES TAB -->
+<div class="viewport" id="tab-managed">
+    <div class="card" style="margin-top:0;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:15px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-gears" style="color:var(--accent-primary);"></i> Managed Processes</h3>
+            <button class="btn-primary-action" onclick="openAddProcessModal()"><i class="fa-solid fa-plus"></i> Add Process</button>
+        </div>
+        <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Command</th>
+                        <th>Directory</th>
+                        <th>Status</th>
+                        <th>PID</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="managed-table-body">
+                    <!-- Populated dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

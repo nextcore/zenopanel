@@ -1,0 +1,137 @@
+<!-- 1. DASHBOARD TAB -->
+<div class="viewport active" id="tab-dashboard">
+    <!-- Diagnostic circular metrics -->
+    <div class="stats-grid">
+        <div class="glass-card gauge-cpu">
+            <div class="gauge-container">
+                <div class="gauge-info">
+                    <span class="gauge-label">CPU Usage</span>
+                    <span class="gauge-value" id="cpu-val">0%</span>
+                    <span class="gauge-subtext" id="cpu-cores">-- Cores</span>
+                </div>
+                <div class="gauge-chart-circle">
+                    <svg>
+                        <circle class="bg-ring" cx="35" cy="35" r="32"></circle>
+                        <circle class="progress-ring" id="cpu-ring" cx="35" cy="35" r="32"></circle>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card gauge-ram">
+            <div class="gauge-container">
+                <div class="gauge-info">
+                    <span class="gauge-label">RAM Usage</span>
+                    <span class="gauge-value" id="ram-val">0%</span>
+                    <span class="gauge-subtext" id="ram-sub">-- / -- GB</span>
+                </div>
+                <div class="gauge-chart-circle">
+                    <svg>
+                        <circle class="bg-ring" cx="35" cy="35" r="32"></circle>
+                        <circle class="progress-ring" id="ram-ring" cx="35" cy="35" r="32"></circle>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card gauge-disk">
+            <div class="gauge-container">
+                <div class="gauge-info">
+                    <span class="gauge-label">Disk Storage</span>
+                    <span class="gauge-value" id="disk-val">0%</span>
+                    <span class="gauge-subtext" id="disk-sub">-- / -- GB</span>
+                </div>
+                <div class="gauge-chart-circle">
+                    <svg>
+                        <circle class="bg-ring" cx="35" cy="35" r="32"></circle>
+                        <circle class="progress-ring" id="disk-ring" cx="35" cy="35" r="32"></circle>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card">
+            <div class="gauge-container">
+                <div class="gauge-info">
+                    <span class="gauge-label">Network Traffic</span>
+                    <div style="font-size:0.95rem; font-weight:600; margin-top:4px; display:flex; flex-direction:column; gap:2px;">
+                        <span><i class="fa-solid fa-arrow-down" style="color:var(--success)"></i> Down: <span id="net-rx-val">0 KB/s</span></span>
+                        <span><i class="fa-solid fa-arrow-up" style="color:var(--accent-primary)"></i> Up: <span id="net-tx-val">0 KB/s</span></span>
+                    </div>
+                    <span class="gauge-subtext" style="margin-top:2px;">All interfaces active</span>
+                </div>
+                <div style="font-size: 2.2rem; opacity: 0.15; padding-right:10px;">
+                    <i class="fa-solid fa-network-wired"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Real-time Chart and Process Monitor -->
+    <div class="dashboard-main-grid">
+        <!-- Line Chart Card -->
+        <div class="glass-card">
+            <div class="panel-title">
+                <i class="fa-solid fa-chart-area"></i>
+                <span>System Performance History</span>
+            </div>
+            <div style="position: relative; height: 320px; width: 100%;">
+                <canvas id="performanceChart"></canvas>
+            </div>
+        </div>
+
+        <!-- CPU Model Info Card -->
+        <div class="glass-card" style="display:flex; flex-direction:column; justify-content:space-between;">
+            <div>
+                <div class="panel-title">
+                    <i class="fa-solid fa-microchip"></i>
+                    <span>Processor Details</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:12px; font-size:0.85rem; margin-top:10px;">
+                    <div>
+                        <div style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase;">Model</div>
+                        <div style="font-weight:600; line-height:1.4;" id="cpu-model-name">Scanning...</div>
+                    </div>
+                    <div>
+                        <div style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase;">Architecture</div>
+                        <div style="font-weight:600;" id="cpu-arch">--</div>
+                    </div>
+                    <div>
+                        <div style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase;">Host Target</div>
+                        <div style="font-weight:600;" id="sys-host">--</div>
+                    </div>
+                </div>
+            </div>
+            <div style="background:rgba(255,255,255,0.02); border-radius:8px; padding:12px; margin-top:20px; border:1px solid rgba(255,255,255,0.03); font-size:0.8rem; line-height:1.4;">
+                <span style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> System healthy.</span> ZenoEngine process monitoring enabled.
+            </div>
+        </div>
+    </div>
+
+    <!-- Processes list -->
+    <div class="glass-card">
+        <div class="panel-title" style="margin-bottom:12px;">
+            <i class="fa-solid fa-list-check"></i>
+            <span>Top Running Processes</span>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>PID</th>
+                        <th>Command</th>
+                        <th>CPU %</th>
+                        <th>Memory %</th>
+                        <th>Status</th>
+                        <th style="text-align:right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="process-table-body">
+                    <tr>
+                        <td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted)">Scanning system processes...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

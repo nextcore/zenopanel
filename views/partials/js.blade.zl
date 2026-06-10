@@ -1,0 +1,1572 @@
+<script>
+    // Tab Navigation state
+    let currentTab = 'dashboard';
+    let sysStatsInterval = null;
+    let performanceChart = null;
+    
+    // Navigation items
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const tab = item.getAttribute('data-tab');
+            switchTab(tab);
+        });
+    });
+
+    function switchTab(tab) {
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.viewport').forEach(el => el.classList.remove('active'));
+
+        const activeBtn = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+        if (activeBtn) activeBtn.classList.add('active');
+
+        const activeViewport = document.getElementById(`tab-${tab}`);
+        if (activeViewport) activeViewport.classList.add('active');
+
+        currentTab = tab;
+        document.getElementById('page-title').innerText = tab.charAt(0).toUpperCase() + tab.slice(1);
+
+        // Tab initialization routines
+        if (tab === 'dashboard') {
+            loadSystemStats();
+            startStatsPolling();
+        } else {
+            stopStatsPolling();
+        }
+
+        if (tab === 'files') {
+            loadFilesList(currentFilePath);
+        }
+
+        if (tab === 'database') {
+            loadDatabaseTables();
+        }
+
+        if (tab === 'services') {
+            loadServicesStatus();
+        }
+
+        if (tab === 'terminal') {
+            setTimeout(focusTerminalInput, 50);
+        }
+
+        if (tab === 'managed') {
+            loadManagedProcesses();
+            startManagedPolling();
+        } else {
+            stopManagedPolling();
+        }
+    }
+
+    // Global refresh trigger
+    function refreshCurrentTab() {
+        switchTab(currentTab);
+        showToast('success', 'Refreshed tab data successfully');
+    }
+
+    // Retrieve CSRF token
+    function getCSRFToken() {
+        const tokenEl = document.querySelector('input[name="_token"]') || document.querySelector('input[name="gorilla.csrf.Token"]');
+        return tokenEl ? tokenEl.value : '';
+    }
+
+    // --- DASHBOARD AND DIAGNOSTICS CODE ---
+    const cpuRing = document.getElementById('cpu-ring');
+    const ramRing = document.getElementById('ram-ring');
+    const diskRing = document.getElementById('disk-ring');
+
+    function setRingProgress(ring, pct) {
+        const radius = ring.r.baseVal.value;
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference - (pct / 100) * circumference;
+        ring.style.strokeDashoffset = offset;
+    }
+
+    let chartDataPoints = { labels: [], cpu: [], ram: [] };
+    
+    function initPerformanceChart() {
+        const ctx = document.getElementById('performanceChart').getContext('2d');
+        
+        // Build gradient color
+        const cpuGrad = ctx.createLinearGradient(0, 0, 0, 300);
+        cpuGrad.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+        cpuGrad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+        const ramGrad = ctx.createLinearGradient(0, 0, 0, 300);
+        ramGrad.addColorStop(0, 'rgba(168, 85, 247, 0.4)');
+        ramGrad.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+
+        performanceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartDataPoints.labels,
+                datasets: [
+                    {
+                        label: 'CPU Usage %',
+                        data: chartDataPoints.cpu,
+                        borderColor: '#3b82f6',
+                        borderWidth: 2,
+                        backgroundColor: cpuGrad,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4
+                    },
+                    {
+                        label: 'RAM Usage %',
+                        data: chartDataPoints.ram,
+                        borderColor: '#a855f7',
+                        borderWidth: 2,
+                        backgroundColor: ramGrad,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#64748b', font: { size: 10 } }
+                    },
+                    y: {
+                        min: 0,
+                        max: 100,
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: { color: '#64748b', font: { size: 10 } }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#f1f5f9', font: { size: 11 } }
+                    }
+                }
+            }
+        });
+    }
+
+    function updatePerformanceChart(cpuPct, ramPct) {
+        if (!performanceChart) return;
+
+        const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        chartDataPoints.labels.push(now);
+        chartDataPoints.cpu.push(cpuPct);
+        chartDataPoints.ram.push(ramPct);
+
+        if (chartDataPoints.labels.length > 15) {
+            chartDataPoints.labels.shift();
+            chartDataPoints.cpu.shift();
+            chartDataPoints.ram.shift();
+        }
+
+        performanceChart.update();
+    }
+
+    // Stats history trackers
+    let lastRxBytes = 0;
+    let lastTxBytes = 0;
+    let lastNetCheckTime = 0;
+
+    function loadSystemStats() {
+        fetch('/api/stats')
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    const s = res.data;
+                    
+                    // Update values
+                    document.getElementById('cpu-val').innerText = s.cpu.toFixed(1) + '%';
+                    setRingProgress(cpuRing, s.cpu);
+
+                    document.getElementById('ram-val').innerText = s.mem_pct.toFixed(1) + '%';
+                    setRingProgress(ramRing, s.mem_pct);
+                    document.getElementById('ram-sub').innerText = (s.mem_used / (1024*1024*1024)).toFixed(2) + ' / ' + (s.mem_total / (1024*1024*1024)).toFixed(2) + ' GB';
+
+                    document.getElementById('disk-val').innerText = s.disk_pct.toFixed(1) + '%';
+                    setRingProgress(diskRing, s.disk_pct);
+                    document.getElementById('disk-sub').innerText = (s.disk_used / (1024*1024*1024)).toFixed(1) + ' / ' + (s.disk_total / (1024*1024*1024)).toFixed(1) + ' GB';
+
+                    // Net speed calculations
+                    const now = Date.now();
+                    if (lastNetCheckTime > 0) {
+                        const timeSec = (now - lastNetCheckTime) / 1000;
+                        const rxDiff = s.net_rx - lastRxBytes;
+                        const txDiff = s.net_tx - lastTxBytes;
+
+                        const rxSpeedKB = (rxDiff / 1024) / timeSec;
+                        const txSpeedKB = (txDiff / 1024) / timeSec;
+
+                        document.getElementById('net-rx-val').innerText = formatSpeed(rxSpeedKB);
+                        document.getElementById('net-tx-val').innerText = formatSpeed(txSpeedKB);
+                    }
+
+                    lastRxBytes = s.net_rx;
+                    lastTxBytes = s.net_tx;
+                    lastNetCheckTime = now;
+
+                    // Update chart
+                    updatePerformanceChart(s.cpu, s.mem_pct);
+                }
+            })
+            .catch(err => console.error("Error polling system stats:", err));
+    }
+
+    function formatSpeed(speedKB) {
+        if (speedKB > 1024) {
+            return (speedKB / 1024).toFixed(1) + ' MB/s';
+        }
+        return speedKB.toFixed(1) + ' KB/s';
+    }
+
+    function loadStaticSystemInfo() {
+        fetch('/api/info')
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    const d = res.data;
+                    document.getElementById('sys-os').innerText = d.os;
+                    document.getElementById('sys-uptime').innerText = 'Uptime: ' + d.uptime;
+                    document.getElementById('cpu-cores').innerText = d.cores + ' Cores';
+                    document.getElementById('cpu-model-name').innerText = d.cpu_model;
+                    document.getElementById('cpu-arch').innerText = d.arch;
+                    document.getElementById('sys-host').innerText = d.hostname;
+                }
+            })
+            .catch(err => console.error(err));
+    }
+
+    // Load processes list
+    function loadProcesses() {
+        fetch('/api/processes?limit=15')
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    const tbody = document.getElementById('process-table-body');
+                    tbody.innerHTML = '';
+                    res.data.forEach(p => {
+                        const tr = document.createElement('tr');
+                        
+                        // Determine badge state
+                        let stateClass = 'badge-sleeping';
+                        let stateLabel = 'Sleeping';
+                        if (p.status === 'R') { stateClass = 'badge-running'; stateLabel = 'Running'; }
+                        if (p.status === 'T') { stateClass = 'badge-stopped'; stateLabel = 'Stopped'; }
+
+                        tr.innerHTML = `
+                            <td style="font-family:var(--font-code); font-weight:600;">${p.pid}</td>
+                            <td style="font-family:var(--font-code); max-width:240px; overflow:hidden; text-overflow:ellipsis;" title="${p.name}">${p.name}</td>
+                            <td>${p.cpu.toFixed(1)}%</td>
+                            <td>${p.memory.toFixed(1)}%</td>
+                            <td><span class="badge ${stateClass}">${stateLabel}</span></td>
+                            <td style="text-align:right;">
+                                <button class="btn-icon" onclick="killProcess(${p.pid})" title="Kill process">
+                                    <i class="fa-solid fa-skull"></i>
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+            })
+            .catch(err => console.error("Error loading processes:", err));
+    }
+
+    function killProcess(pid) {
+        if (confirm(`Apakah Anda yakin ingin mematikan paksa (SIGKILL) proses dengan PID: ${pid}?`)) {
+            fetch('/api/processes/kill', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ pid: pid })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message || 'Proses berhasil dihentikan');
+                    loadProcesses();
+                } else {
+                    showToast('error', res.message || 'Gagal mematikan proses');
+                }
+            })
+            .catch(err => {
+                showToast('error', 'Gagal memanggil API: ' + err.toString());
+            });
+        }
+    }
+
+    function startStatsPolling() {
+        if (!sysStatsInterval) {
+            loadSystemStats();
+            loadProcesses();
+            sysStatsInterval = setInterval(() => {
+                loadSystemStats();
+                loadProcesses();
+            }, 3000);
+        }
+    }
+
+    function stopStatsPolling() {
+        if (sysStatsInterval) {
+            clearInterval(sysStatsInterval);
+            sysStatsInterval = null;
+        }
+    }
+
+    // --- FILE MANAGER CODE ---
+    let currentFilePath = '.';
+    let activeEditorPath = '';
+    let fmCurrentData = [];       // cached file list for re-sort
+    let fmSortKey   = 'name';     // active sort column
+    let fmSortAsc   = true;       // ascending = true
+
+    // ---- Sort helpers ----
+    function setSortBy(key) {
+        if (fmSortKey === key) {
+            fmSortAsc = !fmSortAsc;   // toggle direction
+        } else {
+            fmSortKey = key;
+            // Default direction: asc for name/type, desc for size/time
+            fmSortAsc = (key === 'name' || key === 'type');
+        }
+        updateSortHeaders();
+        renderFileRows(fmCurrentData);
+    }
+
+    function updateSortHeaders() {
+        const cols = { name: 'th-name', size: 'th-size', type: 'th-type', mod_time: 'th-mod' };
+        const icons = { name: 'fa-sort', size: 'fa-sort', type: 'fa-sort', mod_time: 'fa-sort' };
+        Object.entries(cols).forEach(([k, id]) => {
+            const th = document.getElementById(id);
+            if (!th) return;
+            th.classList.remove('sort-asc', 'sort-desc');
+            const icon = th.querySelector('.sort-icon');
+            if (k === fmSortKey) {
+                th.classList.add(fmSortAsc ? 'sort-asc' : 'sort-desc');
+                if (icon) {
+                    icon.className = `fa-solid ${fmSortAsc ? 'fa-sort-up' : 'fa-sort-down'} sort-icon`;
+                }
+            } else {
+                if (icon) icon.className = 'fa-solid fa-sort sort-icon';
+            }
+        });
+    }
+
+    function sortData(data) {
+        return [...data].sort((a, b) => {
+            // Folders always first
+            if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+
+            let va, vb;
+            if (fmSortKey === 'name')     { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
+            else if (fmSortKey === 'size') { va = a.size; vb = b.size; }
+            else if (fmSortKey === 'type') { va = a.is_dir ? 'dir' : a.name.split('.').pop().toLowerCase(); vb = b.is_dir ? 'dir' : b.name.split('.').pop().toLowerCase(); }
+            else if (fmSortKey === 'mod_time') { va = a.mod_time; vb = b.mod_time; }
+            else { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
+
+            if (va < vb) return fmSortAsc ? -1 : 1;
+            if (va > vb) return fmSortAsc ?  1 : -1;
+            return 0;
+        });
+    }
+
+    function renderFileRows(data) {
+        const tbody = document.getElementById('files-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        const sorted = sortData(data);
+        sorted.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.className = 'clickable-row';
+
+            let iconClass = 'fa-solid fa-file file';
+            if (item.is_dir) {
+                iconClass = 'fa-solid fa-folder folder';
+            } else if (item.name.endsWith('.zl') || item.name.endsWith('.html') || item.name.endsWith('.json') || item.name.endsWith('.go') || item.name.endsWith('.css') || item.name.endsWith('.js')) {
+                iconClass = 'fa-solid fa-file-code code';
+            } else if (item.name.endsWith('.zip') || item.name.endsWith('.tar') || item.name.endsWith('.gz') || item.name.endsWith('.7z')) {
+                iconClass = 'fa-solid fa-file-zipper zip';
+            }
+
+            const sizeText = item.is_dir ? '-' : formatBytes(item.size);
+            const itemPath = currentFilePath === '.' ? item.name :
+                             currentFilePath === '/' ? '/' + item.name :
+                             currentFilePath + '/' + item.name;
+            const isZip = item.name.endsWith('.zip') || item.name.endsWith('.tar.gz') || item.name.endsWith('.7z');
+            const typeText = item.is_dir ? 'Directory' : (item.name.includes('.') ? item.name.split('.').pop().toUpperCase() : 'File');
+
+            tr.innerHTML = `
+                <td style="width:36px;" onclick="event.stopPropagation()">
+                    <input type="checkbox" class="fm-row-check" data-path="${itemPath}" onchange="onRowCheckChange()">
+                </td>
+                <td>
+                    <i class="${iconClass} file-icon"></i>
+                    <span>${item.name}</span>
+                </td>
+                <td>${sizeText}</td>
+                <td>${typeText}</td>
+                <td>${new Date(item.mod_time).toLocaleString()}</td>
+                <td style="text-align:right;">
+                    ${!item.is_dir ? `<button class="btn-icon" style="color:var(--accent-primary)" onclick="editFile('${itemPath}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
+                    <button class="btn-icon" style="color:var(--success)" onclick="archiveFile('${itemPath}')" title="Compress to ZIP"><i class="fa-solid fa-file-zipper"></i></button>
+                    ${isZip ? `<button class="btn-icon" style="color:var(--warning)" onclick="extractFile('${itemPath}')" title="Extract Archive"><i class="fa-solid fa-folder-open"></i></button>` : ''}
+                    <button class="btn-icon" style="color:var(--danger)" onclick="deleteFile('${itemPath}')" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+                </td>
+            `;
+
+            tr.onclick = (e) => {
+                if (e.target.type === 'checkbox') return;
+                if (e.target.tagName !== 'BUTTON' && e.target.parentElement.tagName !== 'BUTTON' && e.target.tagName !== 'I') {
+                    if (item.is_dir) loadFilesList(itemPath);
+                    else editFile(itemPath);
+                }
+            };
+
+            tbody.appendChild(tr);
+        });
+    }
+
+
+    function updateBulkBar() {
+        const checked = document.querySelectorAll('.fm-row-check:checked');
+        const bar = document.getElementById('fm-bulk-bar');
+        const count = document.getElementById('fm-bulk-count');
+        if (checked.length > 0) {
+            bar.style.display = 'flex';
+            count.textContent = checked.length + ' dipilih';
+        } else {
+            bar.style.display = 'none';
+        }
+        const all = document.querySelectorAll('.fm-row-check');
+        const selectAll = document.getElementById('fm-select-all');
+        if (selectAll) selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+        if (selectAll) selectAll.checked = all.length > 0 && checked.length === all.length;
+    }
+
+    function onRowCheckChange() {
+        updateBulkBar();
+    }
+
+    function toggleSelectAll(checked) {
+        document.querySelectorAll('.fm-row-check').forEach(cb => cb.checked = checked);
+        updateBulkBar();
+    }
+
+    function clearSelection() {
+        document.querySelectorAll('.fm-row-check').forEach(cb => cb.checked = false);
+        const selectAll = document.getElementById('fm-select-all');
+        if (selectAll) { selectAll.checked = false; selectAll.indeterminate = false; }
+        updateBulkBar();
+    }
+
+    function getSelectedPaths() {
+        return Array.from(document.querySelectorAll('.fm-row-check:checked')).map(cb => cb.dataset.path);
+    }
+
+    function bulkDelete() {
+        const paths = getSelectedPaths();
+        if (paths.length === 0) return;
+        if (!confirm(`Hapus ${paths.length} item yang dipilih? Tindakan ini tidak dapat dibatalkan.`)) return;
+        Promise.all(paths.map(path =>
+            fetch('/api/files/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+                body: JSON.stringify({ path })
+            }).then(r => r.json())
+        )).then(results => {
+            const failed = results.filter(r => !r.success).length;
+            if (failed > 0) {
+                showToast('error', `${failed} item gagal dihapus`);
+            } else {
+                showToast('success', `${paths.length} item berhasil dihapus`);
+            }
+            loadFilesList(currentFilePath);
+        }).catch(err => showToast('error', 'Gagal menghapus: ' + err.toString()));
+    }
+
+    function bulkArchive() {
+        const paths = getSelectedPaths();
+        if (paths.length === 0) return;
+        let defaultName = paths.length === 1 ? paths[0].split('/').pop() + '.zip' : 'archive.zip';
+        let zipName = prompt('Masukkan nama file ZIP untuk item yang dipilih:', defaultName);
+        if (!zipName) return;
+        const dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
+        const promises = paths.length === 1
+            ? [fetch('/api/files/archive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+                body: JSON.stringify({ path: paths[0], dest })
+            }).then(r => r.json())]
+            : paths.map((path, i) => {
+                const parts = dest.split('.');
+                const ext = parts.pop();
+                const destI = parts.join('.') + '_' + (i + 1) + '.' + ext;
+                return fetch('/api/files/archive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+                    body: JSON.stringify({ path, dest: destI })
+                }).then(r => r.json());
+            });
+        Promise.all(promises).then(results => {
+            showToast('success', `${results.length} archive berhasil dibuat`);
+            loadFilesList(currentFilePath);
+        }).catch(err => showToast('error', 'Gagal mengarsipkan: ' + err.toString()));
+    }
+
+    function loadFilesList(path) {
+        currentFilePath = path;
+        
+        clearSelection();
+
+        // Update path input
+        const pathInput = document.getElementById('fm-path-input');
+        if (pathInput) pathInput.value = path;
+
+        // Build Breadcrumb UI
+        const bc = document.getElementById('file-breadcrumb');
+        bc.innerHTML = '';
+
+        const isAbsolute = path.startsWith('/');
+        const parts = path.split('/').filter(x => x && x !== '.');
+
+        // Root / CWD anchor
+        let rootSpan = document.createElement('span');
+        if (isAbsolute) {
+            rootSpan.innerText = '/';
+            rootSpan.onclick = () => loadFilesList('/');
+        } else {
+            rootSpan.innerText = 'CWD';
+            rootSpan.onclick = () => loadFilesList('.');
+        }
+        bc.appendChild(rootSpan);
+
+        // Build cumulative path for each segment
+        let cumPath = isAbsolute ? '' : '.';
+        parts.forEach((p) => {
+            cumPath = isAbsolute ? (cumPath + '/' + p) : (cumPath + '/' + p);
+            const pathTarget = cumPath;
+
+            const sep = document.createElement('span');
+            sep.className = 'fm-breadcrumb-separator';
+            sep.innerText = '>';
+            bc.appendChild(sep);
+
+            const span = document.createElement('span');
+            span.innerText = p;
+            span.onclick = () => loadFilesList(pathTarget);
+            bc.appendChild(span);
+        });
+
+        // Fetch directories
+        fetch('/api/files/list?path=' + encodeURIComponent(path))
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    fmCurrentData = res.data;       // cache for sort
+                    updateSortHeaders();            // apply current sort indicator
+                    renderFileRows(fmCurrentData);  // render with current sort
+                }
+            })
+            .catch(err => showToast('error', 'Gagal memuat file: ' + err.toString()));
+    }
+
+    function goUpDirectory() {
+        const p = currentFilePath;
+        // Already at filesystem root
+        if (p === '/' || p === '') {
+            return;
+        }
+        // At CWD root (relative paths)
+        if (p === '.' || p === '') {
+            loadFilesList('.');
+            return;
+        }
+        // Absolute path: go one level up
+        if (p.startsWith('/')) {
+            const parts = p.replace(/\/+$/, '').split('/');
+            parts.pop();
+            const parent = parts.join('/') || '/';
+            loadFilesList(parent);
+            return;
+        }
+        // Relative path: go one level up, fallback to CWD
+        const parts = p.split('/');
+        parts.pop();
+        loadFilesList(parts.length > 0 ? parts.join('/') : '.');
+    }
+
+    function createFilePrompt() {
+        const name = prompt('Masukkan nama file baru:');
+        if (name) {
+            const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
+            fetch('/api/files/create-file', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ path: fullPath })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message);
+                    loadFilesList(currentFilePath);
+                } else {
+                    showToast('error', res.message);
+                }
+            })
+            .catch(err => showToast('error', 'Gagal membuat file: ' + err.toString()));
+        }
+    }
+
+    function createFolderPrompt() {
+        const name = prompt('Masukkan nama folder baru:');
+        if (name) {
+            const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
+            fetch('/api/files/create-dir', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ path: fullPath })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message);
+                    loadFilesList(currentFilePath);
+                } else {
+                    showToast('error', res.message);
+                }
+            })
+            .catch(err => showToast('error', 'Gagal membuat folder: ' + err.toString()));
+        }
+    }
+
+    function deleteFile(path) {
+        if (confirm(`Apakah Anda yakin ingin menghapus '${path}'?`)) {
+            fetch('/api/files/delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ path: path })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message);
+                    loadFilesList(currentFilePath);
+                } else {
+                    showToast('error', res.message);
+                }
+            });
+        }
+    }
+
+    // Compress file
+    function archiveFile(path) {
+        let defaultZipName = path.split('/').pop() + '.zip';
+        let zipName = prompt("Masukkan nama file ZIP tujuan kompresi:", defaultZipName);
+        if (zipName) {
+            let dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
+            
+            fetch('/api/files/archive', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ path: path, dest: dest })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message || 'Archive berhasil dibuat');
+                    loadFilesList(currentFilePath);
+                } else {
+                    showToast('error', res.message || 'Gagal membuat archive');
+                }
+            })
+            .catch(err => showToast('error', 'Gagal memanggil API: ' + err.toString()));
+        }
+    }
+
+    // Extract ZIP
+    function extractFile(path) {
+        let defaultDest = currentFilePath;
+        let dest = prompt("Masukkan folder tujuan ekstraksi:", defaultDest);
+        if (dest) {
+            fetch('/api/files/extract', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ path: path, dest: dest })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    showToast('success', res.message || 'Archive berhasil diekstrak');
+                    loadFilesList(currentFilePath);
+                } else {
+                    showToast('error', res.message || 'Gagal mengekstrak archive');
+                }
+            })
+            .catch(err => showToast('error', 'Gagal memanggil API: ' + err.toString()));
+        }
+    }
+
+
+    function editFile(path) {
+        activeEditorPath = path;
+        document.getElementById('editor-modal-filename').innerText = 'Editing: ' + path;
+        
+        fetch('/api/files/read?path=' + encodeURIComponent(path))
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    document.getElementById('editor-textarea-field').value = res.content || '';
+                    document.getElementById('editor-modal').classList.add('active');
+                } else {
+                    showToast('error', 'Gagal membaca isi file');
+                }
+            });
+    }
+
+    function closeEditorModal() {
+        document.getElementById('editor-modal').classList.remove('active');
+        activeEditorPath = '';
+    }
+
+    function saveActiveFile() {
+        const content = document.getElementById('editor-textarea-field').value;
+        fetch('/api/files/write', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ path: activeEditorPath, content: content })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                closeEditorModal();
+                loadFilesList(currentFilePath);
+            } else {
+                showToast('error', res.message);
+            }
+        });
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    // --- DATABASE EXPLORER CODE ---
+    function loadDatabaseTables() {
+        fetch('/api/database/tables')
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    const list = document.getElementById('db-tables-list');
+                    list.innerHTML = '';
+                    
+                    document.getElementById('db-driver-badge').innerText = res.driver.toUpperCase();
+
+                    if (res.data.length === 0) {
+                        list.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted); font-size:0.8rem;">No tables found.</div>';
+                        return;
+                    }
+
+                    res.data.forEach(item => {
+                        const tableName = item.name || Object.values(item)[0];
+                        const div = document.createElement('div');
+                        div.className = 'db-table-item';
+                        div.innerHTML = `<i class="fa-solid fa-table"></i> <span>${tableName}</span>`;
+                        div.onclick = () => {
+                            const q = `SELECT * FROM ${tableName} LIMIT 15;`;
+                            document.getElementById('sql-query-input').value = q;
+                            document.getElementById('sql-is-select').checked = true;
+                        };
+                        list.appendChild(div);
+                    });
+                }
+            })
+            .catch(err => {
+                document.getElementById('db-tables-list').innerHTML = '<div style="padding:16px; text-align:center; color:var(--danger); font-size:0.8rem;">Error loading tables</div>';
+            });
+    }
+
+    function runSqlQuery() {
+        const sql = document.getElementById('sql-query-input').value;
+        const isSelect = document.getElementById('sql-is-select').checked;
+
+        if (!sql.trim()) {
+            showToast('error', 'Masukkan query SQL terlebih dahulu');
+            return;
+        }
+
+        const resultsContainer = document.getElementById('db-results-container');
+        resultsContainer.innerHTML = '<div style="padding:32px; text-align:center;"><i class="fa-solid fa-spinner fa-spin" style="font-size:1.5rem; color:var(--accent-primary)"></i><p style="margin-top:10px; color:var(--text-muted)">Running query...</p></div>';
+
+        fetch('/api/database/query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ sql: sql, is_select: isSelect })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', 'Query dijalankan sukses');
+                if (res.type === 'select') {
+                    renderDbSelectResult(res.data);
+                } else {
+                    resultsContainer.innerHTML = `
+                        <div style="padding: 24px; background: rgba(16, 185, 129, 0.08); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); line-height: 1.6;">
+                            <div style="color:var(--success); font-weight:600; font-size:1rem; margin-bottom:8px;"><i class="fa-solid fa-circle-check"></i> Command SQL Berhasil Dijalankan!</div>
+                            <div style="font-size:0.85rem;">Rows Affected: <strong style="font-size:0.95rem; font-family:var(--font-code);">${res.affected}</strong></div>
+                            <div style="font-size:0.85rem;">Last Inserted ID: <strong style="font-size:0.95rem; font-family:var(--font-code);">${res.last_id}</strong></div>
+                        </div>
+                    `;
+                }
+            } else {
+                resultsContainer.innerHTML = `
+                    <div style="padding: 24px; background: rgba(239, 68, 68, 0.08); border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2); line-height: 1.5;">
+                        <div style="color:var(--danger); font-weight:600; font-size:1rem; margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> SQL Execution Failed!</div>
+                        <div style="font-family:var(--font-code); font-size:0.82rem; color:#fca5a5; word-break: break-all;">${res.message || 'Unknown database error'}</div>
+                    </div>
+                `;
+            }
+        })
+        .catch(err => {
+            resultsContainer.innerHTML = `<div style="padding:32px; text-align:center; color:var(--danger)">API request failed: ${err.toString()}</div>`;
+        });
+    }
+
+    function renderDbSelectResult(data) {
+        const container = document.getElementById('db-results-container');
+        if (!data || data.length === 0) {
+            container.innerHTML = '<div style="padding:32px; text-align:center; color:var(--text-muted)">Query completed successfully, but returned 0 rows.</div>';
+            return;
+        }
+
+        const keys = Object.keys(data[0]);
+        
+        let tableHtml = `
+            <table style="width:100%">
+                <thead>
+                    <tr>
+                        ${keys.map(k => `<th>${k}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.map(row => `
+                        <tr>
+                            ${keys.map(k => `<td>${row[k] !== null ? escapeHtml(row[k].toString()) : '<em style="opacity:0.4">NULL</em>'}</td>`).join('')}
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        container.innerHTML = tableHtml;
+    }
+
+    function escapeHtml(text) {
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // --- SERVICES MANAGER CODE ---
+    function loadServicesStatus() {
+        const container = document.getElementById('services-container');
+        container.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text-muted); grid-column: 1/-1;"><i class="fa-solid fa-spinner fa-spin"></i> Checking services...</div>';
+
+        fetch('/api/services')
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    container.innerHTML = '';
+                    
+                    const items = [
+                        { key: 'docker', name: 'Docker daemon', icon: 'fa-brands fa-docker' },
+                        { key: 'nginx', name: 'Nginx server', icon: 'fa-solid fa-globe' },
+                        { key: 'mysql', name: 'MySQL Database', icon: 'fa-solid fa-server' },
+                        { key: 'postgresql', name: 'PostgreSQL Database', icon: 'fa-solid fa-server' }
+                    ];
+
+                    items.forEach(svc => {
+                        const data = res.data[svc.key];
+                        const div = document.createElement('div');
+                        div.className = 'service-card';
+
+                        let statusClass = 'unknown';
+                        let statusLabel = 'Offline / Unavailable';
+
+                        if (data) {
+                            if (data.active) {
+                                statusClass = 'active';
+                                statusLabel = 'Active (running)';
+                            } else if (data.status === 'inactive') {
+                                statusClass = 'inactive';
+                                statusLabel = 'Inactive (dead)';
+                            } else if (data.error && data.status === 'unknown') {
+                                statusLabel = 'Not installed';
+                            } else {
+                                statusClass = 'inactive';
+                                statusLabel = data.status || 'Offline';
+                            }
+                        }
+
+                        const isInstallable = data && data.status !== 'unknown';
+
+                        div.innerHTML = `
+                            <div class="service-header">
+                                <div class="service-title">
+                                    <i class="${svc.icon} service-icon"></i>
+                                    <span>${svc.name}</span>
+                                </div>
+                                <div class="service-status-indicator">
+                                    <div class="status-dot ${statusClass}"></div>
+                                    <span style="font-size:0.75rem; color:var(--text-muted);">${statusLabel}</span>
+                                </div>
+                            </div>
+                            <div style="font-size:0.8rem; color:var(--text-muted); line-height:1.4;">
+                                Systemd service identification name: <strong style="font-family:var(--font-code); color:var(--text-main);">${svc.key}</strong>.service
+                            </div>
+                            <div class="service-actions">
+                                <button class="btn-service-control" ${!isInstallable || (data && data.active) ? 'disabled' : ''} onclick="controlService('${svc.key}', 'start')">
+                                    <i class="fa-solid fa-play"></i> Start
+                                </button>
+                                <button class="btn-service-control" ${!isInstallable || (data && !data.active) ? 'disabled' : ''} onclick="controlService('${svc.key}', 'stop')">
+                                    <i class="fa-solid fa-stop"></i> Stop
+                                </button>
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr; margin-top: -6px;">
+                                <button class="btn-service-control" ${!isInstallable ? 'disabled' : ''} onclick="controlService('${svc.key}', 'restart')">
+                                    <i class="fa-solid fa-rotate-right"></i> Restart service
+                                </button>
+                            </div>
+                        `;
+                        container.appendChild(div);
+                    });
+                }
+            })
+            .catch(err => {
+                container.innerHTML = `<div style="grid-column: 1/-1; color:var(--danger)">Error querying services: ${err.toString()}</div>`;
+            });
+    }
+
+    function controlService(service, action) {
+        showToast('warning', `Memproses service action: ${action} ${service}...`);
+        fetch('/api/services/control', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ service: service, action: action })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message || `Service ${service} ${action} berhasil`);
+                loadServicesStatus();
+            } else {
+                showToast('error', res.message || `Gagal menjalankan aksi ${action}`);
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Aksi service gagal: ' + err.toString());
+        });
+    }
+
+    // --- WEB SHELL TERMINAL CODE ---
+    const terminalHistory = [];
+    let terminalHistoryIndex = -1;
+
+    function focusTerminalInput() {
+        document.getElementById('terminal-stdin').focus();
+    }
+
+    function handleTerminalCommand(event) {
+        if (event.key === 'Enter') {
+            const inputField = document.getElementById('terminal-stdin');
+            const command = inputField.value.trim();
+            inputField.value = '';
+
+            if (!command) return;
+
+            terminalHistory.push(command);
+            terminalHistoryIndex = terminalHistory.length;
+
+            // Print command to console output viewport
+            const viewport = document.getElementById('terminal-viewport');
+            const promptLine = document.createElement('div');
+            promptLine.className = 'terminal-line';
+            promptLine.innerHTML = `<span class="terminal-prompt">root@control-panel:~#</span> ${escapeHtml(command)}`;
+            viewport.insertBefore(promptLine, inputField.parentElement);
+
+            if (command === 'clear') {
+                const lines = Array.from(viewport.querySelectorAll('.terminal-line'));
+                const outputs = Array.from(viewport.querySelectorAll('.terminal-output'));
+                lines.forEach(l => l.remove());
+                outputs.forEach(o => o.remove());
+                return;
+            }
+
+            // Send request to execute command
+            fetch('/api/terminal/run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ command: command })
+            })
+            .then(res => res.json())
+            .then(res => {
+                const resultContainer = document.createElement('div');
+                resultContainer.className = 'terminal-output';
+                
+                if (res.success) {
+                    const outText = res.stdout || 'Command completed with exit code 0';
+                    resultContainer.innerText = outText;
+                } else {
+                    const errText = res.stderr || `Command failed with exit code ${res.exit_code}`;
+                    resultContainer.innerHTML = `<span class="terminal-error">${escapeHtml(errText)}</span>`;
+                }
+                viewport.insertBefore(resultContainer, inputField.parentElement);
+                
+                viewport.scrollTop = viewport.scrollHeight;
+            })
+            .catch(err => {
+                const errLine = document.createElement('div');
+                errLine.className = 'terminal-output terminal-error';
+                errLine.innerText = 'Gagal memanggil shell execution: ' + err.toString();
+                viewport.insertBefore(errLine, inputField.parentElement);
+                viewport.scrollTop = viewport.scrollHeight;
+            });
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (terminalHistory.length > 0 && terminalHistoryIndex > 0) {
+                terminalHistoryIndex--;
+                document.getElementById('terminal-stdin').value = terminalHistory[terminalHistoryIndex];
+            }
+        } else if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (terminalHistory.length > 0 && terminalHistoryIndex < terminalHistory.length - 1) {
+                terminalHistoryIndex++;
+                document.getElementById('terminal-stdin').value = terminalHistory[terminalHistoryIndex];
+            } else {
+                terminalHistoryIndex = terminalHistory.length;
+                document.getElementById('terminal-stdin').value = '';
+            }
+        }
+    }
+
+    // --- TOAST NOTIFICATIONS CODE ---
+    function showToast(type, message) {
+        const container = document.getElementById('toast-bin');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = type === 'success' ? 'fa-solid fa-circle-check' : (type === 'warning' ? 'fa-solid fa-triangle-exclamation' : 'fa-solid fa-circle-exclamation');
+        toast.innerHTML = `<i class="${icon}"></i> <span>${message}</span>`;
+        
+        container.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'slideIn 0.3s ease reverse forwards';
+            setTimeout(() => toast.remove(), 300);
+        }, 3500);
+    }
+
+    // --- MANAGED PROCESSES TAB CODE ---
+    let managedPollingInterval = null;
+    let logPollingInterval = null;
+    let activeLogProcessId = null;
+    let allManagedProcesses = [];
+
+    function loadManagedProcesses() {
+        fetch('/api/managed/list')
+            .then(res => res.json())
+            .then(res => {
+                if (res.data) {
+                    allManagedProcesses = res.data;
+                    renderManagedProcesses(res.data);
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load managed processes:', err);
+            });
+    }
+
+    function renderManagedProcesses(processes) {
+        const tbody = document.getElementById('managed-table-body');
+        tbody.innerHTML = '';
+        
+        if (processes.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">
+                        <i class="fa-solid fa-gears" style="font-size:2rem; margin-bottom:10px; display:block; opacity:0.3;"></i>
+                        No managed processes registered yet.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        processes.forEach(proc => {
+            let statusBadge = '<span class="status-badge stopped" style="background:rgba(255,255,255,0.05); color:var(--text-muted); border:1px solid var(--card-border); padding:3px 8px; border-radius:4px; font-size:0.75rem;">Stopped</span>';
+            if (proc.status === 'running') {
+                statusBadge = '<span class="status-badge running" style="background:rgba(16,185,129,0.1); color:var(--success); border:1px solid rgba(16,185,129,0.2); padding:3px 8px; border-radius:4px; font-size:0.75rem; display:inline-flex; align-items:center; gap:6px;"><span class="pulse-indicator"></span> Running</span>';
+            } else if (proc.status === 'starting') {
+                statusBadge = '<span class="status-badge starting" style="background:rgba(245,158,11,0.1); color:#f59e0b; border:1px solid rgba(245,158,11,0.2); padding:3px 8px; border-radius:4px; font-size:0.75rem;">Starting</span>';
+            } else if (proc.status === 'failed') {
+                statusBadge = '<span class="status-badge failed" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2); padding:3px 8px; border-radius:4px; font-size:0.75rem;">Failed</span>';
+            }
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:600; color:var(--text-main);">${escapeHtml(proc.name)}</td>
+                <td style="font-family:var(--font-code); font-size:0.85rem; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(proc.command)}">${escapeHtml(proc.command)}</td>
+                <td style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(proc.cwd)}</td>
+                <td>${statusBadge}</td>
+                <td style="font-family:var(--font-code); font-size:0.85rem;">${proc.pid ? proc.pid : '-'}</td>
+                <td style="text-align:right;">
+                    <div style="display:inline-flex; gap:8px;">
+                        ${proc.status === 'running' || proc.status === 'starting' ? `
+                            <button class="btn-action" onclick="stopProcess('${proc.id}')" title="Stop Process" style="padding:4px 8px; font-size:0.75rem; color:#ef4444; border-color:rgba(239,68,68,0.2); background:rgba(239,68,68,0.05);">
+                                <i class="fa-solid fa-stop"></i> Stop
+                            </button>
+                        ` : `
+                            <button class="btn-action" onclick="startProcess('${proc.id}')" title="Start Process" style="padding:4px 8px; font-size:0.75rem; color:var(--success); border-color:rgba(16,185,129,0.2); background:rgba(16,185,129,0.05);">
+                                <i class="fa-solid fa-play"></i> Start
+                            </button>
+                        `}
+                        <button class="btn-action" onclick="restartProcess('${proc.id}')" title="Restart Process" style="padding:4px 8px; font-size:0.75rem; color:var(--accent-primary); border-color:rgba(59,130,246,0.2); background:rgba(59,130,246,0.05);">
+                            <i class="fa-solid fa-rotate-right"></i> Restart
+                        </button>
+                        <button class="btn-action" onclick="openEditProcessModal('${proc.id}')" title="Edit Process" style="padding:4px 8px; font-size:0.75rem; color:var(--warning); border-color:rgba(245,158,11,0.2); background:rgba(245,158,11,0.05);">
+                            <i class="fa-solid fa-pen-to-square"></i> Edit
+                        </button>
+                        <button class="btn-action" onclick="viewProcessLogs('${proc.id}', '${escapeHtml(proc.name)}')" title="View Logs" style="padding:4px 8px; font-size:0.75rem;">
+                            <i class="fa-solid fa-terminal"></i> Logs
+                        </button>
+                        <button class="btn-action" onclick="deleteProcess('${proc.id}')" title="Delete Process" style="padding:4px 8px; font-size:0.75rem; color:#ef4444; border-color:transparent; background:transparent;">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function startManagedPolling() {
+        if (managedPollingInterval) clearInterval(managedPollingInterval);
+        managedPollingInterval = setInterval(loadManagedProcesses, 3000);
+    }
+
+    function stopManagedPolling() {
+        if (managedPollingInterval) {
+            clearInterval(managedPollingInterval);
+            managedPollingInterval = null;
+        }
+    }
+
+    function startProcess(id) {
+        fetch('/api/managed/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ id: id })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                loadManagedProcesses();
+            } else {
+                showToast('error', res.message || 'Gagal menjalankan proses');
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
+    function stopProcess(id) {
+        fetch('/api/managed/stop', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ id: id })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                loadManagedProcesses();
+            } else {
+                showToast('error', res.message || 'Gagal menghentikan proses');
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
+    function restartProcess(id) {
+        fetch('/api/managed/restart', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ id: id })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                loadManagedProcesses();
+            } else {
+                showToast('error', res.message || 'Gagal merestart proses');
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
+    function deleteProcess(id) {
+        console.log('deleteProcess called with id:', id);
+        if (!confirm('Apakah Anda yakin ingin menghapus proses managed ini?')) {
+            console.log('deleteProcess cancelled by user');
+            return;
+        }
+        console.log('Sending delete request for id:', id);
+        fetch('/api/managed/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify({ id: id })
+        })
+        .then(res => {
+            console.log('Delete response status:', res.status);
+            return res.json();
+        })
+        .then(res => {
+            console.log('Delete response JSON:', res);
+            if (res.success) {
+                showToast('success', res.message);
+                loadManagedProcesses();
+            } else {
+                showToast('error', res.message || 'Gagal menghapus proses');
+            }
+        })
+        .catch(err => {
+            console.error('Delete request failed:', err);
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
+    let dpCurrentPath = '.';
+
+    function openDirPicker() {
+        let currentVal = document.getElementById('proc-cwd').value.trim();
+        dpCurrentPath = currentVal || '.';
+        loadDirPickerFiles();
+        document.getElementById('dir-picker-modal').classList.add('active');
+    }
+
+    function closeDirPicker() {
+        document.getElementById('dir-picker-modal').classList.remove('active');
+    }
+
+    function confirmDirSelection() {
+        document.getElementById('proc-cwd').value = dpCurrentPath;
+        closeDirPicker();
+    }
+
+    function goUpDirPicker() {
+        const p = dpCurrentPath;
+        if (p === '/' || p === '' || p === '.') {
+            return;
+        }
+        if (p.startsWith('/')) {
+            const parts = p.replace(/\/+$/, '').split('/');
+            parts.pop();
+            dpCurrentPath = parts.join('/') || '/';
+        } else {
+            const parts = p.split('/');
+            parts.pop();
+            dpCurrentPath = parts.length > 0 ? parts.join('/') : '.';
+        }
+        loadDirPickerFiles();
+    }
+
+    function loadDirPickerFiles() {
+        const bc = document.getElementById('dp-breadcrumb');
+        const dpList = document.getElementById('dp-dir-list');
+        const selectedSpan = document.getElementById('dp-selected-path');
+
+        selectedSpan.innerText = dpCurrentPath;
+
+        // Build Breadcrumb
+        bc.innerHTML = '';
+        const isAbsolute = dpCurrentPath.startsWith('/');
+        const parts = dpCurrentPath.split('/').filter(x => x && x !== '.');
+
+        let rootSpan = document.createElement('span');
+        rootSpan.innerText = isAbsolute ? '/' : 'CWD';
+        rootSpan.style.cursor = 'pointer';
+        rootSpan.style.color = 'var(--accent-primary)';
+        rootSpan.onclick = () => { dpCurrentPath = isAbsolute ? '/' : '.'; loadDirPickerFiles(); };
+        bc.appendChild(rootSpan);
+
+        let cumPath = isAbsolute ? '' : '.';
+        parts.forEach((p) => {
+            cumPath = isAbsolute ? (cumPath + '/' + p) : (cumPath + '/' + p);
+            const pathTarget = cumPath;
+
+            const sep = document.createElement('span');
+            sep.innerText = '>';
+            sep.style.margin = '0 4px';
+            bc.appendChild(sep);
+
+            const span = document.createElement('span');
+            span.innerText = p;
+            span.style.cursor = 'pointer';
+            span.style.color = 'var(--accent-primary)';
+            span.onclick = () => { dpCurrentPath = pathTarget; loadDirPickerFiles(); };
+            bc.appendChild(span);
+        });
+
+        // Load directories
+        dpList.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted);">Loading...</div>';
+
+        fetch('/api/files/list?path=' + encodeURIComponent(dpCurrentPath))
+            .then(res => res.json())
+            .then(res => {
+                dpList.innerHTML = '';
+
+                // Add parent ".." directory row if not at root
+                if (dpCurrentPath !== '.' && dpCurrentPath !== '/' && dpCurrentPath !== '') {
+                    const row = document.createElement('div');
+                    row.style = 'display:flex; align-items:center; padding:10px 20px; cursor:pointer; gap:10px; border-bottom:1px solid rgba(255,255,255,0.03);';
+                    row.innerHTML = `
+                        <i class="fa-solid fa-arrow-turn-up" style="color:var(--text-muted); transform:rotate(-90deg);"></i>
+                        <span style="color:var(--text-muted); font-size:0.9rem; font-weight:bold;">..</span>
+                    `;
+                    row.onclick = () => {
+                        goUpDirPicker();
+                    };
+                    dpList.appendChild(row);
+                }
+
+                if (res.success && res.data) {
+                    const dirs = res.data.filter(item => item.is_dir);
+                    if (dirs.length === 0) {
+                        const emptyMsg = document.createElement('div');
+                        emptyMsg.style = 'padding:20px; text-align:center; color:var(--text-muted); font-size:0.9rem;';
+                        emptyMsg.innerText = 'Tidak ada subdirektori';
+                        dpList.appendChild(emptyMsg);
+                    } else {
+                        dirs.forEach(item => {
+                            const row = document.createElement('div');
+                            row.style = 'display:flex; align-items:center; padding:10px 20px; cursor:pointer; gap:10px; border-bottom:1px solid rgba(255,255,255,0.03); transition: background 0.2s;';
+                            row.innerHTML = `
+                                <i class="fa-solid fa-folder folder" style="color:#f59e0b;"></i>
+                                <span style="color:var(--text-main); font-size:0.9rem;">${item.name}</span>
+                            `;
+                            row.onmouseover = () => { row.style.background = 'rgba(255,255,255,0.05)'; };
+                            row.onmouseout = () => { row.style.background = 'transparent'; };
+                            row.onclick = () => {
+                                dpCurrentPath = dpCurrentPath === '.' ? item.name :
+                                                dpCurrentPath === '/' ? '/' + item.name :
+                                                dpCurrentPath + '/' + item.name;
+                                loadDirPickerFiles();
+                            };
+                            dpList.appendChild(row);
+                        });
+                    }
+                } else {
+                    dpList.innerHTML = `<div style="padding:20px; text-align:center; color:var(--danger);">${res.message || 'Gagal memuat direktori'}</div>`;
+                }
+            })
+            .catch(err => {
+                dpList.innerHTML = `<div style="padding:20px; text-align:center; color:var(--danger);">Error: ${err.toString()}</div>`;
+            });
+    }
+
+    function openAddProcessModal() {
+        document.getElementById('proc-id-val').value = '';
+        document.getElementById('proc-name').value = '';
+        document.getElementById('proc-command').value = '';
+        document.getElementById('proc-cwd').value = '';
+        document.getElementById('proc-env').value = '';
+        document.getElementById('proc-autorestart').checked = true;
+
+        document.getElementById('modal-proc-title').innerText = 'Add Managed Process';
+        document.getElementById('btn-proc-submit').innerText = 'Add Process';
+        
+        const modal = document.getElementById('add-proc-modal');
+        modal.classList.add('active');
+    }
+
+    function openEditProcessModal(id) {
+        const proc = allManagedProcesses.find(p => p.id === id);
+        if (!proc) return;
+
+        document.getElementById('proc-id-val').value = proc.id;
+        document.getElementById('proc-name').value = proc.name;
+        document.getElementById('proc-command').value = proc.command;
+        document.getElementById('proc-cwd').value = proc.cwd;
+        document.getElementById('proc-env').value = JSON.stringify(proc.env || {}, null, 2);
+        document.getElementById('proc-autorestart').checked = proc.auto_restart;
+
+        document.getElementById('modal-proc-title').innerText = 'Edit Managed Process';
+        document.getElementById('btn-proc-submit').innerText = 'Save Changes';
+
+        const modal = document.getElementById('add-proc-modal');
+        modal.classList.add('active');
+    }
+
+    function closeAddProcessModal() {
+        const modal = document.getElementById('add-proc-modal');
+        modal.classList.remove('active');
+    }
+
+    function submitAddProcess() {
+        const id = document.getElementById('proc-id-val').value;
+        const name = document.getElementById('proc-name').value.trim();
+        const command = document.getElementById('proc-command').value.trim();
+        const cwd = document.getElementById('proc-cwd').value.trim() || '.';
+        const envStr = document.getElementById('proc-env').value.trim() || '{}';
+        const autoRestart = document.getElementById('proc-autorestart').checked;
+
+        if (!name || !command) {
+            showToast('warning', 'Name and Command are required');
+            return;
+        }
+
+        let env = {};
+        try {
+            env = JSON.parse(envStr);
+        } catch (e) {
+            showToast('warning', 'Environment Variables must be a valid JSON object');
+            return;
+        }
+
+        const url = id ? '/api/managed/update' : '/api/managed/add';
+        const body = id ? { id, name, command, cwd, env, auto_restart: autoRestart } : { name, command, cwd, env, auto_restart: autoRestart };
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            },
+            body: JSON.stringify(body)
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showToast('success', res.message);
+                closeAddProcessModal();
+                loadManagedProcesses();
+            } else {
+                showToast('error', res.message || 'Gagal menyimpan proses');
+            }
+        })
+        .catch(err => {
+            showToast('error', 'Error connecting to server');
+        });
+    }
+
+    function viewProcessLogs(id, name) {
+        activeLogProcessId = id;
+        document.getElementById('proc-logs-title').innerText = `Logs for: ${name}`;
+        const viewport = document.getElementById('proc-logs-viewport');
+        viewport.innerHTML = '<div style="color:#94a3b8; font-style:italic;">Loading logs...</div>';
+        
+        const modal = document.getElementById('proc-logs-modal');
+        modal.classList.add('active');
+
+        loadLogs();
+        if (logPollingInterval) clearInterval(logPollingInterval);
+        logPollingInterval = setInterval(loadLogs, 2000);
+    }
+
+    function loadLogs() {
+        if (!activeLogProcessId) return;
+        fetch(`/api/managed/logs?id=${activeLogProcessId}&lines=100`)
+            .then(res => res.json())
+            .then(res => {
+                const viewport = document.getElementById('proc-logs-viewport');
+                if (res.data && res.data.length > 0) {
+                    const isAtBottom = viewport.scrollHeight - viewport.clientHeight <= viewport.scrollTop + 20;
+                    viewport.innerHTML = res.data.map(line => escapeHtml(line)).join('\n');
+                    if (isAtBottom) {
+                        viewport.scrollTop = viewport.scrollHeight;
+                    }
+                } else {
+                    viewport.innerHTML = '<div style="color:#94a3b8; font-style:italic;">No logs captured yet.</div>';
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load process logs:', err);
+            });
+    }
+
+    function closeProcLogsModal() {
+        const modal = document.getElementById('proc-logs-modal');
+        modal.classList.remove('active');
+        activeLogProcessId = null;
+        if (logPollingInterval) {
+            clearInterval(logPollingInterval);
+            logPollingInterval = null;
+        }
+    }
+
+    // --- GLOBAL STARTUP INITIALIZER ---
+    window.addEventListener('DOMContentLoaded', () => {
+        // Load static metadata details
+        loadStaticSystemInfo();
+        // Start chart and performance metrics polling
+        initPerformanceChart();
+        startStatsPolling();
+    });
+</script>

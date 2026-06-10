@@ -1642,6 +1642,80 @@ pub fn register_custom_slots(engine: &mut Engine) {
     );
 
     engine.register(
+        "proc.update",
+        Arc::new(|engine, ctx, node, scope| {
+            let pm = ctx.get::<Arc<crate::procman::ProcessManager>>("process_manager").ok_or_else(|| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "proc.update: ProcessManager not found in context".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("proc.update".to_string()),
+                }
+            })?;
+
+            let mut id = String::new();
+            let mut name = String::new();
+            let mut command = String::new();
+            let mut cwd = ".".to_string();
+            let mut env = HashMap::new();
+            let mut auto_restart = true;
+            let mut target = "success".to_string();
+
+            if node.value.is_some() {
+                id = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "id" {
+                    id = val.to_string_coerce();
+                } else if child.name == "name" {
+                    name = val.to_string_coerce();
+                } else if child.name == "command" || child.name == "cmd" {
+                    command = val.to_string_coerce();
+                } else if child.name == "cwd" {
+                    cwd = val.to_string_coerce();
+                } else if child.name == "auto_restart" {
+                    auto_restart = val.to_bool();
+                } else if child.name == "env" {
+                    if let Value::Map(m) = val {
+                        for (k, v) in m {
+                            env.insert(k, v.to_string_coerce());
+                        }
+                    } else {
+                        for env_child in &child.children {
+                            let env_val = engine.resolve_shorthand_value(env_child, scope);
+                            env.insert(env_child.name.clone(), env_val.to_string_coerce());
+                        }
+                    }
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let update_fut = pm.update_process(&id, name, command, cwd, env, auto_restart);
+            let res = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(update_fut)
+            });
+
+            match res {
+                Ok(_) => {
+                    scope.set(&target, Value::Bool(true));
+                    scope.set("error", Value::Nil);
+                }
+                Err(e) => {
+                    scope.set(&target, Value::Bool(false));
+                    scope.set("error", Value::String(e));
+                }
+            }
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
         "proc.start",
         Arc::new(|engine, ctx, node, scope| {
             let pm = ctx.get::<Arc<crate::procman::ProcessManager>>("process_manager").ok_or_else(|| {

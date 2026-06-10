@@ -1,0 +1,83 @@
+# 6. File Manager - List Directory API
+http.get: '/api/files/list' {
+    http.query: 'path' { as: $path_param }
+    coalesce: $path_param {
+        default: '.'
+        as: $dir_path
+    }
+    system.dir_list: $dir_path { as: $files }
+    http.ok: {
+        data: $files
+        current_path: $dir_path
+    }
+}
+
+# 7. File Manager - Read File API
+http.get: '/api/files/read' {
+    http.query: 'path' { as: $file_path }
+    io.file.read: $file_path { as: $content }
+    http.ok: { content: $content }
+}
+
+# 8. File Manager - Write File API
+http.post: '/api/files/write' {
+    http.json_body: { as: $body }
+    var: $file_path { val: $body.path }
+    var: $content { val: $body.content }
+    io.file.write: {
+        path: $file_path
+        content: $content
+    }
+    http.ok: { message: "File berhasil disimpan" }
+}
+
+# 9. File Manager - Create File/Folder API
+http.post: '/api/files/create-file' {
+    http.json_body: { as: $body }
+    var: $file_path { val: $body.path }
+    io.file.write: {
+        path: $file_path
+        content: ""
+    }
+    http.ok: { message: "File berhasil dibuat" }
+}
+
+# 9b. File Manager - Create Folder API
+http.post: '/api/files/create-dir' {
+    http.json_body: { as: $body }
+    var: $dir_path { val: $body.path }
+    io.dir.create: $dir_path
+    http.ok: { message: "Folder berhasil dibuat" }
+}
+
+# 10. File Manager - Delete File API
+http.post: '/api/files/delete' {
+    http.json_body: { as: $body }
+    var: $file_path { val: $body.path }
+    io.file.delete: $file_path
+    http.ok: { message: "File berhasil dihapus" }
+}
+
+# 10b. File Manager - Archive File/Folder API
+http.post: '/api/files/archive' {
+    http.json_body: { as: $body }
+    var: $src_path { val: $body.path }
+    var: $dest_path { val: $body.dest }
+    io.file.archive: {
+        path: $src_path
+        dest: $dest_path
+    }
+    http.ok: { message: "Archive berhasil dibuat" }
+}
+
+# 10c. File Manager - Extract Archive API
+http.post: '/api/files/extract' {
+    http.json_body: { as: $body }
+    var: $src_path { val: $body.path }
+    var: $dest_path { val: $body.dest }
+    io.file.extract: {
+        path: $src_path
+        dest: $dest_path
+    }
+    http.ok: { message: "Archive berhasil diekstrak" }
+}
