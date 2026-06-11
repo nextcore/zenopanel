@@ -151,4 +151,119 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "if",
+        Arc::new(|engine, ctx, node, scope| {
+            let cond_val = if let Some(ref val_str) = node.value {
+                evaluate_condition(engine, val_str, scope)
+            } else {
+                false
+            };
+
+            let mut then_node = None;
+            let mut else_node = None;
+
+            for child in &node.children {
+                if child.name == "then" {
+                    then_node = Some(child);
+                } else if child.name == "else" {
+                    else_node = Some(child);
+                }
+            }
+
+            if cond_val {
+                if let Some(then_n) = then_node {
+                    for child in &then_n.children {
+                        engine.execute(ctx, child, scope)?;
+                    }
+                }
+            } else if let Some(else_n) = else_node {
+                for child in &else_n.children {
+                    engine.execute(ctx, child, scope)?;
+                }
+            }
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+}
+
+fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>) -> bool {
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return false;
+    }
+
+    if expr.contains("||") {
+        for part in expr.split("||") {
+            if evaluate_condition(engine, part, scope) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if expr.contains("&&") {
+        for part in expr.split("&&") {
+            if !evaluate_condition(engine, part, scope) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    let ops = ["==", "!=", ">=", "<=", ">", "<"];
+    for op in &ops {
+        if expr.contains(op) {
+            let parts: Vec<&str> = expr.splitn(2, op).collect();
+            if parts.len() == 2 {
+                let left_str = parts[0].trim();
+                let right_str = parts[1].trim();
+
+                let left_val = resolve_expression_value(engine, left_str, scope);
+                let right_val = resolve_expression_value(engine, right_str, scope);
+
+                return match *op {
+                    "==" => left_val.to_string_coerce() == right_val.to_string_coerce(),
+                    "!=" => left_val.to_string_coerce() != right_val.to_string_coerce(),
+                    ">" => left_val.to_float() > right_val.to_float(),
+                    "<" => left_val.to_float() < right_val.to_float(),
+                    ">=" => left_val.to_float() >= right_val.to_float(),
+                    "<=" => left_val.to_float() <= right_val.to_float(),
+                    _ => false,
+                };
+            }
+        }
+    }
+
+    let resolved = resolve_expression_value(engine, expr, scope);
+    resolved.to_bool()
+}
+
+fn resolve_expression_value(_engine: &Engine, s: &str, scope: &Arc<zenocore::Scope>) -> Value {
+    let s = s.trim();
+    if s.starts_with('$') {
+        let key = &s[1..];
+        if key.contains('.') {
+            let parts: Vec<&str> = key.splitn(2, '.').collect();
+            if let Some(parent) = scope.get(parts[0]) {
+                if let Value::Map(ref m) = parent {
+                    return m.get(parts[1]).cloned().unwrap_or(Value::Nil);
+                }
+            }
+            return Value::Nil;
+        }
+        return scope.get(key).unwrap_or(Value::Nil);
+    }
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        return Value::String(s[1..s.len()-1].to_string());
+    }
+    if s == "true" { return Value::Bool(true); }
+    if s == "false" { return Value::Bool(false); }
+    if s == "null" || s == "nil" { return Value::Nil; }
+    if let Ok(i) = s.parse::<i64>() { return Value::Int(i); }
+    if let Ok(f) = s.parse::<f64>() { return Value::Float(f); }
+    Value::String(s.to_string())
 }

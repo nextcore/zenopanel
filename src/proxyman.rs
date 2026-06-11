@@ -6,11 +6,40 @@ use serde::{Serialize, Deserialize};
 use zenocore::{Engine, Value, SlotMeta, Diagnostic};
 use crate::slots::resolve_node_value;
 
+pub fn parse_host_port(host_str: &str) -> (String, Option<u16>) {
+    let cleaned = host_str.trim();
+    if cleaned.is_empty() {
+        return (String::new(), None);
+    }
+    if let Some(pos) = cleaned.rfind(':') {
+        let host = cleaned[..pos].to_string();
+        if let Ok(port) = cleaned[pos + 1..].parse::<u16>() {
+            return (host, Some(port));
+        }
+    }
+    (cleaned.to_string(), None)
+}
+
+fn sanitize_host(host: &str) -> String {
+    let mut cleaned = host.trim().to_string();
+    if cleaned == "*" {
+        return cleaned;
+    }
+    if let Some(pos) = cleaned.find("://") {
+        cleaned = cleaned[pos + 3..].to_string();
+    }
+    if let Some(pos) = cleaned.find('/') {
+        cleaned = cleaned[..pos].to_string();
+    }
+    cleaned
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyRule {
     pub id: String,
     pub name: String,
     pub domain: String,
+    pub alternative_domain: String,
     pub path: String,
     pub target: String,
     pub strip_path: bool,
@@ -47,9 +76,11 @@ impl ProxyManager {
         let alter_ssl_enabled = "ALTER TABLE proxy_rules ADD COLUMN ssl_enabled INTEGER NOT NULL DEFAULT 0;";
         let alter_ssl_status = "ALTER TABLE proxy_rules ADD COLUMN ssl_status TEXT NOT NULL DEFAULT 'none';";
         let alter_managed_process_id = "ALTER TABLE proxy_rules ADD COLUMN managed_process_id TEXT;";
+        let alter_alternative_domain = "ALTER TABLE proxy_rules ADD COLUMN alternative_domain TEXT NOT NULL DEFAULT '';";
         let _ = sqlx::query(alter_ssl_enabled).execute(&pool).await;
         let _ = sqlx::query(alter_ssl_status).execute(&pool).await;
         let _ = sqlx::query(alter_managed_process_id).execute(&pool).await;
+        let _ = sqlx::query(alter_alternative_domain).execute(&pool).await;
 
         Self {
             pool,
@@ -58,7 +89,7 @@ impl ProxyManager {
     }
 
     pub async fn load_from_db(&self) -> Result<(), String> {
-        let rows = sqlx::query("SELECT id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id FROM proxy_rules")
+        let rows = sqlx::query("SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id FROM proxy_rules")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -70,6 +101,7 @@ impl ProxyManager {
             let id: String = row.get("id");
             let name: String = row.get("name");
             let domain: String = row.get("domain");
+            let alternative_domain: String = row.try_get("alternative_domain").unwrap_or_default();
             let path: String = row.get("path");
             let target: String = row.get("target");
             let strip_path_int: i32 = row.get("strip_path");
@@ -84,6 +116,7 @@ impl ProxyManager {
                     id,
                     name,
                     domain,
+                    alternative_domain,
                     path,
                     target,
                     strip_path: strip_path_int != 0,
@@ -101,6 +134,7 @@ impl ProxyManager {
         &self,
         name: String,
         domain: String,
+        alternative_domain: String,
         path: String,
         target: String,
         strip_path: bool,
@@ -114,15 +148,19 @@ impl ProxyManager {
         let ssl_enabled_int = if ssl_enabled { 1 } else { 0 };
         let ssl_status = if ssl_enabled { "pending".to_string() } else { "none".to_string() };
 
+        let clean_domain = sanitize_host(&domain);
+        let clean_alt_domain = sanitize_host(&alternative_domain);
+
         let mut clean_path = path.trim().to_string();
         if !clean_path.starts_with('/') {
             clean_path = format!("/{}", clean_path);
         }
 
-        sqlx::query("INSERT INTO proxy_rules (id, name, domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO proxy_rules (id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&name)
-            .bind(&domain)
+            .bind(&clean_domain)
+            .bind(&clean_alt_domain)
             .bind(&clean_path)
             .bind(&target)
             .bind(strip_path_int)
@@ -137,7 +175,8 @@ impl ProxyManager {
         let rule = ProxyRule {
             id: id.clone(),
             name,
-            domain,
+            domain: clean_domain,
+            alternative_domain: clean_alt_domain,
             path: clean_path,
             target,
             strip_path,
@@ -156,6 +195,7 @@ impl ProxyManager {
         id: &str,
         name: String,
         domain: String,
+        alternative_domain: String,
         path: String,
         target: String,
         strip_path: bool,
@@ -166,6 +206,9 @@ impl ProxyManager {
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
         let ssl_enabled_int = if ssl_enabled { 1 } else { 0 };
+
+        let clean_domain = sanitize_host(&domain);
+        let clean_alt_domain = sanitize_host(&alternative_domain);
 
         let mut clean_path = path.trim().to_string();
         if !clean_path.starts_with('/') {
@@ -185,9 +228,10 @@ impl ProxyManager {
             None => if ssl_enabled { "pending".to_string() } else { "none".to_string() }
         };
 
-        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ? WHERE id = ?")
+        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, alternative_domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ? WHERE id = ?")
             .bind(&name)
-            .bind(&domain)
+            .bind(&clean_domain)
+            .bind(&clean_alt_domain)
             .bind(&clean_path)
             .bind(&target)
             .bind(strip_path_int)
@@ -202,7 +246,8 @@ impl ProxyManager {
 
         if let Some(rule) = self.rules.write().await.get_mut(id) {
             rule.name = name;
-            rule.domain = domain;
+            rule.domain = clean_domain;
+            rule.alternative_domain = clean_alt_domain;
             rule.path = clean_path;
             rule.target = target;
             rule.strip_path = strip_path;
@@ -260,7 +305,7 @@ impl ProxyManager {
         rules.values().cloned().collect()
     }
 
-    pub async fn match_rule(&self, host: &str, path: &str) -> Option<ProxyRule> {
+    pub async fn match_rule(&self, host: &str, request_port: u16, path: &str) -> Option<ProxyRule> {
         let rules = self.rules.read().await;
         let mut matched_rules: Vec<ProxyRule> = rules
             .values()
@@ -269,12 +314,33 @@ impl ProxyManager {
                     return false;
                 }
 
-                // Match domain: exact match, wildcard *, or empty
-                let domain_match = rule.domain.is_empty() 
-                    || rule.domain == "*" 
-                    || rule.domain.eq_ignore_ascii_case(host);
+                // Parse rule's domain and alternative_domain into (host, Option<port>)
+                let (domain_host, domain_port) = parse_host_port(&rule.domain);
+                let (alt_host, alt_port) = parse_host_port(&rule.alternative_domain);
 
-                if !domain_match {
+                let domain_match = if rule.domain.is_empty() || rule.domain == "*" {
+                    true
+                } else {
+                    let host_matches = domain_host.eq_ignore_ascii_case(host);
+                    let port_matches = match domain_port {
+                        Some(p) => p == request_port,
+                        None => true, // Match any port if not specified
+                    };
+                    host_matches && port_matches
+                };
+
+                let alt_match = if rule.alternative_domain.is_empty() {
+                    false
+                } else {
+                    let host_matches = alt_host.eq_ignore_ascii_case(host);
+                    let port_matches = match alt_port {
+                        Some(p) => p == request_port,
+                        None => true, // Match any port if not specified
+                    };
+                    host_matches && port_matches
+                };
+
+                if !domain_match && !alt_match {
                     return false;
                 }
 
@@ -347,6 +413,7 @@ fn proxy_rule_to_value(rule: &ProxyRule) -> Value {
     map.insert("id".to_string(), Value::String(rule.id.clone()));
     map.insert("name".to_string(), Value::String(rule.name.clone()));
     map.insert("domain".to_string(), Value::String(rule.domain.clone()));
+    map.insert("alternative_domain".to_string(), Value::String(rule.alternative_domain.clone()));
     map.insert("path".to_string(), Value::String(rule.path.clone()));
     map.insert("target".to_string(), Value::String(rule.target.clone()));
     map.insert("strip_path".to_string(), Value::Bool(rule.strip_path));
@@ -415,6 +482,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
 
             let mut name = String::new();
             let mut domain = String::new();
+            let mut alternative_domain = String::new();
             let mut path = "/".to_string();
             let mut target_url = String::new();
             let mut strip_path = false;
@@ -433,6 +501,8 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                     name = val.to_string_coerce();
                 } else if child.name == "domain" {
                     domain = val.to_string_coerce();
+                } else if child.name == "alternative_domain" {
+                    alternative_domain = val.to_string_coerce();
                 } else if child.name == "path" {
                     path = val.to_string_coerce();
                 } else if child.name == "target" {
@@ -453,7 +523,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                 }
             }
 
-            let add_fut = pm.add_rule(name, domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
+            let add_fut = pm.add_rule(name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
             let id = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(add_fut)
             }).map_err(|e| Diagnostic {
@@ -489,6 +559,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
             let mut id = String::new();
             let mut name = String::new();
             let mut domain = String::new();
+            let mut alternative_domain = String::new();
             let mut path = "/".to_string();
             let mut target_url = String::new();
             let mut strip_path = false;
@@ -509,6 +580,8 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                     name = val.to_string_coerce();
                 } else if child.name == "domain" {
                     domain = val.to_string_coerce();
+                } else if child.name == "alternative_domain" {
+                    alternative_domain = val.to_string_coerce();
                 } else if child.name == "path" {
                     path = val.to_string_coerce();
                 } else if child.name == "target" {
@@ -529,7 +602,7 @@ pub fn register_proxy_slots(engine: &mut Engine) {
                 }
             }
 
-            let update_fut = pm.update_rule(&id, name, domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
+            let update_fut = pm.update_rule(&id, name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(update_fut)
             });

@@ -32,6 +32,7 @@ pub struct ProcessInfo {
     pub exit_code: Option<i32>,
     pub cpu_usage: f32,
     pub memory_usage: f64,
+    pub ports: Vec<u16>,
 }
 
 pub struct ProcessState {
@@ -498,6 +499,60 @@ impl ProcessManager {
         Ok(state.logs.iter().skip(skip).cloned().collect())
     }
 
+fn get_ports_for_pid(pid: u32) -> Vec<u16> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut ports = Vec::new();
+        let mut inodes = std::collections::HashSet::new();
+        
+        let fd_dir = format!("/proc/{}/fd", pid);
+        if let Ok(entries) = std::fs::read_dir(fd_dir) {
+            for entry in entries.flatten() {
+                if let Ok(target) = std::fs::read_link(entry.path()) {
+                    let target_str = target.to_string_lossy();
+                    if target_str.starts_with("socket:[") && target_str.ends_with(']') {
+                        if let Ok(inode) = target_str[8..target_str.len() - 1].parse::<u64>() {
+                            inodes.insert(inode);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if inodes.is_empty() {
+            return ports;
+        }
+        
+        for proc_file in &["/proc/net/tcp", "/proc/net/tcp6"] {
+            if let Ok(content) = std::fs::read_to_string(proc_file) {
+                for line in content.lines().skip(1) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 10 {
+                        if let Ok(inode) = parts[9].parse::<u64>() {
+                            if inodes.contains(&inode) {
+                                let local_addr = parts[1];
+                                if let Some(pos) = local_addr.find(':') {
+                                    if let Ok(port) = u16::from_str_radix(&local_addr[pos + 1..], 16) {
+                                        ports.push(port);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        ports.sort();
+        ports.dedup();
+        ports
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
+}
+
     pub async fn list_processes(&self) -> Vec<ProcessInfo> {
         let mut sys = self.sys.lock().await;
         sys.refresh_processes();
@@ -509,6 +564,7 @@ impl ProcessManager {
             
             let mut cpu_usage = 0.0;
             let mut memory_usage = 0.0;
+            let mut ports = Vec::new();
             
             if let Some(pid_val) = state.pid {
                 let sys_pid = sysinfo::Pid::from(pid_val as usize);
@@ -516,6 +572,7 @@ impl ProcessManager {
                     cpu_usage = proc.cpu_usage();
                     memory_usage = (proc.memory() as f64) / 1024.0 / 1024.0; // convert bytes to MB
                 }
+                ports = Self::get_ports_for_pid(pid_val);
             }
 
             list.push(ProcessInfo {
@@ -530,6 +587,7 @@ impl ProcessManager {
                 exit_code: state.exit_code,
                 cpu_usage,
                 memory_usage,
+                ports,
             });
         }
         list

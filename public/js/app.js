@@ -54,7 +54,7 @@ import {
     managedPollingInterval,
     logPollingInterval,
     activeLogProcessId,
-    allManagedProcesses,
+    managedState,
     dpCurrentPath,
     loadManagedProcesses,
     renderManagedProcesses,
@@ -139,7 +139,7 @@ bindStateToWindow('terminalHistoryIndex', () => terminalHistoryIndex, (v) => {})
 bindStateToWindow('managedPollingInterval', () => managedPollingInterval, (v) => {});
 bindStateToWindow('logPollingInterval', () => logPollingInterval, (v) => {});
 bindStateToWindow('activeLogProcessId', () => activeLogProcessId, (v) => {});
-bindStateToWindow('allManagedProcesses', () => allManagedProcesses, (v) => {});
+bindStateToWindow('allManagedProcesses', () => managedState.allManagedProcesses, (v) => {});
 bindStateToWindow('dpCurrentPath', () => dpCurrentPath, (v) => {});
 
 // Bind Proxy State

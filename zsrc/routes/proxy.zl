@@ -12,6 +12,10 @@ http.post: '/api/proxy/add' {
         default: ''
         as: $clean_domain
     }
+    coalesce: $body.alternative_domain {
+        default: ''
+        as: $clean_alternative_domain
+    }
     coalesce: $body.path {
         default: '/'
         as: $clean_path
@@ -35,6 +39,7 @@ http.post: '/api/proxy/add' {
 
     proxy.add: $body.name {
         domain: $clean_domain
+        alternative_domain: $clean_alternative_domain
         path: $clean_path
         target: $body.target
         strip_path: $clean_strip_path
@@ -55,6 +60,10 @@ http.post: '/api/proxy/update' {
     coalesce: $body.domain {
         default: ''
         as: $clean_domain
+    }
+    coalesce: $body.alternative_domain {
+        default: ''
+        as: $clean_alternative_domain
     }
     coalesce: $body.path {
         default: '/'
@@ -80,6 +89,7 @@ http.post: '/api/proxy/update' {
     proxy.update: $body.id {
         name: $body.name
         domain: $clean_domain
+        alternative_domain: $clean_alternative_domain
         path: $clean_path
         target: $body.target
         strip_path: $clean_strip_path

@@ -19,7 +19,17 @@ pub fn register(engine: &mut Engine) {
             let is_admin = if let Some(claims) = ctx.get::<Claims>("user_claims") {
                 claims.role == "admin"
             } else {
-                false
+                // Fallback: read from scope claims set by auth.guard
+                if let Some(claims_val) = scope.get("claims") {
+                    if let Value::Map(ref m) = claims_val {
+                        let role = m.get("role").map(|r| r.to_string_coerce()).unwrap_or_default();
+                        role == "admin"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             };
 
             scope.set(&target, Value::Bool(is_admin));
@@ -54,7 +64,18 @@ pub fn register(engine: &mut Engine) {
                     _ => false,
                 }
             } else {
-                false
+                // Fallback: read from scope claims set by auth.guard
+                if let Some(claims_val) = scope.get("claims") {
+                    if let Value::Map(ref m) = claims_val {
+                        let role = m.get("role").map(|r| r.to_string_coerce()).unwrap_or_default();
+                        match required_role.as_str() {
+                            "admin" => role == "admin",
+                            "editor" => role == "admin" || role == "editor",
+                            "viewer" => role == "admin" || role == "editor" || role == "viewer",
+                            _ => false,
+                        }
+                    } else { false }
+                } else { false }
             };
 
             scope.set(&target, Value::Bool(has_role));
@@ -131,6 +152,9 @@ pub fn register(engine: &mut Engine) {
                 map.insert("username".to_string(), Value::String(claims.sub.clone()));
                 map.insert("role".to_string(), Value::String(claims.role.clone()));
                 Value::Map(map)
+            } else if let Some(claims_val) = scope.get("claims") {
+                // Fallback: use scope claims set by auth.guard
+                claims_val
             } else {
                 Value::Nil
             };

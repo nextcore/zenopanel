@@ -4,7 +4,7 @@ pub mod procman;
 pub mod proxyman;
 pub mod sslman;
 mod auth;
-pub mod auth_slots;
+
 
 use axum::{
     body::Bytes,
@@ -40,8 +40,6 @@ pub(crate) struct AppState {
     pub(crate) csrf_excepts: Vec<String>,
     pub(crate) jwt_secret: String,
     pub(crate) entrance_path: Mutex<String>,
-    pub(crate) admin_username: String,
-    pub(crate) admin_password: String,
 }
 
 #[tokio::main]
@@ -86,8 +84,6 @@ async fn main() {
 
     let mut engine = zenoengine::new_engine();
     register_custom_slots(&mut engine);
-    crate::proxyman::register_proxy_slots(&mut engine);
-    crate::auth_slots::register_auth_slots(&mut engine);
 
     // Retrieve default pool to init ProcessManager
     let default_pool = match db_manager.get_pool("default").await {
@@ -264,8 +260,6 @@ async fn main() {
         csrf_excepts,
         jwt_secret,
         entrance_path: Mutex::new(entrance_path),
-        admin_username,
-        admin_password,
     });
 
     let static_service = ServeDir::new("public");
@@ -279,7 +273,7 @@ async fn main() {
                 .layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .fallback(any(wildcard_handler))
-        .with_state(state)
+        .with_state(state.clone())
         .layer(CorsLayer::permissive());
 
     let port = std::env::var("APP_PORT")
@@ -306,6 +300,13 @@ async fn main() {
     let resolver_renew_clone = cert_resolver.clone();
     tokio::spawn(async move {
         sslman::start_auto_renewal_worker(pm_renew_clone, resolver_renew_clone).await;
+    });
+
+    // Spawn dynamic proxy listeners worker in the background
+    let state_dynamic_clone = state.clone();
+    let app_dynamic_clone = app.clone();
+    tokio::spawn(async move {
+        start_dynamic_proxy_listeners(state_dynamic_clone, app_dynamic_clone, port).await;
     });
 
     axum::serve(listener, app).await.unwrap();
@@ -408,17 +409,15 @@ async fn wildcard_handler(
         }
     }
 
-    // Extract Host header
-    let host = headers.get("Host")
+    // Extract Host header and port
+    let host_header = headers.get("Host")
         .and_then(|h| h.to_str().ok())
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_string();
+        .unwrap_or("");
+    let (host, request_port_opt) = proxyman::parse_host_port(host_header);
+    let request_port = request_port_opt.unwrap_or(80);
 
     // Check if request matches any proxy rule
-    if let Some(rule) = state.proxy_manager.match_rule(&host, path).await {
+    if let Some(rule) = state.proxy_manager.match_rule(&host, request_port, path).await {
         let mut check_service_unavailable = false;
         let mut app_status = "offline".to_string();
         let app_name = rule.name.clone();
@@ -1369,6 +1368,81 @@ async fn upload_file_handler(
         "success": true,
         "message": "File uploaded successfully"
     })))
+}
+
+pub(crate) async fn start_dynamic_proxy_listeners(
+    state: Arc<AppState>,
+    app: axum::Router,
+    main_port: u16,
+) {
+    use std::collections::{HashMap, HashSet};
+    use tokio::sync::oneshot;
+
+    let mut active_listeners: HashMap<u16, oneshot::Sender<()>> = HashMap::new();
+    
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        
+        let rules = state.proxy_manager.list_rules().await;
+        let mut target_ports = HashSet::new();
+        
+        for rule in rules {
+            if !rule.enabled {
+                continue;
+            }
+            for host_str in &[&rule.domain, &rule.alternative_domain] {
+                let (_, port_opt) = proxyman::parse_host_port(host_str);
+                if let Some(p) = port_opt {
+                    // Do not bind to main port or standard SSL ports
+                    if p != main_port && p != 8443 && p != 443 {
+                        target_ports.insert(p);
+                    }
+                }
+            }
+        }
+        
+        // Stop listeners for ports no longer in use
+        let mut ports_to_stop = Vec::new();
+        for &port in active_listeners.keys() {
+            if !target_ports.contains(&port) {
+                ports_to_stop.push(port);
+            }
+        }
+        for port in ports_to_stop {
+            if let Some(tx) = active_listeners.remove(&port) {
+                println!("[Proxy] Stopping dynamic listener on port {}", port);
+                let _ = tx.send(());
+            }
+        }
+        
+        // Start listeners for new ports
+        for &port in &target_ports {
+            if !active_listeners.contains_key(&port) {
+                match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
+                    Ok(listener) => {
+                        println!("[Proxy] Dynamically listening on http://0.0.0.0:{}", port);
+                        let (tx, rx) = oneshot::channel::<()>();
+                        let app_clone = app.clone();
+                        
+                        tokio::spawn(async move {
+                            let serve_future = axum::serve(listener, app_clone)
+                                .with_graceful_shutdown(async move {
+                                    let _ = rx.await;
+                                });
+                            if let Err(e) = serve_future.await {
+                                eprintln!("[Proxy] Error on dynamic port {} serve: {}", port, e);
+                            }
+                        });
+                        
+                        active_listeners.insert(port, tx);
+                    }
+                    Err(e) => {
+                        eprintln!("[Proxy] Failed to bind to dynamic port {}: {}", port, e);
+                    }
+                }
+            }
+        }
+    }
 }
 
 

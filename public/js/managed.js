@@ -4,7 +4,9 @@ import { showToast } from './toast.js';
 export let managedPollingInterval = null;
 export let logPollingInterval = null;
 export let activeLogProcessId = null;
-export let allManagedProcesses = [];
+export const managedState = {
+    allManagedProcesses: []
+};
 export let dpCurrentPath = '.';
 
 export function loadManagedProcesses() {
@@ -12,7 +14,7 @@ export function loadManagedProcesses() {
         .then(res => res.json())
         .then(res => {
             if (res.data) {
-                allManagedProcesses = res.data;
+                managedState.allManagedProcesses = res.data;
                 renderManagedProcesses(res.data);
             }
         })
@@ -363,7 +365,7 @@ export function openAddProcessModal() {
 }
 
 export function openEditProcessModal(id) {
-    const proc = allManagedProcesses.find(p => p.id === id);
+    const proc = managedState.allManagedProcesses.find(p => p.id === id);
     if (!proc) return;
 
     const idVal = document.getElementById('proc-id-val');

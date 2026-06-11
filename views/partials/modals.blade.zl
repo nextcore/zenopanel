@@ -127,6 +127,10 @@
                 <input type="text" id="proxy-domain" placeholder="e.g. app.local or * (any domain)" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
             </div>
             <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Alternative Domain / Host (Optional)</label>
+                <input type="text" id="proxy-alternative-domain" placeholder="e.g. 192.168.1.100 or another domain" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Source Path Prefix</label>
                 <input type="text" id="proxy-path" placeholder="e.g. /api or /" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
             </div>

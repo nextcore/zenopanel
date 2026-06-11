@@ -1,8 +1,21 @@
 import { getCSRFToken, escapeHtml } from './utils.js';
 import { showToast } from './toast.js';
-import { allManagedProcesses } from './managed.js';
+import { managedState } from './managed.js';
 
 export let allProxyRules = [];
+
+function sanitizeHost(input) {
+    if (!input) return '';
+    let host = input.trim();
+    if (host === '*') return host;
+    if (host.includes('://')) {
+        host = host.split('://')[1];
+    }
+    if (host.includes('/')) {
+        host = host.split('/')[0];
+    }
+    return host;
+}
 
 export function loadProxyRules() {
     const tbody = document.getElementById('proxy-table-body');
@@ -10,6 +23,16 @@ export function loadProxyRules() {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading proxy rules...</td></tr>';
     }
     
+    // Pre-fetch managed processes list so dropdown autofill is immediately ready
+    fetch('/api/managed/list')
+        .then(res => res.json())
+        .then(res => {
+            if (res.data) {
+                managedState.allManagedProcesses = res.data;
+            }
+        })
+        .catch(err => console.error('Failed to pre-fetch managed processes:', err));
+
     fetch('/api/proxy/list')
         .then(res => res.json())
         .then(res => {
@@ -89,7 +112,10 @@ export function renderProxyRules(rules) {
 
         tr.innerHTML = `
             <td style="font-weight:600; color:var(--text-main);">${escapeHtml(rule.name)}</td>
-            <td style="font-family:var(--font-code); font-size:0.85rem;">${rule.domain ? escapeHtml(rule.domain) : '*'}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem;">
+                ${rule.domain ? escapeHtml(rule.domain) : '*'}
+                ${rule.alternative_domain ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Alt: ${escapeHtml(rule.alternative_domain)}</div>` : ''}
+            </td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(rule.path)}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--accent-primary);">${escapeHtml(rule.target)}</td>
             <td>
@@ -114,13 +140,110 @@ export function renderProxyRules(rules) {
     });
 }
 
+function extractPortFromProcess(proc) {
+    if (!proc) return null;
+    
+    // 0. Check if backend detected open/listening ports
+    if (proc.ports && Array.isArray(proc.ports) && proc.ports.length > 0) {
+        return proc.ports[0];
+    }
+    
+    // 1. Try to find in env
+    if (proc.env) {
+        // env might be a JSON object or string
+        let envObj = proc.env;
+        if (typeof envObj === 'string') {
+            try {
+                envObj = JSON.parse(envObj);
+            } catch (e) {
+                envObj = {};
+            }
+        }
+        const portKeys = ['PORT', 'APP_PORT', 'port', 'Port'];
+        for (const key of portKeys) {
+            if (envObj[key]) {
+                const p = parseInt(envObj[key].toString().replace(/^\D+/g, ''), 10);
+                if (!isNaN(p) && p > 0 && p <= 65535) {
+                    return p;
+                }
+            }
+        }
+    }
+    
+    // 2. Try to find in command using common patterns
+    const cmd = proc.command || '';
+    
+    // Try to match --port 8080 or -p 8080 or --port=8080 or -port=8080
+    const portFlagRegex = /(?:--port|-p|-port|--addr|--address)(?:\s+|=)(\d+)/i;
+    const flagMatch = cmd.match(portFlagRegex);
+    if (flagMatch && flagMatch[1]) {
+        const p = parseInt(flagMatch[1], 10);
+        if (!isNaN(p) && p > 0 && p <= 65535) {
+            return p;
+        }
+    }
+
+    // Try to match PORT=8080 or port=8080
+    const portEnvInCmdRegex = /(?:PORT|port)\s*=\s*(\d+)/;
+    const envCmdMatch = cmd.match(portEnvInCmdRegex);
+    if (envCmdMatch && envCmdMatch[1]) {
+        const p = parseInt(envCmdMatch[1], 10);
+        if (!isNaN(p) && p > 0 && p <= 65535) {
+            return p;
+        }
+    }
+    
+    // Try to match :8080 or localhost:8080
+    const colonPortRegex = /(?::)(\d{4,5})\b/;
+    const colonMatch = cmd.match(colonPortRegex);
+    if (colonMatch && colonMatch[1]) {
+        const p = parseInt(colonMatch[1], 10);
+        if (!isNaN(p) && p > 0 && p <= 65535) {
+            return p;
+        }
+    }
+    
+    // Try to match any standalone 4 or 5 digit number that could be a port
+    const genericPortRegex = /\b(\d{4,5})\b/g;
+    let match;
+    while ((match = genericPortRegex.exec(cmd)) !== null) {
+        const p = parseInt(match[1], 10);
+        if (!isNaN(p) && p >= 1024 && p <= 65535) {
+            return p;
+        }
+    }
+    
+    return null;
+}
+
 export function populateManagedProcessesDropdown(selectedValue) {
     const select = document.getElementById('proxy-managed-process-id');
     if (!select) return;
     select.innerHTML = '<option value="">None</option>';
     
+    // Add change event listener if not already added
+    if (!select.dataset.listenerAdded) {
+        select.addEventListener('change', (e) => {
+            const procId = e.target.value;
+            if (procId) {
+                const processes = managedState.allManagedProcesses || [];
+                const proc = processes.find(p => p.id === procId);
+                if (proc) {
+                    const port = extractPortFromProcess(proc);
+                    if (port) {
+                        const targetInput = document.getElementById('proxy-target');
+                        if (targetInput) {
+                            targetInput.value = `http://127.0.0.1:${port}`;
+                        }
+                    }
+                }
+            }
+        });
+        select.dataset.listenerAdded = 'true';
+    }
+    
     // Read from live-bound import from managed.js
-    const processes = allManagedProcesses || [];
+    const processes = managedState.allManagedProcesses || [];
     processes.forEach(proc => {
         const opt = document.createElement('option');
         opt.value = proc.id;
@@ -136,6 +259,7 @@ export function openAddProxyModal() {
     const idVal = document.getElementById('proxy-id-val');
     const nameInput = document.getElementById('proxy-name');
     const domInput = document.getElementById('proxy-domain');
+    const alternativeDomInput = document.getElementById('proxy-alternative-domain');
     const pathInput = document.getElementById('proxy-path');
     const targetInput = document.getElementById('proxy-target');
     const spCheck = document.getElementById('proxy-strip-path');
@@ -145,6 +269,7 @@ export function openAddProxyModal() {
     if (idVal) idVal.value = '';
     if (nameInput) nameInput.value = '';
     if (domInput) domInput.value = '';
+    if (alternativeDomInput) alternativeDomInput.value = '';
     if (pathInput) pathInput.value = '/';
     if (targetInput) targetInput.value = '';
     if (spCheck) spCheck.checked = false;
@@ -169,6 +294,7 @@ export function openEditProxyModal(id) {
     const idVal = document.getElementById('proxy-id-val');
     const nameInput = document.getElementById('proxy-name');
     const domInput = document.getElementById('proxy-domain');
+    const alternativeDomInput = document.getElementById('proxy-alternative-domain');
     const pathInput = document.getElementById('proxy-path');
     const targetInput = document.getElementById('proxy-target');
     const spCheck = document.getElementById('proxy-strip-path');
@@ -178,6 +304,7 @@ export function openEditProxyModal(id) {
     if (idVal) idVal.value = rule.id;
     if (nameInput) nameInput.value = rule.name;
     if (domInput) domInput.value = rule.domain;
+    if (alternativeDomInput) alternativeDomInput.value = rule.alternative_domain || '';
     if (pathInput) pathInput.value = rule.path;
     if (targetInput) targetInput.value = rule.target;
     if (spCheck) spCheck.checked = rule.strip_path;
@@ -204,6 +331,7 @@ export function submitAddProxy() {
     const idVal = document.getElementById('proxy-id-val');
     const nameInput = document.getElementById('proxy-name');
     const domInput = document.getElementById('proxy-domain');
+    const alternativeDomInput = document.getElementById('proxy-alternative-domain');
     const pathInput = document.getElementById('proxy-path');
     const targetInput = document.getElementById('proxy-target');
     const spCheck = document.getElementById('proxy-strip-path');
@@ -213,7 +341,8 @@ export function submitAddProxy() {
 
     const id = idVal ? idVal.value : '';
     const name = nameInput ? nameInput.value.trim() : '';
-    const domain = domInput ? domInput.value.trim() : '';
+    const domain = domInput ? sanitizeHost(domInput.value) : '';
+    const alternative_domain = alternativeDomInput ? sanitizeHost(alternativeDomInput.value) : '';
     const path = pathInput ? pathInput.value.trim() : '';
     const target = targetInput ? targetInput.value.trim() : '';
     const strip_path = spCheck ? spCheck.checked : false;
@@ -227,7 +356,7 @@ export function submitAddProxy() {
     }
 
     const url = id ? '/api/proxy/update' : '/api/proxy/add';
-    const body = { name, domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id };
+    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id };
     if (id) {
         body.id = id;
     }
