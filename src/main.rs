@@ -217,8 +217,8 @@ async fn main() {
     let parent_scope = Scope::new(None);
     parent_scope.set("DB_DRIVER", Value::String(db_driver));
 
-    let main_zl_content = std::fs::read_to_string("src/main.zl").expect("Failed to read src/main.zl");
-    let main_node = zenocore::parser::parse_string(&main_zl_content, "src/main.zl").expect("Failed to parse src/main.zl");
+    let main_zl_content = std::fs::read_to_string("zsrc/main.zl").expect("Failed to read zsrc/main.zl");
+    let main_node = zenocore::parser::parse_string(&main_zl_content, "zsrc/main.zl").expect("Failed to parse zsrc/main.zl");
 
     let mut init_ctx = zenocore::Context::new();
     init_ctx.set("db_manager", db_manager.clone());
@@ -226,7 +226,7 @@ async fn main() {
     init_ctx.set("proxy_manager", proxy_manager.clone());
 
     if let Err(e) = engine.execute(&mut init_ctx, &main_node, &parent_scope) {
-        panic!("Failed to execute src/main.zl during startup: {}", e);
+        panic!("Failed to execute zsrc/main.zl during startup: {}", e);
     }
 
     let mut matchit_routes: HashMap<String, MethodRouter> = HashMap::new();

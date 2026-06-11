@@ -1,0 +1,30 @@
+log: "🚀 ZenoEngine Started..."
+
+view.root: 'views'
+
+# Main Page UI
+http.get: '/' {
+    auth.guard
+    view.blade: 'zenopanel'
+}
+
+include: 'zsrc/routes/benchmark.zl'
+include: 'zsrc/routes/system.zl'
+include: 'zsrc/routes/files.zl'
+include: 'zsrc/routes/database.zl'
+include: 'zsrc/routes/services.zl'
+include: 'zsrc/routes/terminal.zl'
+include: 'zsrc/routes/managed.zl'
+include: 'zsrc/routes/proxy.zl'
+include: 'zsrc/routes/settings.zl'
+include: 'zsrc/routes/users.zl'
+
+
+# 404 Handler
+http.get: /* {
+  do: {
+    http.not_found: {
+      body: "Halaman tidak ditemukan."
+    }
+  }
+}
