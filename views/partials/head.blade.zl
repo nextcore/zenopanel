@@ -1003,5 +1003,95 @@
         .toast.success i { color: var(--success); }
         .toast.error { border-left: 4px solid var(--danger); }
         .toast.error i { color: var(--danger); }
+
+        /* Action Dropdown Menu */
+        .action-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .action-dropdown-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            color: var(--text-muted);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        .action-dropdown-btn:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .action-dropdown-menu {
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background: #111827; /* Dark tailwind slate-900 / gray-900 */
+            border: 1px solid var(--card-border);
+            border-radius: 6px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+            z-index: 50;
+            display: none;
+            min-width: 140px;
+            margin-top: 5px;
+            overflow: hidden;
+            padding: 4px 0;
+            backdrop-filter: blur(10px);
+        }
+
+        .action-dropdown-menu.show {
+            display: block;
+            animation: dropdownFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes dropdownFadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .action-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 8px 14px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            font-family: var(--font-main);
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.15s;
+        }
+
+        .action-dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+        }
+
+        .action-dropdown-item i {
+            width: 14px;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+
+        .action-dropdown-item.danger {
+            color: #f87171;
+        }
+
+        .action-dropdown-item.danger:hover {
+            background: rgba(239, 68, 68, 0.12);
+            color: #ef4444;
+        }
     </style>
 </head>

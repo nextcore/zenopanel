@@ -5,7 +5,7 @@
             <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-users-gear" style="color:var(--accent-primary);"></i> User Management</h3>
             <button class="btn-primary-action" onclick="openAddUserModal()"><i class="fa-solid fa-user-plus"></i> Add User</button>
         </div>
-        <div style="overflow-x:auto;">
+        <div class="table-container" style="min-height:220px;">
             <table class="data-table">
                 <thead>
                     <tr>

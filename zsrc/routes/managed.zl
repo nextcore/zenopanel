@@ -22,6 +22,7 @@ http.post: '/api/managed/add' {
         cwd: $body.cwd
         env: $clean_env
         auto_restart: $clean_auto_restart
+        port: $body.port
         as: $id
     }
     http.ok: {
@@ -48,6 +49,7 @@ http.post: '/api/managed/update' {
         cwd: $body.cwd
         env: $clean_env
         auto_restart: $clean_auto_restart
+        port: $body.port
         as: $success
     }
     if: $success {
@@ -78,7 +80,6 @@ http.post: '/api/managed/stop' {
     auth.guard
     http.json_body: { as: $body }
     proc.stop: $body.id { as: $success }
-    debug.print: $success
     if: $success {
         then: {
             http.ok: { message: "Proses managed berhasil dihentikan" }

@@ -31,7 +31,7 @@ export function renderManagedProcesses(processes) {
     if (processes.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">
+                <td colspan="9" style="text-align:center; padding:30px; color:var(--text-muted);">
                     <i class="fa-solid fa-gears" style="font-size:2rem; margin-bottom:10px; display:block; opacity:0.3;"></i>
                     No managed processes registered yet.
                 </td>
@@ -54,38 +54,46 @@ export function renderManagedProcesses(processes) {
         
         const cpuVal = proc.status === 'running' && typeof proc.cpu_usage === 'number' ? proc.cpu_usage.toFixed(1) + '%' : '-';
         const memVal = proc.status === 'running' && typeof proc.memory_usage === 'number' ? proc.memory_usage.toFixed(1) + ' MB' : '-';
+        const portVal = proc.port ? proc.port : '-';
 
         tr.innerHTML = `
             <td style="font-weight:600; color:var(--text-main);">${escapeHtml(proc.name)}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(proc.command)}">${escapeHtml(proc.command)}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem; color:#10b981; font-weight:600;">${cpuVal}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem; color:#6366f1; font-weight:600;">${memVal}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--warning); font-weight:600;">${portVal}</td>
             <td style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(proc.cwd)}</td>
             <td>${statusBadge}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${proc.pid ? proc.pid : '-'}</td>
-            <td style="text-align:right;">
-                <div style="display:inline-flex; gap:8px;">
-                    ${proc.status === 'running' || proc.status === 'starting' ? `
-                        <button class="btn-action" onclick="stopProcess('${proc.id}')" title="Stop Process" style="padding:4px 8px; font-size:0.75rem; color:#ef4444; border-color:rgba(239,68,68,0.2); background:rgba(239,68,68,0.05);">
-                            <i class="fa-solid fa-stop"></i> Stop
+            <td style="text-align:right; overflow:visible;">
+                <div class="action-dropdown" id="dropdown-${proc.id}">
+                    <button class="action-dropdown-btn" onclick="toggleProcessDropdown(event, '${proc.id}')">
+                        <i class="fa-solid fa-ellipsis-vertical"></i> Manage
+                    </button>
+                    <div class="action-dropdown-menu" id="menu-${proc.id}">
+                        ${proc.status === 'running' || proc.status === 'starting' ? `
+                            <button class="action-dropdown-item" onclick="stopProcess('${proc.id}')">
+                                <i class="fa-solid fa-stop" style="color:#ef4444;"></i> Stop
+                            </button>
+                        ` : `
+                            <button class="action-dropdown-item" onclick="startProcess('${proc.id}')">
+                                <i class="fa-solid fa-play" style="color:var(--success);"></i> Start
+                            </button>
+                        `}
+                        <button class="action-dropdown-item" onclick="restartProcess('${proc.id}')">
+                            <i class="fa-solid fa-rotate-right" style="color:var(--accent-primary);"></i> Restart
                         </button>
-                    ` : `
-                        <button class="btn-action" onclick="startProcess('${proc.id}')" title="Start Process" style="padding:4px 8px; font-size:0.75rem; color:var(--success); border-color:rgba(16,185,129,0.2); background:rgba(16,185,129,0.05);">
-                            <i class="fa-solid fa-play"></i> Start
+                        <button class="action-dropdown-item" onclick="openEditProcessModal('${proc.id}')">
+                            <i class="fa-solid fa-pen-to-square" style="color:var(--warning);"></i> Edit
                         </button>
-                    `}
-                    <button class="btn-action" onclick="restartProcess('${proc.id}')" title="Restart Process" style="padding:4px 8px; font-size:0.75rem; color:var(--accent-primary); border-color:rgba(59,130,246,0.2); background:rgba(59,130,246,0.05);">
-                        <i class="fa-solid fa-rotate-right"></i> Restart
-                    </button>
-                    <button class="btn-action" onclick="openEditProcessModal('${proc.id}')" title="Edit Process" style="padding:4px 8px; font-size:0.75rem; color:var(--warning); border-color:rgba(245,158,11,0.2); background:rgba(245,158,11,0.05);">
-                        <i class="fa-solid fa-pen-to-square"></i> Edit
-                    </button>
-                    <button class="btn-action" onclick="viewProcessLogs('${proc.id}', '${escapeHtml(proc.name)}')" title="View Logs" style="padding:4px 8px; font-size:0.75rem;">
-                        <i class="fa-solid fa-terminal"></i> Logs
-                    </button>
-                    <button class="btn-action" onclick="deleteProcess('${proc.id}')" title="Delete Process" style="padding:4px 8px; font-size:0.75rem; color:#ef4444; border-color:transparent; background:transparent;">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
+                        <button class="action-dropdown-item" onclick="viewProcessLogs('${proc.id}', '${escapeHtml(proc.name)}')">
+                            <i class="fa-solid fa-terminal" style="color:var(--text-main);"></i> Logs
+                        </button>
+                        <hr style="border:none; border-top:1px solid var(--card-border); margin:4px 0;">
+                        <button class="action-dropdown-item danger" onclick="deleteProcess('${proc.id}')">
+                            <i class="fa-solid fa-trash-can"></i> Delete
+                        </button>
+                    </div>
                 </div>
             </td>
         `;
@@ -348,12 +356,14 @@ export function openAddProcessModal() {
     const cmdInput = document.getElementById('proc-command');
     const cwdInput = document.getElementById('proc-cwd');
     const arCheck = document.getElementById('proc-autorestart');
+    const portInput = document.getElementById('proc-port');
 
     if (idVal) idVal.value = '';
     if (nameInput) nameInput.value = '';
     if (cmdInput) cmdInput.value = '';
     if (cwdInput) cwdInput.value = '';
     if (arCheck) arCheck.checked = true;
+    if (portInput) portInput.value = '';
 
     const title = document.getElementById('modal-proc-title');
     const submitBtn = document.getElementById('btn-proc-submit');
@@ -373,12 +383,14 @@ export function openEditProcessModal(id) {
     const cmdInput = document.getElementById('proc-command');
     const cwdInput = document.getElementById('proc-cwd');
     const arCheck = document.getElementById('proc-autorestart');
+    const portInput = document.getElementById('proc-port');
 
     if (idVal) idVal.value = proc.id;
     if (nameInput) nameInput.value = proc.name;
     if (cmdInput) cmdInput.value = proc.command;
     if (cwdInput) cwdInput.value = proc.cwd;
     if (arCheck) arCheck.checked = proc.auto_restart;
+    if (portInput) portInput.value = proc.port || '';
 
     const title = document.getElementById('modal-proc-title');
     const submitBtn = document.getElementById('btn-proc-submit');
@@ -400,12 +412,22 @@ export function submitAddProcess() {
     const cmdInput = document.getElementById('proc-command');
     const cwdInput = document.getElementById('proc-cwd');
     const arCheck = document.getElementById('proc-autorestart');
+    const portInput = document.getElementById('proc-port');
 
     const id = idVal ? idVal.value : '';
     const name = nameInput ? nameInput.value.trim() : '';
     const command = cmdInput ? cmdInput.value.trim() : '';
     const cwd = cwdInput ? (cwdInput.value.trim() || '.') : '.';
     const autoRestart = arCheck ? arCheck.checked : true;
+    
+    let port = null;
+    if (portInput && portInput.value.trim()) {
+        port = parseInt(portInput.value.trim(), 10);
+        if (isNaN(port) || port <= 0 || port > 65535) {
+            showToast('warning', 'Invalid port number (must be 1-65535)');
+            return;
+        }
+    }
 
     if (!name || !command) {
         showToast('warning', 'Name and Command are required');
@@ -415,7 +437,7 @@ export function submitAddProcess() {
     const env = {};
 
     const url = id ? '/api/managed/update' : '/api/managed/add';
-    const body = id ? { id, name, command, cwd, env, auto_restart: autoRestart } : { name, command, cwd, env, auto_restart: autoRestart };
+    const body = id ? { id, name, command, cwd, env, auto_restart: autoRestart, port } : { name, command, cwd, env, auto_restart: autoRestart, port };
 
     fetch(url, {
         method: 'POST',
@@ -490,5 +512,24 @@ export function closeProcLogsModal() {
     if (logPollingInterval) {
         clearInterval(logPollingInterval);
         logPollingInterval = null;
+    }
+}
+
+export function toggleProcessDropdown(event, id) {
+    if (event) {
+        event.stopPropagation();
+    }
+    
+    const targetMenu = document.getElementById(`menu-${id}`);
+    const allMenus = document.querySelectorAll('.action-dropdown-menu');
+    
+    allMenus.forEach(menu => {
+        if (menu !== targetMenu) {
+            menu.classList.remove('show');
+        }
+    });
+    
+    if (targetMenu) {
+        targetMenu.classList.toggle('show');
     }
 }

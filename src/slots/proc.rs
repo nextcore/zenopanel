@@ -27,6 +27,11 @@ fn proc_info_to_value(info: &crate::procman::ProcessInfo) -> Value {
     });
     map.insert("cpu_usage".to_string(), Value::Float(info.cpu_usage as f64));
     map.insert("memory_usage".to_string(), Value::Float(info.memory_usage as f64));
+    map.insert("port".to_string(), match info.port {
+        Some(p) => Value::Int(p as i64),
+        None => Value::Nil,
+    });
+    map.insert("ports".to_string(), Value::List(info.ports.iter().map(|p| Value::Int(*p as i64)).collect()));
     Value::Map(map)
 }
 
@@ -83,6 +88,7 @@ pub fn register(engine: &mut Engine) {
             let mut cwd = ".".to_string();
             let mut env = HashMap::new();
             let mut auto_restart = true;
+            let mut port = None;
             let mut target = "id".to_string();
 
             if node.value.is_some() {
@@ -99,6 +105,11 @@ pub fn register(engine: &mut Engine) {
                     cwd = val.to_string_coerce();
                 } else if child.name == "auto_restart" {
                     auto_restart = val.to_bool();
+                } else if child.name == "port" {
+                    let port_val = val.to_int();
+                    if port_val > 0 && port_val <= 65535 {
+                        port = Some(port_val as u16);
+                    }
                 } else if child.name == "env" {
                     if let Value::Map(m) = val {
                         for (k, v) in m {
@@ -115,7 +126,7 @@ pub fn register(engine: &mut Engine) {
                 }
             }
 
-            let add_fut = pm.add_process(name, command, cwd, env, auto_restart);
+            let add_fut = pm.add_process(name, command, cwd, env, auto_restart, port);
             let id = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(add_fut)
             }).map_err(|e| Diagnostic {
@@ -153,6 +164,7 @@ pub fn register(engine: &mut Engine) {
             let mut cwd = ".".to_string();
             let mut env = HashMap::new();
             let mut auto_restart = true;
+            let mut port = None;
             let mut target = "success".to_string();
 
             if node.value.is_some() {
@@ -171,6 +183,11 @@ pub fn register(engine: &mut Engine) {
                     cwd = val.to_string_coerce();
                 } else if child.name == "auto_restart" {
                     auto_restart = val.to_bool();
+                } else if child.name == "port" {
+                    let port_val = val.to_int();
+                    if port_val > 0 && port_val <= 65535 {
+                        port = Some(port_val as u16);
+                    }
                 } else if child.name == "env" {
                     if let Value::Map(m) = val {
                         for (k, v) in m {
@@ -187,7 +204,7 @@ pub fn register(engine: &mut Engine) {
                 }
             }
 
-            let update_fut = pm.update_process(&id, name, command, cwd, env, auto_restart);
+            let update_fut = pm.update_process(&id, name, command, cwd, env, auto_restart, port);
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(update_fut)
             });
@@ -242,8 +259,6 @@ pub fn register(engine: &mut Engine) {
                 tokio::runtime::Handle::current().block_on(start_fut)
             });
 
-            println!("proc.start: id='{}', result={:?}", id, res);
-
             match res {
                 Ok(_) => {
                     scope.set(&target, Value::Bool(true));
@@ -293,8 +308,6 @@ pub fn register(engine: &mut Engine) {
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(stop_fut)
             });
-
-            println!("PROC.STOP: id='{}', target='{}', res={:?}", id, target, res);
 
             match res {
                 Ok(_) => {

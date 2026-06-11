@@ -8,7 +8,7 @@
                 <button class="btn-primary-action" onclick="openAddProcessModal()"><i class="fa-solid fa-plus"></i> Add Process</button>
             </div>
         </div>
-        <div style="overflow-x:auto;">
+        <div class="table-container" style="min-height:220px;">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -16,6 +16,7 @@
                         <th>Command</th>
                         <th>CPU</th>
                         <th>RAM</th>
+                        <th>Port</th>
                         <th>Directory</th>
                         <th>Status</th>
                         <th>PID</th>

@@ -143,6 +143,14 @@ export function renderProxyRules(rules) {
 function extractPortFromProcess(proc) {
     if (!proc) return null;
     
+    // -1. Check if database-configured port exists
+    if (proc.port) {
+        const p = parseInt(proc.port, 10);
+        if (!isNaN(p) && p > 0 && p <= 65535) {
+            return p;
+        }
+    }
+    
     // 0. Check if backend detected open/listening ports
     if (proc.ports && Array.isArray(proc.ports) && proc.ports.length > 0) {
         return proc.ports[0];

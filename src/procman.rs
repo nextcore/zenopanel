@@ -33,6 +33,7 @@ pub struct ProcessInfo {
     pub cpu_usage: f32,
     pub memory_usage: f64,
     pub ports: Vec<u16>,
+    pub port: Option<u16>,
 }
 
 pub struct ProcessState {
@@ -48,6 +49,7 @@ pub struct ProcessState {
     pub logs: VecDeque<String>,
     pub stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
     pub stop_requested: bool,
+    pub port: Option<u16>,
 }
 
 #[derive(Clone)]
@@ -67,12 +69,17 @@ impl ProcessManager {
                 command TEXT NOT NULL,
                 cwd TEXT NOT NULL DEFAULT '.',
                 env TEXT NOT NULL DEFAULT '{}',
-                auto_restart INTEGER NOT NULL DEFAULT 1
+                auto_restart INTEGER NOT NULL DEFAULT 1,
+                port INTEGER
             );
         ";
         if let Err(e) = sqlx::query(create_table_query).execute(&pool).await {
             eprintln!("Failed to create managed_procs table: {}", e);
         }
+
+        // Alter table to add port column if it doesn't exist
+        let alter_query = "ALTER TABLE managed_procs ADD COLUMN port INTEGER;";
+        let _ = sqlx::query(alter_query).execute(&pool).await;
 
         Self {
             pool,
@@ -82,7 +89,7 @@ impl ProcessManager {
     }
 
     pub async fn load_from_db(&self) -> Result<(), String> {
-        let rows = sqlx::query("SELECT id, name, command, cwd, env, auto_restart FROM managed_procs")
+        let rows = sqlx::query("SELECT id, name, command, cwd, env, auto_restart, port FROM managed_procs")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -99,6 +106,7 @@ impl ProcessManager {
                 let cwd: String = row.get("cwd");
                 let env_str: String = row.get("env");
                 let auto_restart_int: i32 = row.get("auto_restart");
+                let port: Option<i32> = row.try_get("port").ok().flatten();
 
                 let env: HashMap<String, String> = serde_json::from_str(&env_str).unwrap_or_default();
                 let auto_restart = auto_restart_int != 0;
@@ -122,6 +130,7 @@ impl ProcessManager {
                         logs: VecDeque::with_capacity(1000),
                         stop_tx: None,
                         stop_requested: false,
+                        port: port.map(|p| p as u16),
                     })),
                 );
             }
@@ -147,19 +156,22 @@ impl ProcessManager {
         cwd: String,
         env: HashMap<String, String>,
         auto_restart: bool,
+        port: Option<u16>,
     ) -> Result<String, String> {
         // Generate simple ID
         let id = format!("{:x}", rand::random::<u32>());
         let env_str = serde_json::to_string(&env).unwrap_or_else(|_| "{}".to_string());
         let auto_restart_int = if auto_restart { 1 } else { 0 };
+        let port_bind = port.map(|p| p as i32);
 
-        sqlx::query("INSERT INTO managed_procs (id, name, command, cwd, env, auto_restart) VALUES (?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO managed_procs (id, name, command, cwd, env, auto_restart, port) VALUES (?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&name)
             .bind(&command)
             .bind(&cwd)
             .bind(&env_str)
             .bind(auto_restart_int)
+            .bind(port_bind)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -177,6 +189,7 @@ impl ProcessManager {
             logs: VecDeque::with_capacity(1000),
             stop_tx: None,
             stop_requested: false,
+            port,
         }));
 
         self.processes.write().await.insert(id.clone(), state);
@@ -191,16 +204,19 @@ impl ProcessManager {
         cwd: String,
         env: HashMap<String, String>,
         auto_restart: bool,
+        port: Option<u16>,
     ) -> Result<(), String> {
         let env_str = serde_json::to_string(&env).unwrap_or_else(|_| "{}".to_string());
         let auto_restart_int = if auto_restart { 1 } else { 0 };
+        let port_bind = port.map(|p| p as i32);
 
-        sqlx::query("UPDATE managed_procs SET name = ?, command = ?, cwd = ?, env = ?, auto_restart = ? WHERE id = ?")
+        sqlx::query("UPDATE managed_procs SET name = ?, command = ?, cwd = ?, env = ?, auto_restart = ?, port = ? WHERE id = ?")
             .bind(&name)
             .bind(&command)
             .bind(&cwd)
             .bind(&env_str)
             .bind(auto_restart_int)
+            .bind(port_bind)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -218,6 +234,7 @@ impl ProcessManager {
             state.cwd = cwd;
             state.env = env;
             state.auto_restart = auto_restart;
+            state.port = port;
         }
 
         Ok(())
@@ -608,6 +625,13 @@ fn get_ports_for_pid(pid: u32) -> Vec<u16> {
                 }
             }
 
+            // If we have a database configured port, add it to ports as the first item if not present
+            if let Some(cfg_port) = state.port {
+                if !ports.contains(&cfg_port) {
+                    ports.insert(0, cfg_port);
+                }
+            }
+
             list.push(ProcessInfo {
                 id: state.id.clone(),
                 name: state.name.clone(),
@@ -621,6 +645,7 @@ fn get_ports_for_pid(pid: u32) -> Vec<u16> {
                 cpu_usage,
                 memory_usage,
                 ports,
+                port: state.port,
             });
         }
         list

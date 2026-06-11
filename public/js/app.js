@@ -76,7 +76,8 @@ import {
     viewProcessLogs,
     loadLogs,
     downloadProcessLogs,
-    closeProcLogsModal
+    closeProcLogsModal,
+    toggleProcessDropdown
 } from './managed.js';
 import {
     allProxyRules,
@@ -218,6 +219,7 @@ const functionsToBind = {
     loadLogs,
     downloadProcessLogs,
     closeProcLogsModal,
+    toggleProcessDropdown,
     loadProxyRules,
     renderProxyRules,
     populateManagedProcessesDropdown,
@@ -314,4 +316,12 @@ window.addEventListener('DOMContentLoaded', () => {
     // Start chart and performance metrics polling
     initPerformanceChart();
     startStatsPolling();
+
+    // Close all action dropdown menus when clicking outside
+    document.addEventListener('click', () => {
+        const allMenus = document.querySelectorAll('.action-dropdown-menu');
+        allMenus.forEach(menu => {
+            menu.classList.remove('show');
+        });
+    });
 });
