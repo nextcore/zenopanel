@@ -250,6 +250,14 @@ export function populateManagedProcessesDropdown(selectedValue) {
         opt.innerText = proc.name;
         if (proc.id === selectedValue) {
             opt.selected = true;
+            // Autofill immediately on populate if the target input is empty/blank
+            const targetInput = document.getElementById('proxy-target');
+            if (targetInput && !targetInput.value.trim()) {
+                const port = extractPortFromProcess(proc);
+                if (port) {
+                    targetInput.value = `http://127.0.0.1:${port}`;
+                }
+            }
         }
         select.appendChild(opt);
     });

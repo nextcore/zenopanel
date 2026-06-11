@@ -575,6 +575,39 @@ fn get_ports_for_pid(pid: u32) -> Vec<u16> {
                 ports = Self::get_ports_for_pid(pid_val);
             }
 
+            if ports.is_empty() {
+                // Try to parse from custom env configuration HashMap
+                for key in &["PORT", "port", "APP_PORT"] {
+                    if let Some(val) = state.env.get(*key) {
+                        if let Ok(port) = val.parse::<u16>() {
+                            ports.push(port);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if ports.is_empty() {
+                // Try to read .env file in state.cwd
+                let env_path = std::path::Path::new(&state.cwd).join(".env");
+                if env_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(env_path) {
+                        for line in content.lines() {
+                            let trimmed = line.trim();
+                            if trimmed.starts_with("PORT=") || trimmed.starts_with("port=") || trimmed.starts_with("APP_PORT=") {
+                                if let Some(val) = trimmed.split('=').nth(1) {
+                                    let clean_val = val.trim().trim_matches('"').trim_matches('\'');
+                                    if let Ok(port) = clean_val.parse::<u16>() {
+                                        ports.push(port);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             list.push(ProcessInfo {
                 id: state.id.clone(),
                 name: state.name.clone(),
