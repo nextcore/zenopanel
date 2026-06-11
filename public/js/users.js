@@ -43,12 +43,14 @@ export function renderUsers() {
                 <td>${roleBadge}</td>
                 <td>${user.created_at}</td>
                 <td style="text-align:right;">
-                    <button class="btn-action btn-sm" onclick="openEditUserModal('${user.username}', '${user.role}')" style="margin-right:5px; padding:4px 8px; font-size:0.8rem;">
-                        <i class="fa-solid fa-edit"></i> Edit
-                    </button>
-                    <button class="btn-danger-action btn-sm" onclick="deleteUser('${user.username}')" style="padding:4px 8px; font-size:0.8rem;">
-                        <i class="fa-solid fa-trash-can"></i> Delete
-                    </button>
+                    <div style="display:inline-flex; gap:8px; justify-content:flex-end;">
+                        <button class="btn-action btn-sm" onclick="openEditUserModal('${user.username}', '${user.role}')" style="padding:4px 8px; font-size:0.75rem; color:var(--warning); border-color:rgba(245,158,11,0.2); background:rgba(245,158,11,0.05);">
+                            <i class="fa-solid fa-edit"></i> Edit
+                        </button>
+                        <button class="btn-action btn-sm" onclick="deleteUser('${user.username}')" style="padding:4px 8px; font-size:0.75rem; color:#ef4444; border-color:transparent; background:transparent;">
+                            <i class="fa-solid fa-trash-can"></i> Delete
+                        </button>
+                    </div>
                 </td>
             </tr>
         `;
