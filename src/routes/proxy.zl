@@ -1,10 +1,12 @@
 # 17. Reverse Proxy API
 http.get: '/api/proxy/list' {
+    auth.guard
     proxy.list: { as: $proxies }
     http.ok: { data: $proxies }
 }
 
 http.post: '/api/proxy/add' {
+    auth.guard
     http.json_body: { as: $body }
     coalesce: $body.domain {
         default: ''
@@ -48,6 +50,7 @@ http.post: '/api/proxy/add' {
 }
 
 http.post: '/api/proxy/update' {
+    auth.guard
     http.json_body: { as: $body }
     coalesce: $body.domain {
         default: ''
@@ -96,6 +99,7 @@ http.post: '/api/proxy/update' {
 }
 
 http.post: '/api/proxy/delete' {
+    auth.guard
     http.json_body: { as: $body }
     proxy.delete: $body.id { as: $success }
     if: $success {
@@ -109,6 +113,7 @@ http.post: '/api/proxy/delete' {
 }
 
 http.post: '/api/proxy/toggle' {
+    auth.guard
     http.json_body: { as: $body }
     proxy.toggle: $body.id {
         enabled: $body.enabled

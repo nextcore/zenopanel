@@ -52,6 +52,7 @@ fn zip_file(src_file: &std::path::Path, zip: &mut zip::ZipWriter<std::fs::File>)
 pub struct HttpResponseBuilder {
     pub status: Mutex<u16>,
     pub headers: Mutex<HashMap<String, String>>,
+    pub cookies: Mutex<Vec<String>>,
     pub body: Mutex<Option<Vec<u8>>>,
 }
 

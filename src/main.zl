@@ -4,6 +4,7 @@ view.root: 'views'
 
 # Main Page UI
 http.get: '/' {
+    auth.guard
     view.blade: 'zenopanel'
 }
 
@@ -16,6 +17,8 @@ include: 'src/routes/services.zl'
 include: 'src/routes/terminal.zl'
 include: 'src/routes/managed.zl'
 include: 'src/routes/proxy.zl'
+include: 'src/routes/settings.zl'
+include: 'src/routes/users.zl'
 
 
 # 404 Handler

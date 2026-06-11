@@ -1,5 +1,6 @@
 # 15. Web Terminal - Run Shell Command API
 http.post: '/api/terminal/run' {
+    auth.guard
     http.json_body: { as: $body }
     var: $command { val: $body.command }
     

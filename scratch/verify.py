@@ -4,11 +4,30 @@ import json
 import time
 import sys
 
+headers_dict = {}
+
+def get_cookie_value(cookie_header, name):
+    if not cookie_header:
+        return None
+    cookies = []
+    if isinstance(cookie_header, list):
+        cookies = cookie_header
+    else:
+        cookies = [cookie_header]
+    for cookie_line in cookies:
+        for cookie in cookie_line.split(','):
+            parts = cookie.strip().split(';')[0].split('=')
+            if len(parts) == 2 and parts[0].strip() == name:
+                return parts[1].strip()
+    return None
+
 def post_json(url, data):
+    hdrs = {'Content-Type': 'application/json'}
+    hdrs.update(headers_dict)
     req = urllib.request.Request(
         url,
         data=json.dumps(data).encode('utf-8'),
-        headers={'Content-Type': 'application/json'}
+        headers=hdrs
     )
     try:
         with urllib.request.urlopen(req) as res:
@@ -21,7 +40,8 @@ def post_json(url, data):
 
 def get_json(url):
     try:
-        with urllib.request.urlopen(url) as res:
+        req = urllib.request.Request(url, headers=headers_dict)
+        with urllib.request.urlopen(req) as res:
             return json.loads(res.read().decode('utf-8'))
     except Exception as e:
         print(f"Error getting {url}: {e}")
@@ -29,6 +49,41 @@ def get_json(url):
 
 def main():
     print("=== STARTING ZENOPANEL VERIFICATION ===")
+    base_url = 'http://127.0.0.1:3000'
+    
+    # Authenticate first
+    print("Authenticating admin...")
+    try:
+        # Get CSRF token
+        req = urllib.request.Request(base_url + '/login')
+        with urllib.request.urlopen(req) as res:
+            cookie_hdr = res.info().get('Set-Cookie')
+            csrf_token = get_cookie_value(cookie_hdr, '_csrf')
+            
+        # Login
+        login_data = json.dumps({"username": "admin", "password": "admin"}).encode('utf-8')
+        req = urllib.request.Request(
+            base_url + '/login',
+            data=login_data,
+            headers={
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrf_token or '',
+                'Cookie': f'_csrf={csrf_token}'
+            }
+        )
+        with urllib.request.urlopen(req) as res:
+            cookie_header = res.info().get('Set-Cookie')
+            zeno_token = get_cookie_value(cookie_header, 'zeno_token')
+            
+        global headers_dict
+        headers_dict = {
+            'Cookie': f'zeno_token={zeno_token}; _csrf={csrf_token}',
+            'X-CSRF-Token': csrf_token or ''
+        }
+        print("Authenticated successfully!")
+    except Exception as e:
+        print(f"Failed to authenticate: {e}")
+        sys.exit(1)
     
     test_proc_name = "webkota_test"
     test_proxy_name = "webkota_proxy_test"
@@ -156,7 +211,8 @@ def main():
     # 8. Check and download logs
     print("\n8. Downloading full log file...")
     download_url = f'http://127.0.0.1:3000/api/processes/download_log?id={proc_id}'
-    with urllib.request.urlopen(download_url) as res:
+    req = urllib.request.Request(download_url, headers=headers_dict)
+    with urllib.request.urlopen(req) as res:
         log_content = res.read().decode('utf-8')
         print(f"Log content length: {len(log_content)} bytes")
         print("Log contents preview:")

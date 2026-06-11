@@ -30,22 +30,22 @@ def main():
 
     base_url = 'http://127.0.0.1:3000'
     
-    # 1. Access root "/" and verify redirect to "/login"
+    # 1. Access root "/" and verify 404 Not Found
     print("\n1. Accessing root '/' unauthenticated...")
     try:
         req = urllib.request.Request(base_url + '/')
         res = urllib.request.urlopen(req)
         status = res.getcode()
-        loc = res.info().get('Location')
         print(f"Response code: {status}")
-        print(f"Redirect Location: {loc}")
-        if status != 303 or loc != '/login':
-            print("❌ FAILED: Root did not redirect to '/login'")
-            sys.exit(1)
-        print("✅ SUCCESS: Correctly redirected to /login")
-    except Exception as e:
-        print(f"❌ FAILED: Error accessing root: {e}")
+        print("❌ FAILED: Root did not return 404")
         sys.exit(1)
+    except urllib.error.HTTPError as e:
+        status = e.code
+        print(f"Response code: {status} (Expected: 404)")
+        if status != 404:
+            print("❌ FAILED: Root did not return 404")
+            sys.exit(1)
+        print("✅ SUCCESS: Root correctly returns 404")
 
     # 1b. Fetch "/login" page to get the _csrf cookie
     print("\n1b. Accessing '/login' GET to retrieve CSRF token...")

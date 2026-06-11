@@ -1,5 +1,6 @@
 # 13. Service Manager - Status API
 http.get: '/api/services' {
+    auth.guard
     system.service_status: 'docker' { as: $docker_status }
     system.service_status: 'nginx' { as: $nginx_status }
     system.service_status: 'mysql' { as: $mysql_status }
@@ -17,6 +18,7 @@ http.get: '/api/services' {
 
 # 14. Service Manager - Control Action API
 http.post: '/api/services/control' {
+    auth.guard
     http.json_body: { as: $body }
     var: $service { val: $body.service }
     var: $action { val: $body.action }

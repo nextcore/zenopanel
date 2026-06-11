@@ -4,6 +4,7 @@ pub mod procman;
 pub mod proxyman;
 pub mod sslman;
 mod auth;
+pub mod auth_slots;
 
 use axum::{
     body::Bytes,
@@ -27,20 +28,20 @@ struct MethodRouter {
     post: Option<Node>,
 }
 
-struct AppState {
-    engine: Engine,
-    router: MatchitRouter<MethodRouter>,
-    parent_scope: Arc<Scope>,
-    db_manager: DBManager,
-    process_manager: Arc<crate::procman::ProcessManager>,
-    proxy_manager: Arc<crate::proxyman::ProxyManager>,
-    reqwest_client: reqwest::Client,
-    csrf_enabled: bool,
-    csrf_excepts: Vec<String>,
-    jwt_secret: String,
-    entrance_path: String,
-    admin_username: String,
-    admin_password: String,
+pub(crate) struct AppState {
+    pub(crate) engine: Engine,
+    pub(crate) router: MatchitRouter<MethodRouter>,
+    pub(crate) parent_scope: Arc<Scope>,
+    pub(crate) db_manager: DBManager,
+    pub(crate) process_manager: Arc<crate::procman::ProcessManager>,
+    pub(crate) proxy_manager: Arc<crate::proxyman::ProxyManager>,
+    pub(crate) reqwest_client: reqwest::Client,
+    pub(crate) csrf_enabled: bool,
+    pub(crate) csrf_excepts: Vec<String>,
+    pub(crate) jwt_secret: String,
+    pub(crate) entrance_path: Mutex<String>,
+    pub(crate) admin_username: String,
+    pub(crate) admin_password: String,
 }
 
 #[tokio::main]
@@ -86,6 +87,7 @@ async fn main() {
     let mut engine = zenoengine::new_engine();
     register_custom_slots(&mut engine);
     crate::proxyman::register_proxy_slots(&mut engine);
+    crate::auth_slots::register_auth_slots(&mut engine);
 
     // Retrieve default pool to init ProcessManager
     let default_pool = match db_manager.get_pool("default").await {
@@ -127,6 +129,27 @@ async fn main() {
             .await
             .expect("Failed to seed default admin user");
         println!("🚀 Seeded default admin user '{}' in the database.", admin_username);
+    }
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create settings table");
+
+    // Load custom entrance path if configured in DB
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'entrance_path'")
+        .fetch_optional(&default_pool)
+        .await
+    {
+        entrance_path = db_val;
+        if !entrance_path.starts_with('/') {
+            entrance_path = format!("/{}", entrance_path);
+        }
     }
 
     let process_manager = Arc::new(procman::ProcessManager::new(default_pool.clone()).await);
@@ -240,7 +263,7 @@ async fn main() {
         csrf_enabled,
         csrf_excepts,
         jwt_secret,
-        entrance_path,
+        entrance_path: Mutex::new(entrance_path),
         admin_username,
         admin_password,
     });
@@ -369,6 +392,7 @@ async fn wildcard_handler(
 ) -> Response {
     let path = uri.path();
     let method_str = method.as_str();
+    let entrance_path = state.entrance_path.lock().unwrap().clone();
 
     // Intercept ACME HTTP-01 challenges
     if path.starts_with("/.well-known/acme-challenge/") {
@@ -434,7 +458,7 @@ async fn wildcard_handler(
     }
 
     // 1. Check custom entrance path (e.g. /login)
-    if path == state.entrance_path {
+    if path == entrance_path {
         if method == Method::GET {
             let mut logged_in = false;
             if let Some(token) = auth::extract_token(&headers) {
@@ -454,7 +478,7 @@ async fn wildcard_handler(
                 Some(token) => token,
                 None => generate_random_token(),
             };
-            let html = render_login_page(&state.entrance_path, &csrf_token);
+            let html = render_login_page(&entrance_path, &csrf_token);
             let mut res = Response::new(axum::body::Body::from(html));
             res.headers_mut().insert(
                 axum::http::header::CONTENT_TYPE,
@@ -540,7 +564,7 @@ async fn wildcard_handler(
     if path == "/logout" {
         let mut res = Response::builder()
             .status(StatusCode::SEE_OTHER)
-            .header("Location", &state.entrance_path)
+            .header("Location", &entrance_path)
             .body(axum::body::Body::empty())
             .unwrap();
         let cookie_val1 = "zeno_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax";
@@ -556,34 +580,9 @@ async fn wildcard_handler(
 
     // 3. Secure ZenoPanel page requests and APIs (exclude the login path)
     let mut current_claims = None;
-    if path == "/" || path.starts_with("/api/") {
-        let mut authenticated = false;
-        if let Some(token) = auth::extract_token(&headers) {
-            if let Ok(claims) = auth::verify_jwt(&token, &state.jwt_secret) {
-                authenticated = true;
-                current_claims = Some(claims);
-            }
-        }
-
-        if !authenticated {
-            if path.starts_with("/api/") {
-                return Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .header("Content-Type", "application/json")
-                    .body(axum::body::Body::from(
-                        serde_json::to_string(&serde_json::json!({
-                            "success": false,
-                            "message": "Unauthorized: Silakan login terlebih dahulu"
-                        })).unwrap()
-                    ))
-                    .unwrap();
-            } else {
-                return Response::builder()
-                    .status(StatusCode::SEE_OTHER)
-                    .header("Location", &state.entrance_path)
-                    .body(axum::body::Body::empty())
-                    .unwrap();
-            }
+    if let Some(token) = auth::extract_token(&headers) {
+        if let Ok(claims) = auth::verify_jwt(&token, &state.jwt_secret) {
+            current_claims = Some(claims);
         }
     }
 
@@ -601,188 +600,7 @@ async fn wildcard_handler(
                 .unwrap();
         }
 
-        // 2. User Management - ADMIN only
-        if path.starts_with("/api/users/") {
-            if claims.role != "admin" {
-                return Response::builder()
-                    .status(StatusCode::FORBIDDEN)
-                    .header("Content-Type", "application/json")
-                    .body(axum::body::Body::from(
-                        serde_json::to_string(&serde_json::json!({
-                            "success": false,
-                            "message": "Forbidden: Hanya Administrator yang diijinkan"
-                        })).unwrap()
-                    ))
-                    .unwrap();
-            }
 
-            let default_pool = match state.db_manager.get_pool("default").await {
-                Some(crate::db::DbPool::Sqlite(pool)) => pool,
-                _ => return Response::builder().status(500).body("Default pool not initialized".into()).unwrap(),
-            };
-
-            if path == "/api/users/list" && method == Method::GET {
-                #[derive(serde::Serialize, sqlx::FromRow)]
-                struct UserInfo {
-                    id: i64,
-                    username: String,
-                    role: String,
-                    created_at: String,
-                }
-                let users: Vec<UserInfo> = sqlx::query_as(
-                    "SELECT id, username, role, strftime('%Y-%m-%d %H:%M:%S', created_at) as created_at FROM users"
-                )
-                .fetch_all(&default_pool)
-                .await
-                .unwrap_or_default();
-
-                return Response::builder()
-                    .header("Content-Type", "application/json")
-                    .body(axum::body::Body::from(serde_json::to_string(&users).unwrap()))
-                    .unwrap();
-            }
-
-            if path == "/api/users/create" && method == Method::POST {
-                #[derive(serde::Deserialize)]
-                struct CreateUserReq {
-                    username: String,
-                    password_plain: String,
-                    role: String,
-                }
-                if let Ok(req) = serde_json::from_slice::<CreateUserReq>(&body_bytes) {
-                    if req.username.is_empty() || req.password_plain.is_empty() || req.role.is_empty() {
-                        return Response::builder().status(StatusCode::BAD_REQUEST).body("Invalid inputs".into()).unwrap();
-                    }
-                    let hashed = bcrypt::hash(&req.password_plain, bcrypt::DEFAULT_COST).unwrap();
-                    let res = sqlx::query("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
-                        .bind(&req.username)
-                        .bind(&hashed)
-                        .bind(&req.role)
-                        .execute(&default_pool)
-                        .await;
-
-                    match res {
-                        Ok(_) => {
-                            return Response::builder()
-                                .header("Content-Type", "application/json")
-                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                                    "success": true,
-                                    "message": "User created successfully"
-                                })).unwrap()))
-                                .unwrap();
-                        }
-                        Err(e) => {
-                            return Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .header("Content-Type", "application/json")
-                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                                    "success": false,
-                                    "message": format!("Failed to create user: {}", e)
-                                })).unwrap()))
-                                .unwrap();
-                        }
-                    }
-                }
-            }
-
-            if path == "/api/users/update" && method == Method::POST {
-                #[derive(serde::Deserialize)]
-                struct UpdateUserReq {
-                    username: String,
-                    role: Option<String>,
-                    password_plain: Option<String>,
-                }
-                if let Ok(req) = serde_json::from_slice::<UpdateUserReq>(&body_bytes) {
-                    let mut query_parts = Vec::new();
-                    if let Some(ref role) = req.role {
-                        query_parts.push(format!("role = '{}'", role));
-                    }
-                    if let Some(ref pw) = req.password_plain {
-                        if !pw.is_empty() {
-                            let hashed = bcrypt::hash(pw, bcrypt::DEFAULT_COST).unwrap();
-                            query_parts.push(format!("password_hash = '{}'", hashed));
-                        }
-                    }
-
-                    if query_parts.is_empty() {
-                        return Response::builder().status(StatusCode::BAD_REQUEST).body("Nothing to update".into()).unwrap();
-                    }
-
-                    let query_str = format!("UPDATE users SET {} WHERE username = ?", query_parts.join(", "));
-                    let res = sqlx::query(&query_str)
-                        .bind(&req.username)
-                        .execute(&default_pool)
-                        .await;
-
-                    match res {
-                        Ok(_) => {
-                            return Response::builder()
-                                .header("Content-Type", "application/json")
-                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                                    "success": true,
-                                    "message": "User updated successfully"
-                                })).unwrap()))
-                                .unwrap();
-                        }
-                        Err(e) => {
-                            return Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .header("Content-Type", "application/json")
-                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                                    "success": false,
-                                    "message": format!("Failed to update user: {}", e)
-                                })).unwrap()))
-                                .unwrap();
-                        }
-                    }
-                }
-            }
-
-            if path == "/api/users/delete" && method == Method::POST {
-                #[derive(serde::Deserialize)]
-                struct DeleteUserReq {
-                    username: String,
-                }
-                if let Ok(req) = serde_json::from_slice::<DeleteUserReq>(&body_bytes) {
-                    if req.username == claims.sub {
-                        return Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .header("Content-Type", "application/json")
-                            .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                                "success": false,
-                                "message": "Tidak dapat menghapus user Anda sendiri yang sedang aktif"
-                            })).unwrap()))
-                            .unwrap();
-                    }
-                    let res = sqlx::query("DELETE FROM users WHERE username = ?")
-                        .bind(&req.username)
-                        .execute(&default_pool)
-                        .await;
-
-                    match res {
-                        Ok(_) => {
-                            return Response::builder()
-                                .header("Content-Type", "application/json")
-                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                                    "success": true,
-                                    "message": "User deleted successfully"
-                                })).unwrap()))
-                                .unwrap();
-                        }
-                        Err(e) => {
-                            return Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .header("Content-Type", "application/json")
-                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                                    "success": false,
-                                    "message": format!("Failed to delete user: {}", e)
-                                })).unwrap()))
-                                .unwrap();
-                        }
-                    }
-                }
-            }
-        }
 
         // 3. Database SQL Console API - ADMIN only
         if path.starts_with("/api/database/") || path.starts_with("/api/db/") {
@@ -924,6 +742,7 @@ async fn wildcard_handler(
     let response_builder = HttpResponseBuilder {
         status: std::sync::Mutex::new(200),
         headers: std::sync::Mutex::new(HashMap::new()),
+        cookies: std::sync::Mutex::new(Vec::new()),
         body: std::sync::Mutex::new(None),
     };
     ctx.set("response_builder", response_builder);
@@ -934,11 +753,20 @@ async fn wildcard_handler(
     ctx.set("db_manager", state.db_manager.clone());
     ctx.set("process_manager", state.process_manager.clone());
     ctx.set("proxy_manager", state.proxy_manager.clone());
+    if let Some(claims) = &current_claims {
+        ctx.set("user_claims", claims.clone());
+    }
+    ctx.set("app_state", state.clone());
+    ctx.set("request_headers", headers.clone());
+    ctx.set("request_path", path.to_string());
 
 
 
     for child in &handler_node.children {
         if let Err(diag) = state.engine.execute(&mut ctx, child, &req_scope) {
+            if diag.message == "HALT" {
+                break;
+            }
             eprintln!("Execution error: {}", diag);
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -977,9 +805,16 @@ async fn wildcard_handler(
         }
     }
 
+    let cookies_vec = response_builder_arc.cookies.lock().unwrap().clone();
+    for cookie_val in cookies_vec {
+        if let Ok(cookie_hdr) = axum::http::HeaderValue::from_str(&cookie_val) {
+            response.headers_mut().append(axum::http::header::SET_COOKIE, cookie_hdr);
+        }
+    }
+
     if let Some(cookie_val) = new_cookie {
         if let Ok(cookie_hdr) = axum::http::HeaderValue::from_str(&cookie_val) {
-            response.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_hdr);
+            response.headers_mut().append(axum::http::header::SET_COOKIE, cookie_hdr);
         }
     }
 

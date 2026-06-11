@@ -100,6 +100,7 @@ import {
     submitAddUser,
     deleteUser
 } from './users.js';
+import { loadSettings, submitSaveSettings } from './settings.js';
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
 // This ensures any inline blade HTML template access matches module variables dynamically.
@@ -235,7 +236,9 @@ const functionsToBind = {
     openEditUserModal,
     closeAddUserModal,
     submitAddUser,
-    deleteUser
+    deleteUser,
+    loadSettings,
+    submitSaveSettings
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {
@@ -253,6 +256,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (userRole === 'admin') {
         const navUsers = document.getElementById('nav-users');
         if (navUsers) navUsers.style.display = 'flex';
+        const navSettings = document.getElementById('nav-settings');
+        if (navSettings) navSettings.style.display = 'flex';
     } else {
         const dbTab = document.querySelector('.nav-item[data-tab="database"]');
         if (dbTab) dbTab.style.display = 'none';

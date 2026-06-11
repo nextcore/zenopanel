@@ -1,17 +1,20 @@
 # 2. System Info API
 http.get: '/api/info' {
+    auth.guard
     system.info: { as: $info }
     http.ok: { data: $info }
 }
 
 # 3. System Real-Time Stats API
 http.get: '/api/stats' {
+    auth.guard
     system.stats: { as: $stats }
     http.ok: { data: $stats }
 }
 
 # 4. Process Manager API
 http.get: '/api/processes' {
+    auth.guard
     http.query: 'sort' { as: $sort_param }
     http.query: 'limit' { as: $limit_param }
     coalesce: $sort_param {
@@ -33,6 +36,7 @@ http.get: '/api/processes' {
 
 # 5. Kill Process API
 http.post: '/api/processes/kill' {
+    auth.guard
     http.json_body: { as: $body }
     var: $pid { val: $body.pid }
     system.kill: $pid { as: $success }
@@ -48,6 +52,7 @@ http.post: '/api/processes/kill' {
 
 # 6. Check Port API
 http.post: '/api/system/check_port' {
+    auth.guard
     http.json_body: { as: $body }
     var: $port { val: $body.port }
     cast.to_int: $port { as: $port_int }
@@ -57,6 +62,7 @@ http.post: '/api/system/check_port' {
 
 # 7. Download Log API
 http.get: '/api/processes/download_log' {
+    auth.guard
     http.query: 'id' { as: $proc_id }
     http.download_log: $proc_id
 }

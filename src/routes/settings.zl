@@ -1,0 +1,61 @@
+# Settings REST APIs - ADMIN only
+# 1. GET /api/settings
+http.get: '/api/settings' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            db.select: "SELECT value FROM settings WHERE key = 'entrance_path'" { first: true, as: $setting }
+            coalesce: $setting.value {
+                default: '/login'
+                as: $current_path
+            }
+            http.ok: {
+                entrance_path: $current_path
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 2. POST /api/settings
+http.post: '/api/settings' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            var: $new_path { val: $body.entrance_path }
+            
+            if: "$new_path == ''" {
+                then: {
+                    http.bad_request: { message: "Entrance path tidak boleh kosong" }
+                }
+                else: {
+                    system.update_entrance_path: $new_path { as: $update_success }
+                    if: $update_success {
+                        then: {
+                            db.execute: "INSERT INTO settings (key, value) VALUES ('entrance_path', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value" {
+                                bind: {
+                                    val: $normalized_path
+                                }
+                            }
+                            http.ok: {
+                                message: "Pengaturan berhasil disimpan"
+                                entrance_path: $normalized_path
+                            }
+                        }
+                        else: {
+                            http.bad_request: { message: "Gagal menyimpan pengaturan" }
+                        }
+                    }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}

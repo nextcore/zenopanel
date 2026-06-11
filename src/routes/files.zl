@@ -1,5 +1,6 @@
 # 6. File Manager - List Directory API
 http.get: '/api/files/list' {
+    auth.guard
     http.query: 'path' { as: $path_param }
     coalesce: $path_param {
         default: '.'
@@ -14,6 +15,7 @@ http.get: '/api/files/list' {
 
 # 7. File Manager - Read File API
 http.get: '/api/files/read' {
+    auth.guard
     http.query: 'path' { as: $file_path }
     io.file.read: $file_path { as: $content }
     http.ok: { content: $content }
@@ -21,6 +23,7 @@ http.get: '/api/files/read' {
 
 # 8. File Manager - Write File API
 http.post: '/api/files/write' {
+    auth.guard
     http.json_body: { as: $body }
     var: $file_path { val: $body.path }
     var: $content { val: $body.content }
@@ -33,6 +36,7 @@ http.post: '/api/files/write' {
 
 # 9. File Manager - Create File/Folder API
 http.post: '/api/files/create-file' {
+    auth.guard
     http.json_body: { as: $body }
     var: $file_path { val: $body.path }
     io.file.write: {
@@ -44,6 +48,7 @@ http.post: '/api/files/create-file' {
 
 # 9b. File Manager - Create Folder API
 http.post: '/api/files/create-dir' {
+    auth.guard
     http.json_body: { as: $body }
     var: $dir_path { val: $body.path }
     io.dir.create: $dir_path
@@ -52,6 +57,7 @@ http.post: '/api/files/create-dir' {
 
 # 10. File Manager - Delete File API
 http.post: '/api/files/delete' {
+    auth.guard
     http.json_body: { as: $body }
     var: $file_path { val: $body.path }
     io.file.delete: $file_path
@@ -60,6 +66,7 @@ http.post: '/api/files/delete' {
 
 # 10b. File Manager - Archive File/Folder API
 http.post: '/api/files/archive' {
+    auth.guard
     http.json_body: { as: $body }
     var: $src_path { val: $body.path }
     var: $dest_path { val: $body.dest }
@@ -72,6 +79,7 @@ http.post: '/api/files/archive' {
 
 # 10c. File Manager - Extract Archive API
 http.post: '/api/files/extract' {
+    auth.guard
     http.json_body: { as: $body }
     var: $src_path { val: $body.path }
     var: $dest_path { val: $body.dest }

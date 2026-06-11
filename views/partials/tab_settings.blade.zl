@@ -1,0 +1,30 @@
+<!-- 9. SYSTEM SETTINGS TAB -->
+<div class="viewport" id="tab-settings">
+    <div class="card" style="margin-top:0; max-width:600px;">
+        <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                <i class="fa-solid fa-sliders" style="color:var(--accent-primary);"></i> System Settings
+            </h3>
+        </div>
+        
+        <div class="settings-form" style="display:flex; flex-direction:column; gap:20px;">
+            <div class="form-group">
+                <label style="display:block; margin-bottom:8px; font-weight:600; font-size:0.95rem; color:var(--text-main);">
+                    Custom Entrance Path (Login URL)
+                </label>
+                <div style="display:flex; gap:10px; align-items:stretch;">
+                    <input type="text" id="settings-entrance-path" placeholder="e.g. /login or /my-custom-login" style="flex-grow:1; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family:var(--font-code); font-size:0.9rem;">
+                </div>
+                <small style="display:block; margin-top:6px; color:var(--text-muted); font-size:0.8rem; line-height:1.4;">
+                    Mengubah jalur URL masuk panel. Misalnya, jika diubah menjadi <code>/rahasia-admin</code>, halaman masuk hanya akan dapat diakses melalui <code>http://domain:port/rahasia-admin</code>.
+                </small>
+            </div>
+            
+            <div style="border-top:1px solid var(--card-border); padding-top:15px; display:flex; justify-content:flex-end;">
+                <button class="btn-primary-action" id="btn-save-settings" onclick="submitSaveSettings()">
+                    <i class="fa-solid fa-save"></i> Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

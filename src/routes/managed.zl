@@ -1,10 +1,12 @@
 # 16. Managed Processes API
 http.get: '/api/managed/list' {
+    auth.guard
     proc.list: { as: $procs }
     http.ok: { data: $procs }
 }
 
 http.post: '/api/managed/add' {
+    auth.guard
     http.json_body: { as: $body }
     coalesce: $body.env {
         default: {}
@@ -29,6 +31,7 @@ http.post: '/api/managed/add' {
 }
 
 http.post: '/api/managed/update' {
+    auth.guard
     http.json_body: { as: $body }
     coalesce: $body.env {
         default: {}
@@ -58,6 +61,7 @@ http.post: '/api/managed/update' {
 }
 
 http.post: '/api/managed/start' {
+    auth.guard
     http.json_body: { as: $body }
     proc.start: $body.id { as: $success }
     if: $success {
@@ -71,6 +75,7 @@ http.post: '/api/managed/start' {
 }
 
 http.post: '/api/managed/stop' {
+    auth.guard
     http.json_body: { as: $body }
     proc.stop: $body.id { as: $success }
     debug.print: $success
@@ -85,6 +90,7 @@ http.post: '/api/managed/stop' {
 }
 
 http.post: '/api/managed/restart' {
+    auth.guard
     http.json_body: { as: $body }
     proc.restart: $body.id { as: $success }
     if: $success {
@@ -98,6 +104,7 @@ http.post: '/api/managed/restart' {
 }
 
 http.post: '/api/managed/delete' {
+    auth.guard
     http.json_body: { as: $body }
     proc.delete: $body.id { as: $success }
     if: $success {
@@ -111,6 +118,7 @@ http.post: '/api/managed/delete' {
 }
 
 http.get: '/api/managed/logs' {
+    auth.guard
     http.query: 'id' { as: $proc_id }
     http.query: 'lines' { as: $lines_param }
     coalesce: $lines_param {
