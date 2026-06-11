@@ -1,6 +1,6 @@
 // --- MAIN ES MODULE ENTRY POINT ---
 
-import { getCSRFToken, formatBytes, escapeHtml } from './utils.js';
+import { getCSRFToken, formatBytes, escapeHtml, getCookieValue } from './utils.js';
 import { showToast } from './toast.js';
 import { currentTab, switchTab, refreshCurrentTab, initNavigation } from './navigation.js';
 import {
@@ -91,6 +91,15 @@ import {
     deleteProxy
 } from './proxy.js';
 import { openPortCheckModal, closePortCheckModal, submitPortCheck, killPortProcess } from './portcheck.js';
+import {
+    allUsers,
+    loadUsers,
+    openAddUserModal,
+    openEditUserModal,
+    closeAddUserModal,
+    submitAddUser,
+    deleteUser
+} from './users.js';
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
 // This ensures any inline blade HTML template access matches module variables dynamically.
@@ -134,6 +143,9 @@ bindStateToWindow('dpCurrentPath', () => dpCurrentPath, (v) => {});
 
 // Bind Proxy State
 bindStateToWindow('allProxyRules', () => allProxyRules, (v) => {});
+
+// Bind Users State
+bindStateToWindow('allUsers', () => allUsers, (v) => {});
 
 
 // --- FUNCTION BINDINGS TO WINDOW ---
@@ -217,7 +229,13 @@ const functionsToBind = {
     openPortCheckModal,
     closePortCheckModal,
     submitPortCheck,
-    killPortProcess
+    killPortProcess,
+    loadUsers,
+    openAddUserModal,
+    openEditUserModal,
+    closeAddUserModal,
+    submitAddUser,
+    deleteUser
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {
@@ -228,6 +246,54 @@ Object.entries(functionsToBind).forEach(([name, fn]) => {
 // --- INITIALIZATION ROUTINE ---
 
 window.addEventListener('DOMContentLoaded', () => {
+    // Apply role-based client-side gating
+    const userRole = getCookieValue('zeno_role') || 'viewer';
+    window.userRole = userRole;
+
+    if (userRole === 'admin') {
+        const navUsers = document.getElementById('nav-users');
+        if (navUsers) navUsers.style.display = 'flex';
+    } else {
+        const dbTab = document.querySelector('.nav-item[data-tab="database"]');
+        if (dbTab) dbTab.style.display = 'none';
+
+        const termTab = document.querySelector('.nav-item[data-tab="terminal"]');
+        if (termTab) termTab.style.display = 'none';
+
+        const usersTab = document.querySelector('.nav-item[data-tab="users"]');
+        if (usersTab) usersTab.style.display = 'none';
+    }
+
+    if (userRole === 'viewer') {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .btn-primary-action,
+            .btn-danger-action,
+            .btn-action[onclick*="Delete"],
+            .btn-action[onclick*="Edit"],
+            .btn-action[onclick*="Upload"],
+            .btn-action[onclick*="Create"],
+            .btn-action[onclick*="openAdd"],
+            .btn-action[onclick*="openEdit"],
+            button[onclick*="openAdd"],
+            button[onclick*="openEdit"],
+            button[onclick*="delete"],
+            button[onclick*="edit"],
+            button[onclick*="restart"],
+            button[onclick*="stop"],
+            button[onclick*="start"],
+            button[onclick*="kill"],
+            .data-table th:last-child,
+            .data-table td:last-child,
+            .file-actions-bar,
+            #upload-trigger,
+            .upload-btn {
+                display: none !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     // Initialize Navigation Listeners
     initNavigation();
 

@@ -16,6 +16,8 @@ sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
 matchit = "0.7"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
+jsonwebtoken = "9.3.0"
+bcrypt = "0.15"
 zenocore = "0.1.0"
 zeno-blade = "0.1.0"
 zeno-std = "0.1.0"

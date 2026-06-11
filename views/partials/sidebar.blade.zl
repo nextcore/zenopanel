@@ -30,6 +30,10 @@
             <i class="fa-solid fa-network-wired"></i>
             <span>Reverse Proxy</span>
         </div>
+        <div class="nav-item" data-tab="users" id="nav-users" style="display: none;">
+            <i class="fa-solid fa-users-gear"></i>
+            <span>Users</span>
+        </div>
 
     </nav>
     <div class="sidebar-footer">

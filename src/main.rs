@@ -3,6 +3,7 @@ mod slots;
 pub mod procman;
 pub mod proxyman;
 pub mod sslman;
+mod auth;
 
 use axum::{
     body::Bytes,
@@ -36,12 +37,35 @@ struct AppState {
     reqwest_client: reqwest::Client,
     csrf_enabled: bool,
     csrf_excepts: Vec<String>,
+    jwt_secret: String,
+    entrance_path: String,
+    admin_username: String,
+    admin_password: String,
 }
 
 #[tokio::main]
 async fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let _ = dotenvy::dotenv();
+
+    let csrf_enabled = std::env::var("CSRF_ENABLED").map(|v| v == "true").unwrap_or(true);
+    let csrf_except_str = std::env::var("CSRF_EXCEPT").unwrap_or_else(|_| "/api,/health".to_string());
+    let csrf_excepts: Vec<String> = csrf_except_str.split(',').map(|s| s.trim().to_string()).collect();
+
+    let mut entrance_path = std::env::var("ENTRANCE_PATH").unwrap_or_else(|_| "/login".to_string());
+    if !entrance_path.starts_with('/') {
+        entrance_path = format!("/{}", entrance_path);
+    }
+    let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
+    let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin".to_string());
+    if !admin_password.starts_with("$2") && admin_password != "admin" {
+        println!("⚠️ WARNING: ADMIN_PASSWORD is stored in plain text. For better security, consider hashing it using bcrypt.");
+    }
+    let mut jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
+    if jwt_secret.is_empty() {
+        jwt_secret = generate_random_token();
+        println!("⚠️ JWT_SECRET was not set in .env. Generated a temporary key for this session.");
+    }
 
     let db_manager = DBManager::new();
     
@@ -68,6 +92,43 @@ async fn main() {
         Some(crate::db::DbPool::Sqlite(pool)) => pool,
         _ => panic!("Default DB pool not initialized"),
     };
+
+    // Create users table and seed initial admin if empty
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create users table");
+
+    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&default_pool)
+        .await
+        .unwrap_or((0,));
+
+    if user_count.0 == 0 {
+        let hashed_pw = if admin_password.starts_with("$2") {
+            admin_password.clone()
+        } else {
+            bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST).expect("Failed to hash admin password")
+        };
+
+        sqlx::query("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
+            .bind(&admin_username)
+            .bind(&hashed_pw)
+            .bind("admin")
+            .execute(&default_pool)
+            .await
+            .expect("Failed to seed default admin user");
+        println!("🚀 Seeded default admin user '{}' in the database.", admin_username);
+    }
+
     let process_manager = Arc::new(procman::ProcessManager::new(default_pool.clone()).await);
     if let Err(e) = process_manager.load_from_db().await {
         eprintln!("Failed to load processes from DB: {}", e);
@@ -167,10 +228,6 @@ async fn main() {
         }
     }
 
-    let csrf_enabled = std::env::var("CSRF_ENABLED").map(|v| v == "true").unwrap_or(true);
-    let csrf_except_str = std::env::var("CSRF_EXCEPT").unwrap_or_else(|_| "/api,/health".to_string());
-    let csrf_excepts: Vec<String> = csrf_except_str.split(',').map(|s| s.trim().to_string()).collect();
-
     let reqwest_client = reqwest::Client::new();
     let state = Arc::new(AppState {
         engine,
@@ -182,13 +239,22 @@ async fn main() {
         reqwest_client,
         csrf_enabled,
         csrf_excepts,
+        jwt_secret,
+        entrance_path,
+        admin_username,
+        admin_password,
     });
 
     let static_service = ServeDir::new("public");
 
     let app = Router::new()
         .nest_service("/public", static_service)
-        .route("/api/files/upload", post(upload_file_handler).layer(axum::extract::DefaultBodyLimit::disable()))
+        .route(
+            "/api/files/upload",
+            post(upload_file_handler)
+                .layer::<_, std::convert::Infallible>(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+                .layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .fallback(any(wildcard_handler))
         .with_state(state)
         .layer(CorsLayer::permissive());
@@ -362,6 +428,407 @@ async fn wildcard_handler(
                     .status(StatusCode::BAD_GATEWAY)
                     .header("Content-Type", "text/html")
                     .body(axum::body::Body::from(html))
+                    .unwrap();
+            }
+        }
+    }
+
+    // 1. Check custom entrance path (e.g. /login)
+    if path == state.entrance_path {
+        if method == Method::GET {
+            let mut logged_in = false;
+            if let Some(token) = auth::extract_token(&headers) {
+                if auth::verify_jwt(&token, &state.jwt_secret).is_ok() {
+                    logged_in = true;
+                }
+            }
+            if logged_in {
+                return Response::builder()
+                    .status(StatusCode::SEE_OTHER)
+                    .header("Location", "/")
+                    .body(axum::body::Body::empty())
+                    .unwrap();
+            }
+
+            let csrf_token = match get_cookie_value(&headers, "_csrf") {
+                Some(token) => token,
+                None => generate_random_token(),
+            };
+            let html = render_login_page(&state.entrance_path, &csrf_token);
+            let mut res = Response::new(axum::body::Body::from(html));
+            res.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("text/html; charset=utf-8"),
+            );
+            if get_cookie_value(&headers, "_csrf").is_none() {
+                let cookie_val = format!("_csrf={}; Path=/; SameSite=Lax", csrf_token);
+                if let Ok(cookie_hdr) = axum::http::HeaderValue::from_str(&cookie_val) {
+                    res.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_hdr);
+                }
+            }
+            return res;
+        } else if method == Method::POST {
+            #[derive(serde::Deserialize)]
+            struct LoginRequest {
+                username: String,
+                password: String,
+            }
+            if let Ok(login_req) = serde_json::from_slice::<LoginRequest>(&body_bytes) {
+                let default_pool = match state.db_manager.get_pool("default").await {
+                    Some(crate::db::DbPool::Sqlite(pool)) => Some(pool),
+                    _ => None,
+                };
+
+                let mut authenticated = false;
+                let mut user_role = String::new();
+
+                if let Some(pool) = default_pool {
+                    let user_row: Option<(String, String)> = sqlx::query_as(
+                        "SELECT password_hash, role FROM users WHERE username = ?"
+                    )
+                    .bind(&login_req.username)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap_or(None);
+
+                    if let Some((password_hash, role)) = user_row {
+                        if bcrypt::verify(&login_req.password, &password_hash).unwrap_or(false) {
+                            authenticated = true;
+                            user_role = role;
+                        }
+                    }
+                }
+
+                if authenticated {
+                    if let Ok(token) = auth::generate_jwt(&login_req.username, &user_role, &state.jwt_secret) {
+                        let mut res = Response::new(axum::body::Body::from(
+                            serde_json::to_string(&serde_json::json!({
+                                "success": true,
+                                "message": "Login successful"
+                            })).unwrap()
+                        ));
+                        res.headers_mut().insert(
+                            axum::http::header::CONTENT_TYPE,
+                            axum::http::HeaderValue::from_static("application/json"),
+                        );
+                        let cookie_val = format!("zeno_token={}; Path=/; HttpOnly; SameSite=Lax", token);
+                        if let Ok(cookie_hdr) = axum::http::HeaderValue::from_str(&cookie_val) {
+                            res.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_hdr);
+                        }
+                        let role_cookie = format!("zeno_role={}; Path=/; SameSite=Lax", user_role);
+                        if let Ok(role_hdr) = axum::http::HeaderValue::from_str(&role_cookie) {
+                            res.headers_mut().append(axum::http::header::SET_COOKIE, role_hdr);
+                        }
+                        return res;
+                    }
+                }
+            }
+            return Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "success": false,
+                        "message": "Username atau password salah"
+                    })).unwrap()
+                ))
+                .unwrap();
+        }
+    }
+
+    // 2. Check logout path
+    if path == "/logout" {
+        let mut res = Response::builder()
+            .status(StatusCode::SEE_OTHER)
+            .header("Location", &state.entrance_path)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let cookie_val1 = "zeno_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax";
+        let cookie_val2 = "zeno_role=; Path=/; Max-Age=0; SameSite=Lax";
+        if let Ok(cookie_hdr1) = axum::http::HeaderValue::from_str(cookie_val1) {
+            res.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_hdr1);
+        }
+        if let Ok(cookie_hdr2) = axum::http::HeaderValue::from_str(cookie_val2) {
+            res.headers_mut().append(axum::http::header::SET_COOKIE, cookie_hdr2);
+        }
+        return res;
+    }
+
+    // 3. Secure ZenoPanel page requests and APIs (exclude the login path)
+    let mut current_claims = None;
+    if path == "/" || path.starts_with("/api/") {
+        let mut authenticated = false;
+        if let Some(token) = auth::extract_token(&headers) {
+            if let Ok(claims) = auth::verify_jwt(&token, &state.jwt_secret) {
+                authenticated = true;
+                current_claims = Some(claims);
+            }
+        }
+
+        if !authenticated {
+            if path.starts_with("/api/") {
+                return Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": "Unauthorized: Silakan login terlebih dahulu"
+                        })).unwrap()
+                    ))
+                    .unwrap();
+            } else {
+                return Response::builder()
+                    .status(StatusCode::SEE_OTHER)
+                    .header("Location", &state.entrance_path)
+                    .body(axum::body::Body::empty())
+                    .unwrap();
+            }
+        }
+    }
+
+    // Role-based authorization and user management APIs
+    if let Some(claims) = &current_claims {
+        // 1. GET /api/auth/me
+        if path == "/api/auth/me" && method == Method::GET {
+            return Response::builder()
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                    "success": true,
+                    "username": claims.sub,
+                    "role": claims.role
+                })).unwrap()))
+                .unwrap();
+        }
+
+        // 2. User Management - ADMIN only
+        if path.starts_with("/api/users/") {
+            if claims.role != "admin" {
+                return Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": "Forbidden: Hanya Administrator yang diijinkan"
+                        })).unwrap()
+                    ))
+                    .unwrap();
+            }
+
+            let default_pool = match state.db_manager.get_pool("default").await {
+                Some(crate::db::DbPool::Sqlite(pool)) => pool,
+                _ => return Response::builder().status(500).body("Default pool not initialized".into()).unwrap(),
+            };
+
+            if path == "/api/users/list" && method == Method::GET {
+                #[derive(serde::Serialize, sqlx::FromRow)]
+                struct UserInfo {
+                    id: i64,
+                    username: String,
+                    role: String,
+                    created_at: String,
+                }
+                let users: Vec<UserInfo> = sqlx::query_as(
+                    "SELECT id, username, role, strftime('%Y-%m-%d %H:%M:%S', created_at) as created_at FROM users"
+                )
+                .fetch_all(&default_pool)
+                .await
+                .unwrap_or_default();
+
+                return Response::builder()
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_string(&users).unwrap()))
+                    .unwrap();
+            }
+
+            if path == "/api/users/create" && method == Method::POST {
+                #[derive(serde::Deserialize)]
+                struct CreateUserReq {
+                    username: String,
+                    password_plain: String,
+                    role: String,
+                }
+                if let Ok(req) = serde_json::from_slice::<CreateUserReq>(&body_bytes) {
+                    if req.username.is_empty() || req.password_plain.is_empty() || req.role.is_empty() {
+                        return Response::builder().status(StatusCode::BAD_REQUEST).body("Invalid inputs".into()).unwrap();
+                    }
+                    let hashed = bcrypt::hash(&req.password_plain, bcrypt::DEFAULT_COST).unwrap();
+                    let res = sqlx::query("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
+                        .bind(&req.username)
+                        .bind(&hashed)
+                        .bind(&req.role)
+                        .execute(&default_pool)
+                        .await;
+
+                    match res {
+                        Ok(_) => {
+                            return Response::builder()
+                                .header("Content-Type", "application/json")
+                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                                    "success": true,
+                                    "message": "User created successfully"
+                                })).unwrap()))
+                                .unwrap();
+                        }
+                        Err(e) => {
+                            return Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .header("Content-Type", "application/json")
+                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                                    "success": false,
+                                    "message": format!("Failed to create user: {}", e)
+                                })).unwrap()))
+                                .unwrap();
+                        }
+                    }
+                }
+            }
+
+            if path == "/api/users/update" && method == Method::POST {
+                #[derive(serde::Deserialize)]
+                struct UpdateUserReq {
+                    username: String,
+                    role: Option<String>,
+                    password_plain: Option<String>,
+                }
+                if let Ok(req) = serde_json::from_slice::<UpdateUserReq>(&body_bytes) {
+                    let mut query_parts = Vec::new();
+                    if let Some(ref role) = req.role {
+                        query_parts.push(format!("role = '{}'", role));
+                    }
+                    if let Some(ref pw) = req.password_plain {
+                        if !pw.is_empty() {
+                            let hashed = bcrypt::hash(pw, bcrypt::DEFAULT_COST).unwrap();
+                            query_parts.push(format!("password_hash = '{}'", hashed));
+                        }
+                    }
+
+                    if query_parts.is_empty() {
+                        return Response::builder().status(StatusCode::BAD_REQUEST).body("Nothing to update".into()).unwrap();
+                    }
+
+                    let query_str = format!("UPDATE users SET {} WHERE username = ?", query_parts.join(", "));
+                    let res = sqlx::query(&query_str)
+                        .bind(&req.username)
+                        .execute(&default_pool)
+                        .await;
+
+                    match res {
+                        Ok(_) => {
+                            return Response::builder()
+                                .header("Content-Type", "application/json")
+                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                                    "success": true,
+                                    "message": "User updated successfully"
+                                })).unwrap()))
+                                .unwrap();
+                        }
+                        Err(e) => {
+                            return Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .header("Content-Type", "application/json")
+                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                                    "success": false,
+                                    "message": format!("Failed to update user: {}", e)
+                                })).unwrap()))
+                                .unwrap();
+                        }
+                    }
+                }
+            }
+
+            if path == "/api/users/delete" && method == Method::POST {
+                #[derive(serde::Deserialize)]
+                struct DeleteUserReq {
+                    username: String,
+                }
+                if let Ok(req) = serde_json::from_slice::<DeleteUserReq>(&body_bytes) {
+                    if req.username == claims.sub {
+                        return Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .header("Content-Type", "application/json")
+                            .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                                "success": false,
+                                "message": "Tidak dapat menghapus user Anda sendiri yang sedang aktif"
+                            })).unwrap()))
+                            .unwrap();
+                    }
+                    let res = sqlx::query("DELETE FROM users WHERE username = ?")
+                        .bind(&req.username)
+                        .execute(&default_pool)
+                        .await;
+
+                    match res {
+                        Ok(_) => {
+                            return Response::builder()
+                                .header("Content-Type", "application/json")
+                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                                    "success": true,
+                                    "message": "User deleted successfully"
+                                })).unwrap()))
+                                .unwrap();
+                        }
+                        Err(e) => {
+                            return Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .header("Content-Type", "application/json")
+                                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
+                                    "success": false,
+                                    "message": format!("Failed to delete user: {}", e)
+                                })).unwrap()))
+                                .unwrap();
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Database SQL Console API - ADMIN only
+        if path.starts_with("/api/database/") || path.starts_with("/api/db/") {
+            if claims.role != "admin" {
+                return Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": "Forbidden: Hanya Administrator yang diijinkan mengakses console Database"
+                        })).unwrap()
+                    ))
+                    .unwrap();
+            }
+        }
+
+        // 4. Interactive Terminal APIs - ADMIN only
+        if path.starts_with("/api/terminal/") {
+            if claims.role != "admin" {
+                return Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": "Forbidden: Hanya Administrator yang diijinkan menggunakan Terminal"
+                        })).unwrap()
+                    ))
+                    .unwrap();
+            }
+        }
+
+        // 5. Mutation blocks for VIEWERS
+        if claims.role == "viewer" {
+            let is_mutation = method == Method::POST || method == Method::PUT || method == Method::DELETE;
+            if is_mutation && path != "/logout" {
+                return Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": "Forbidden: Role Viewer tidak diijinkan untuk melakukan modifikasi"
+                        })).unwrap()
+                    ))
                     .unwrap();
             }
         }
@@ -777,6 +1244,248 @@ fn render_error_page(status: &str, app_name: &str, details: &str) -> String {
         status_desc = status_desc,
         details = details
     )
+}
+
+fn render_login_page(entrance_path: &str, csrf_token: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - ZenoPanel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: radial-gradient(circle at center, #1e1b4b 0%, #09090b 100%);
+            color: #f4f4f5;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }}
+        .container {{
+            max-width: 400px;
+            width: 100%;
+            padding: 2.5rem;
+            background: rgba(15, 23, 42, 0.4);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }}
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(20px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+        .logo {{
+            font-weight: 800;
+            font-size: 2.25rem;
+            letter-spacing: -0.05em;
+            text-align: center;
+            background: linear-gradient(to right, #a78bfa, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }}
+        .subtitle {{
+            font-size: 0.875rem;
+            color: #a1a1aa;
+            text-align: center;
+            margin-bottom: 2rem;
+        }}
+        .form-group {{
+            margin-bottom: 1.25rem;
+            position: relative;
+        }}
+        label {{
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #e4e4e7;
+            margin-bottom: 0.5rem;
+        }}
+        input {{
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: white;
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+        }}
+        input:focus {{
+            outline: none;
+            border-color: #818cf8;
+            box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+            background: rgba(0, 0, 0, 0.35);
+        }}
+        .btn {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+            margin-top: 1rem;
+        }}
+        .btn:hover {{
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+        }}
+        .btn:active {{
+            transform: translateY(0);
+        }}
+        .error-alert {{
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            margin-bottom: 1.5rem;
+            display: none;
+            animation: shake 0.4s ease-in-out;
+        }}
+        @keyframes shake {{
+            0%, 100% {{ transform: translateX(0); }}
+            25% {{ transform: translateX(-6px); }}
+            75% {{ transform: translateX(6px); }}
+        }}
+        .footer {{
+            margin-top: 2rem;
+            font-size: 0.75rem;
+            color: #52525b;
+            text-align: center;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">ZenoPanel</div>
+        <div class="subtitle">Sign in to manage your server</div>
+        
+        <div id="errorAlert" class="error-alert"></div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" required autocomplete="username">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required autocomplete="current-password">
+            </div>
+            
+            <button type="submit" class="btn">Sign In</button>
+        </form>
+        
+        <div class="footer">Powered by ZenoPanel Enterprise</div>
+    </div>
+
+    <script>
+        const loginForm = document.getElementById('loginForm');
+        const errorAlert = document.getElementById('errorAlert');
+
+        loginForm.addEventListener('submit', async (e) => {{
+            e.preventDefault();
+            errorAlert.style.display = 'none';
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {{
+                const res = await fetch('{entrance_path}', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': '{csrf_token}'
+                    }},
+                    body: JSON.stringify({{ username, password }})
+                }});
+
+                const data = await res.json();
+                if (res.ok && data.success) {{
+                    window.location.href = '/';
+                }} else {{
+                    errorAlert.textContent = data.message || 'Login gagal';
+                    errorAlert.style.display = 'block';
+                }}
+            }} catch (err) {{
+                errorAlert.textContent = 'Terjadi kesalahan jaringan. Coba lagi.';
+                errorAlert.style.display = 'block';
+            }}
+        }});
+    </script>
+</body>
+</html>"#,
+        entrance_path = entrance_path,
+        csrf_token = csrf_token
+    )
+}
+
+async fn auth_middleware(
+    State(state): State<Arc<AppState>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let headers = req.headers();
+    let mut current_claims = None;
+    if let Some(token) = auth::extract_token(headers) {
+        if let Ok(claims) = auth::verify_jwt(&token, &state.jwt_secret) {
+            current_claims = Some(claims);
+        }
+    }
+
+    let claims = match current_claims {
+        Some(c) => c,
+        None => {
+            let body = serde_json::to_string(&serde_json::json!({
+                "success": false,
+                "message": "Unauthorized: Silakan login terlebih dahulu"
+            })).unwrap();
+            
+            return Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(body))
+                .unwrap();
+        }
+    };
+
+    if claims.role == "viewer" {
+        let body = serde_json::to_string(&serde_json::json!({
+            "success": false,
+            "message": "Forbidden: Role Viewer tidak diijinkan mengupload file"
+        })).unwrap();
+        
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(body))
+            .unwrap();
+    }
+
+    next.run(req).await
 }
 
 async fn upload_file_handler(
