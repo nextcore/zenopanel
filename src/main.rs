@@ -16,6 +16,7 @@ use axum::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use matchit::Router as MatchitRouter;
@@ -26,6 +27,58 @@ use crate::slots::{register_custom_slots, HttpResponseBuilder};
 struct MethodRouter {
     get: Option<Node>,
     post: Option<Node>,
+}
+
+/// Per-IP login attempt tracker for brute-force protection.
+struct LoginAttempt {
+    count: u32,
+    first_at: Instant,
+}
+
+/// Simple in-memory rate limiter: max 5 failed attempts per 5 minutes per IP.
+pub(crate) struct LoginLimiter {
+    map: Mutex<HashMap<String, LoginAttempt>>,
+}
+
+impl LoginLimiter {
+    const MAX_ATTEMPTS: u32 = 5;
+    const WINDOW: Duration = Duration::from_secs(5 * 60);
+
+    fn new() -> Self {
+        Self { map: Mutex::new(HashMap::new()) }
+    }
+
+    /// Returns true if the IP is currently blocked.
+    fn is_blocked(&self, ip: &str) -> bool {
+        let map = self.map.lock().unwrap();
+        if let Some(entry) = map.get(ip) {
+            if entry.first_at.elapsed() < Self::WINDOW {
+                return entry.count >= Self::MAX_ATTEMPTS;
+            }
+        }
+        false
+    }
+
+    /// Record a failed attempt. Returns remaining attempts before lockout.
+    fn record_failure(&self, ip: &str) -> u32 {
+        let mut map = self.map.lock().unwrap();
+        let entry = map.entry(ip.to_string()).or_insert_with(|| LoginAttempt {
+            count: 0,
+            first_at: Instant::now(),
+        });
+        // Reset window if expired
+        if entry.first_at.elapsed() >= Self::WINDOW {
+            entry.count = 0;
+            entry.first_at = Instant::now();
+        }
+        entry.count += 1;
+        Self::MAX_ATTEMPTS.saturating_sub(entry.count)
+    }
+
+    /// Clear attempts on successful login.
+    fn clear(&self, ip: &str) {
+        self.map.lock().unwrap().remove(ip);
+    }
 }
 
 pub(crate) struct AppState {
@@ -40,6 +93,7 @@ pub(crate) struct AppState {
     pub(crate) csrf_excepts: Vec<String>,
     pub(crate) jwt_secret: String,
     pub(crate) entrance_path: Mutex<String>,
+    pub(crate) login_limiter: Arc<LoginLimiter>,
 }
 
 #[tokio::main]
@@ -71,27 +125,8 @@ async fn main() {
     let mut jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
     if jwt_secret.is_empty() || jwt_secret == placeholder {
         jwt_secret = generate_secure_key();
-        // Persist the generated key into .env so subsequent restarts use the same secret
-        let env_path = ".env";
-        let existing = std::fs::read_to_string(env_path).unwrap_or_default();
-        let mut found = false;
-        let mut new_lines: Vec<String> = existing
-            .lines()
-            .map(|line| {
-                if line.starts_with("JWT_SECRET=") {
-                    found = true;
-                    format!("JWT_SECRET={}", jwt_secret)
-                } else {
-                    line.to_string()
-                }
-            })
-            .collect();
-        if !found {
-            new_lines.push(format!("JWT_SECRET={}", jwt_secret));
-        }
-        let new_content = new_lines.join("\n") + "\n";
-        match std::fs::write(env_path, &new_content) {
-            Ok(_) => println!("🔑 JWT_SECRET otomatis di-generate dan disimpan ke .env"),
+        match write_jwt_to_env(&jwt_secret) {
+            Ok(_)  => println!("🔑 JWT_SECRET otomatis di-generate dan disimpan ke .env"),
             Err(e) => eprintln!("⚠️ JWT_SECRET di-generate tapi gagal disimpan ke .env: {}", e),
         }
     }
@@ -278,6 +313,7 @@ async fn main() {
     }
 
     let reqwest_client = reqwest::Client::new();
+    let login_limiter = Arc::new(LoginLimiter::new());
     let state = Arc::new(AppState {
         engine,
         router,
@@ -290,6 +326,7 @@ async fn main() {
         csrf_excepts,
         jwt_secret,
         entrance_path: Mutex::new(entrance_path),
+        login_limiter,
     });
 
     let static_service = ServeDir::new("public");
@@ -384,36 +421,34 @@ fn generate_secure_key() -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Handle the `zeno key:generate` CLI command.
-/// Generates a new JWT_SECRET and writes it to the .env file.
-fn handle_key_generate() {
-    let new_key = generate_secure_key();
+/// Write (or replace) JWT_SECRET in the .env file.
+/// Shared by both the startup auto-generate logic and the `key:generate` CLI command.
+fn write_jwt_to_env(key: &str) -> std::io::Result<()> {
     let env_path = ".env";
-
-    // Read existing .env or start fresh
     let existing = std::fs::read_to_string(env_path).unwrap_or_default();
-
     let mut found = false;
     let mut new_lines: Vec<String> = existing
         .lines()
         .map(|line| {
             if line.starts_with("JWT_SECRET=") {
                 found = true;
-                format!("JWT_SECRET={}", new_key)
+                format!("JWT_SECRET={}", key)
             } else {
                 line.to_string()
             }
         })
         .collect();
-
     if !found {
-        // Append under the SECURITY section or at the end
-        new_lines.push(format!("JWT_SECRET={}", new_key));
+        new_lines.push(format!("JWT_SECRET={}", key));
     }
+    std::fs::write(env_path, new_lines.join("\n") + "\n")
+}
 
-    let new_content = new_lines.join("\n") + "\n";
-
-    match std::fs::write(env_path, &new_content) {
+/// Handle the `zeno key:generate` CLI command.
+/// Generates a new JWT_SECRET and writes it to the .env file.
+fn handle_key_generate() {
+    let new_key = generate_secure_key();
+    match write_jwt_to_env(&new_key) {
         Ok(_) => {
             println!("✅ JWT_SECRET berhasil di-generate dan disimpan ke .env");
             println!("   Key: {}", new_key);
@@ -570,6 +605,28 @@ async fn wildcard_handler(
             }
             return res;
         } else if method == Method::POST {
+            // --- Rate Limiting ---
+            let client_ip = headers
+                .get("X-Forwarded-For")
+                .or_else(|| headers.get("X-Real-IP"))
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            if state.login_limiter.is_blocked(&client_ip) {
+                return Response::builder()
+                    .status(StatusCode::TOO_MANY_REQUESTS)
+                    .header("Content-Type", "application/json")
+                    .header("Retry-After", "300")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": "Terlalu banyak percobaan login. Coba lagi dalam 5 menit."
+                        })).unwrap()
+                    ))
+                    .unwrap();
+            }
+
             #[derive(serde::Deserialize)]
             struct LoginRequest {
                 username: String,
@@ -602,6 +659,7 @@ async fn wildcard_handler(
                 }
 
                 if authenticated {
+                    state.login_limiter.clear(&client_ip);
                     if let Ok(token) = auth::generate_jwt(&login_req.username, &user_role, &state.jwt_secret) {
                         let mut res = Response::new(axum::body::Body::from(
                             serde_json::to_string(&serde_json::json!({
@@ -623,15 +681,32 @@ async fn wildcard_handler(
                         }
                         return res;
                     }
+                } else {
+                    let remaining = state.login_limiter.record_failure(&client_ip);
+                    let msg = if remaining == 0 {
+                        "Akun diblokir sementara karena terlalu banyak percobaan gagal. Coba lagi dalam 5 menit.".to_string()
+                    } else {
+                        format!("Username atau password salah. {} percobaan tersisa sebelum diblokir.", remaining)
+                    };
+                    return Response::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .header("Content-Type", "application/json")
+                        .body(axum::body::Body::from(
+                            serde_json::to_string(&serde_json::json!({
+                                "success": false,
+                                "message": msg
+                            })).unwrap()
+                        ))
+                        .unwrap();
                 }
             }
             return Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
+                .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "application/json")
                 .body(axum::body::Body::from(
                     serde_json::to_string(&serde_json::json!({
                         "success": false,
-                        "message": "Username atau password salah"
+                        "message": "Format request tidak valid"
                     })).unwrap()
                 ))
                 .unwrap();
@@ -1436,9 +1511,41 @@ async fn upload_file_handler(
     }
 
     for (filename, bytes) in files {
-        let file_dest = dest_dir_path.join(&filename);
+        // --- Security: prevent path traversal attacks ---
+        // Extract only the final filename component, reject any directory separators.
+        let safe_name = std::path::Path::new(&filename)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
+        if safe_name.is_empty() || safe_name.starts_with('.') {
+            return Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("Nama file tidak valid atau tidak diperbolehkan: '{}'", filename),
+            ));
+        }
+
+        let file_dest = dest_dir_path.join(&safe_name);
+
+        // Double-check the resolved path still lives inside dest_dir (defense in depth)
+        let canonical_dir = dest_dir_path.canonicalize().map_err(|e| {
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal resolve direktori tujuan: {}", e))
+        })?;
+        // We can't canonicalize a path that doesn't exist yet, so check the parent.
+        if let Some(parent) = file_dest.parent() {
+            if let Ok(canon_parent) = parent.canonicalize() {
+                if !canon_parent.starts_with(&canonical_dir) {
+                    return Err((
+                        axum::http::StatusCode::BAD_REQUEST,
+                        "Path traversal terdeteksi dan ditolak.".to_string(),
+                    ));
+                }
+            }
+        }
+
         tokio::fs::write(&file_dest, bytes).await.map_err(|e| {
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file '{}': {}", filename, e))
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file '{}': {}", safe_name, e))
         })?;
         println!("[FileManager] Uploaded file successfully to {:?}", file_dest);
     }
