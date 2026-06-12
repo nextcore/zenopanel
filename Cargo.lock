@@ -3648,6 +3648,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-http 0.5.2",
+ "url",
  "zeno-blade",
  "zeno-std",
  "zenocore",

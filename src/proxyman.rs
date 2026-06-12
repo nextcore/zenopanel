@@ -51,6 +51,7 @@ pub struct ProxyRule {
 pub struct ProxyManager {
     pool: SqlitePool,
     rules: Arc<RwLock<HashMap<String, ProxyRule>>>,
+    rr_indices: Arc<tokio::sync::Mutex<HashMap<String, usize>>>,
 }
 
 impl ProxyManager {
@@ -83,6 +84,7 @@ impl ProxyManager {
         Self {
             pool,
             rules: Arc::new(RwLock::new(HashMap::new())),
+            rr_indices: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -369,6 +371,22 @@ impl ProxyManager {
         });
 
         matched_rules.into_iter().next()
+    }
+
+    pub async fn get_next_target(&self, rule_id: &str, targets_str: &str) -> String {
+        let targets: Vec<&str> = targets_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        if targets.is_empty() {
+            return String::new();
+        }
+        if targets.len() == 1 {
+            return targets[0].to_string();
+        }
+
+        let mut indices = self.rr_indices.lock().await;
+        let index = indices.entry(rule_id.to_string()).or_insert(0);
+        let selected = targets[*index % targets.len()].to_string();
+        *index = (*index + 1) % targets.len();
+        selected
     }
 }
 

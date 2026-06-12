@@ -7,8 +7,7 @@ mod auth;
 
 
 use axum::{
-    body::Bytes,
-    extract::{State, Query},
+    extract::State,
     http::{HeaderMap, Method, StatusCode, Uri},
     response::Response,
     routing::any,
@@ -494,14 +493,23 @@ fn serde_json_to_value(val: serde_json::Value) -> Value {
 
 async fn wildcard_handler(
     State(state): State<Arc<AppState>>,
-    method: Method,
-    uri: Uri,
-    headers: HeaderMap,
-    Query(query_params): Query<HashMap<String, String>>,
-    body_bytes: Bytes,
+    req: axum::http::Request<axum::body::Body>,
 ) -> Response {
+    let (parts, req_body) = req.into_parts();
+    let method = parts.method;
+    let uri = parts.uri;
+    let headers: axum::http::HeaderMap = parts.headers;
+
     let path = uri.path();
     let method_str = method.as_str();
+
+    let query_params: HashMap<String, String> = uri.query()
+        .map(|q| {
+            url::form_urlencoded::parse(q.as_bytes())
+                .into_owned()
+                .collect()
+        })
+        .unwrap_or_default();
 
     // Intercept ACME HTTP-01 challenges
     if path.starts_with("/.well-known/acme-challenge/") {
@@ -550,7 +558,10 @@ async fn wildcard_handler(
                 .unwrap();
         }
 
-        match forward_request(&state.reqwest_client, &rule, method.clone(), uri.clone(), headers.clone(), body_bytes.clone()).await {
+        // Get the next target for load balancing
+        let selected_target = state.proxy_manager.get_next_target(&rule.id, &rule.target).await;
+
+        match forward_request(&state.reqwest_client, &selected_target, &rule, method.clone(), uri.clone(), headers.clone(), req_body).await {
             Ok(response) => return response,
             Err(e) => {
                 eprintln!("Reverse proxy error for {} {}: {}", method, uri, e);
@@ -563,6 +574,17 @@ async fn wildcard_handler(
             }
         }
     }
+
+    // Read the body bytes in full (since this is an internal ZenoPanel request)
+    let body_bytes = match axum::body::to_bytes(req_body, 100 * 1024 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(axum::body::Body::from(format!("Failed to read request body: {}", e)))
+                .unwrap();
+        }
+    };
 
 
     // 2. Check logout path (kept minimal in Rust as fallback for non-ZenoLang contexts)
@@ -803,13 +825,14 @@ async fn wildcard_handler(
 
 async fn forward_request(
     client: &reqwest::Client,
+    selected_target: &str,
     rule: &crate::proxyman::ProxyRule,
     method: Method,
     uri: Uri,
     headers: HeaderMap,
-    body_bytes: Bytes,
+    req_body: axum::body::Body,
 ) -> Result<Response, reqwest::Error> {
-    let mut target_url = rule.target.trim_end_matches('/').to_string();
+    let mut target_url = selected_target.trim_end_matches('/').to_string();
     let path_to_forward = if rule.strip_path {
         let prefix = rule.path.trim_end_matches('/');
         if !prefix.is_empty() {
@@ -839,7 +862,6 @@ async fn forward_request(
     for (name, value) in headers.iter() {
         let name_str = name.as_str().to_lowercase();
         if name_str == "host"
-            || name_str == "content-length"
             || name_str == "connection"
             || name_str == "keep-alive"
             || name_str == "proxy-connection"
@@ -861,9 +883,10 @@ async fn forward_request(
         req_headers.insert("X-Forwarded-Proto", hdr);
     }
 
-    if !body_bytes.is_empty() {
-        req_builder = req_builder.body(body_bytes);
-    }
+    // Wrap the axum body stream for reqwest
+    let stream = req_body.into_data_stream();
+    let req_body_stream = reqwest::Body::wrap_stream(stream);
+    req_builder = req_builder.body(req_body_stream);
 
     req_builder = req_builder.headers(req_headers);
 
@@ -879,8 +902,8 @@ async fn forward_request(
         builder_headers.insert(name.clone(), value.clone());
     }
 
-    let bytes = res.bytes().await?;
-    let response = builder.body(axum::body::Body::from(bytes)).unwrap();
+    let res_stream = res.bytes_stream();
+    let response = builder.body(axum::body::Body::from_stream(res_stream)).unwrap();
     Ok(response)
 }
 

@@ -24,6 +24,7 @@ zeno-std = "0.1.0"
 zenoengine = "0.1.0"
 zip = "0.6"
 reqwest = { version = "0.12", features = ["json", "stream"] }
+url = "2.5"
 rcgen = "0.13"
 rustls = { version = "0.23", features = ["ring"] }
 tokio-rustls = "0.26"
