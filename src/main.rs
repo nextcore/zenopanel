@@ -44,6 +44,13 @@ pub(crate) struct AppState {
 
 #[tokio::main]
 async fn main() {
+    // --- CLI Command Handling ---
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 && args[1] == "key:generate" {
+        handle_key_generate();
+        return;
+    }
+
     let _ = rustls::crypto::ring::default_provider().install_default();
     let _ = dotenvy::dotenv();
 
@@ -60,10 +67,33 @@ async fn main() {
     if !admin_password.starts_with("$2") && admin_password != "admin" {
         println!("⚠️ WARNING: ADMIN_PASSWORD is stored in plain text. For better security, consider hashing it using bcrypt.");
     }
+    let placeholder = "zenopanel_local_development_jwt_secret_key_change_me_in_prod";
     let mut jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
-    if jwt_secret.is_empty() {
-        jwt_secret = generate_random_token();
-        println!("⚠️ JWT_SECRET was not set in .env. Generated a temporary key for this session.");
+    if jwt_secret.is_empty() || jwt_secret == placeholder {
+        jwt_secret = generate_secure_key();
+        // Persist the generated key into .env so subsequent restarts use the same secret
+        let env_path = ".env";
+        let existing = std::fs::read_to_string(env_path).unwrap_or_default();
+        let mut found = false;
+        let mut new_lines: Vec<String> = existing
+            .lines()
+            .map(|line| {
+                if line.starts_with("JWT_SECRET=") {
+                    found = true;
+                    format!("JWT_SECRET={}", jwt_secret)
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect();
+        if !found {
+            new_lines.push(format!("JWT_SECRET={}", jwt_secret));
+        }
+        let new_content = new_lines.join("\n") + "\n";
+        match std::fs::write(env_path, &new_content) {
+            Ok(_) => println!("🔑 JWT_SECRET otomatis di-generate dan disimpan ke .env"),
+            Err(e) => eprintln!("⚠️ JWT_SECRET di-generate tapi gagal disimpan ke .env: {}", e),
+        }
     }
 
     let db_manager = DBManager::new();
@@ -344,6 +374,55 @@ fn generate_random_token() -> String {
             chars[idx] as char
         })
         .collect()
+}
+
+/// Generate a cryptographically random 64-character hex key for use as JWT_SECRET.
+fn generate_secure_key() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Handle the `zeno key:generate` CLI command.
+/// Generates a new JWT_SECRET and writes it to the .env file.
+fn handle_key_generate() {
+    let new_key = generate_secure_key();
+    let env_path = ".env";
+
+    // Read existing .env or start fresh
+    let existing = std::fs::read_to_string(env_path).unwrap_or_default();
+
+    let mut found = false;
+    let mut new_lines: Vec<String> = existing
+        .lines()
+        .map(|line| {
+            if line.starts_with("JWT_SECRET=") {
+                found = true;
+                format!("JWT_SECRET={}", new_key)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+
+    if !found {
+        // Append under the SECURITY section or at the end
+        new_lines.push(format!("JWT_SECRET={}", new_key));
+    }
+
+    let new_content = new_lines.join("\n") + "\n";
+
+    match std::fs::write(env_path, &new_content) {
+        Ok(_) => {
+            println!("✅ JWT_SECRET berhasil di-generate dan disimpan ke .env");
+            println!("   Key: {}", new_key);
+        }
+        Err(e) => {
+            eprintln!("❌ Gagal menulis ke .env: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
