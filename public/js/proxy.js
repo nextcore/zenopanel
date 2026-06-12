@@ -113,8 +113,8 @@ export function renderProxyRules(rules) {
         tr.innerHTML = `
             <td style="font-weight:600; color:var(--text-main);">${escapeHtml(rule.name)}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">
-                ${rule.domain ? escapeHtml(rule.domain) : '*'}
-                ${rule.alternative_domain ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Alt: ${escapeHtml(rule.alternative_domain)}</div>` : ''}
+                ${rule.domain && rule.domain !== '*' ? `<a href="${rule.ssl_enabled ? 'https' : 'http'}://${rule.domain}${rule.path}" target="_blank" style="color:var(--text-main); text-decoration:none; border-bottom:1px dashed var(--text-muted);">${escapeHtml(rule.domain)}</a>` : (rule.domain ? escapeHtml(rule.domain) : '*')}
+                ${rule.alternative_domain ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Alt: <a href="${rule.ssl_enabled ? 'https' : 'http'}://${rule.alternative_domain}${rule.path}" target="_blank" style="color:var(--text-muted); text-decoration:none; border-bottom:1px dashed rgba(255,255,255,0.2);">${escapeHtml(rule.alternative_domain)}</a></div>` : ''}
             </td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(rule.path)}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--accent-primary);">${escapeHtml(rule.target)}</td>

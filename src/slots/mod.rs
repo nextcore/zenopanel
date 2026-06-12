@@ -10,6 +10,7 @@ pub mod proc;
 pub mod proxy;
 pub mod system;
 pub mod util;
+pub mod service;
 
 static FUNCTION_REGISTRY: Mutex<Option<HashMap<String, Node>>> = Mutex::new(None);
 
@@ -99,4 +100,5 @@ pub fn register_custom_slots(engine: &mut Engine) {
     proxy::register(engine);
     system::register(engine);
     util::register(engine);
+    service::register(engine);
 }

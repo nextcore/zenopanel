@@ -8,7 +8,7 @@
                 <button class="btn-primary-action" onclick="openAddProcessModal()"><i class="fa-solid fa-plus"></i> Add Process</button>
             </div>
         </div>
-        <div class="table-container" style="min-height:220px;">
+        <div class="table-container" style="min-height:260px;">
             <table class="data-table">
                 <thead>
                     <tr>

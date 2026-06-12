@@ -1053,6 +1053,14 @@
             animation: dropdownFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
+        /* Open Up variant */
+        .action-dropdown.open-up .action-dropdown-menu {
+            top: auto;
+            bottom: 100%;
+            margin-top: 0;
+            margin-bottom: 5px;
+        }
+
         @keyframes dropdownFadeIn {
             from { opacity: 0; transform: translateY(-4px); }
             to { opacity: 1; transform: translateY(0); }

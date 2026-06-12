@@ -5,7 +5,10 @@ http.get: '/api/settings' {
     auth.is_admin: { as: $is_admin }
     if: $is_admin {
         then: {
-            db.select: "SELECT value FROM settings WHERE key = 'entrance_path'" { first: true, as: $setting }
+            db.select: "SELECT value FROM settings WHERE key = 'entrance_path'" {
+                first: true
+                as: $setting
+            }
             coalesce: $setting.value {
                 default: '/login'
                 as: $current_path
@@ -59,3 +62,65 @@ http.post: '/api/settings' {
         }
     }
 }
+
+# 3. GET /api/settings/service-status
+http.get: '/api/settings/service-status' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.service_info: { as: $info }
+            http.ok: {
+                data: $info
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 4. POST /api/settings/service-install
+http.post: '/api/settings/service-install' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.service_install: { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Service berhasil diinstall dan dijalankan" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal menginstall service secara otomatis. Silakan gunakan metode manual." }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 5. POST /api/settings/service-uninstall
+http.post: '/api/settings/service-uninstall' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.service_uninstall: { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Service berhasil dicopot" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal mencopot service secara otomatis. Silakan gunakan metode manual." }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+

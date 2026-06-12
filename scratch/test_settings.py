@@ -2,6 +2,7 @@ import urllib.request
 import urllib.parse
 import json
 import sys
+import sqlite3
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     def http_error_302(self, req, fp, code, msg, headers):
@@ -43,18 +44,28 @@ def make_request(url, method='GET', data=None, headers=None):
 def main():
     opener = urllib.request.build_opener(NoRedirectHandler())
     urllib.request.install_opener(opener)
-    base_url = 'http://127.0.0.1:3000'
+    base_url = 'http://127.0.0.1:3001'
+
+    # Get active entrance path from DB
+    conn = sqlite3.connect('zeno.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM settings WHERE key = 'entrance_path'")
+    row = cursor.fetchone()
+    db_entrance_path = row[0] if row else '/login'
+    if not db_entrance_path.startswith('/'):
+        db_entrance_path = '/' + db_entrance_path
+    print(f"Detected active entrance path in DB: {db_entrance_path}")
 
     print("0. Testing access to root / without credentials (should be 404/not found)...")
     status, _, _ = make_request(base_url + '/')
     print(f"Status: {status}")
     if status != 404:
-        print("❌ FAILED: Root path allowed or redirected unauthenticated user!")
+        print("❌ FAILED: Root page should be protected/404 if not authenticated")
         sys.exit(1)
-    print("✅ Unauthenticated access to root returns 404 correctly")
+    print("✅ Root is protected/404")
 
-    print("\n1. Fetching CSRF token from /login...")
-    status, info, _ = make_request(base_url + '/login')
+    print(f"\n1. Fetching CSRF token from {db_entrance_path}...")
+    status, info, _ = make_request(base_url + db_entrance_path)
     cookie_hdr = info.get('Set-Cookie')
     csrf_token = get_cookie_value(cookie_hdr, '_csrf')
     if not csrf_token:
@@ -62,9 +73,9 @@ def main():
         sys.exit(1)
     print(f"✅ CSRF token: {csrf_token}")
 
-    print("\n2. Logging in as admin...")
+    print(f"\n2. Logging in as admin via {db_entrance_path}...")
     status, info, body = make_request(
-        base_url + '/login',
+        base_url + db_entrance_path,
         method='POST',
         data={"username": "admin", "password": "admin"},
         headers={'X-CSRF-Token': csrf_token, 'Cookie': f'_csrf={csrf_token}'}
@@ -86,7 +97,7 @@ def main():
     status, info, body = make_request(base_url + '/api/settings', headers=admin_headers)
     print(f"Status: {status}, Body: {body}")
     data = json.loads(body)
-    if status != 200 or not data.get("success") or data.get("entrance_path") != "/login":
+    if status != 200 or not data.get("success") or data.get("entrance_path") != db_entrance_path:
         print("❌ FAILED: GET /api/settings returned incorrect data")
         sys.exit(1)
     print("✅ GET settings works")
@@ -105,8 +116,8 @@ def main():
         sys.exit(1)
     print("✅ POST settings works")
 
-    print("\n5. Testing access to old entrance path /login (should be 404/not found)...")
-    status, info, body = make_request(base_url + '/login')
+    print(f"\n5. Testing access to old entrance path {db_entrance_path} (should be 404/not found)...")
+    status, info, body = make_request(base_url + db_entrance_path)
     print(f"Status: {status}")
     if status != 404:
         print("❌ FAILED: Old entrance path is still active!")
@@ -121,11 +132,11 @@ def main():
         sys.exit(1)
     print("✅ New entrance path works and serves login page")
 
-    print("\n7. Restoring entrance path back to /login...")
+    print(f"\n7. Restoring entrance path back to {db_entrance_path}...")
     status, info, body = make_request(
         base_url + '/api/settings',
         method='POST',
-        data={"entrance_path": "/login"},
+        data={"entrance_path": db_entrance_path},
         headers=admin_headers
     )
     print(f"Status: {status}, Body: {body}")

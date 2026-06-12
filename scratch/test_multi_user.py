@@ -54,11 +54,11 @@ def main():
     opener = urllib.request.build_opener(NoRedirectHandler())
     urllib.request.install_opener(opener)
 
-    base_url = 'http://127.0.0.1:3000'
+    base_url = 'http://127.0.0.1:3001'
 
-    # Step 1: GET /login to retrieve CSRF token
-    print("\n1. Fetching CSRF token from /login...")
-    status, info, _ = make_request(base_url + '/login')
+    # Step 1: GET /zpanel to retrieve CSRF token
+    print("\n1. Fetching CSRF token from /zpanel...")
+    status, info, _ = make_request(base_url + '/zpanel')
     cookie_hdr = info.get('Set-Cookie')
     csrf_token = get_cookie_value(cookie_hdr, '_csrf')
     if not csrf_token:
@@ -70,7 +70,7 @@ def main():
     print("\n2. Logging in as default admin...")
     login_payload = {"username": "admin", "password": "admin"}
     status, info, body = make_request(
-        base_url + '/login',
+        base_url + '/zpanel',
         method='POST',
         data=login_payload,
         headers={
@@ -149,7 +149,7 @@ def main():
     # Step 6: Log in as editor_test
     print("\n6. Logging in as editor_test...")
     status, info, body = make_request(
-        base_url + '/login',
+        base_url + '/zpanel',
         method='POST',
         data={"username": "editor_test", "password": "editor123"},
         headers={
@@ -194,7 +194,7 @@ def main():
     # Step 9: Log in as viewer_test
     print("\n9. Logging in as viewer_test...")
     status, info, body = make_request(
-        base_url + '/login',
+        base_url + '/zpanel',
         method='POST',
         data={"username": "viewer_test", "password": "viewer123"},
         headers={

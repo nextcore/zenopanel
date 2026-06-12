@@ -34,7 +34,11 @@ impl DBManager {
             }
         }
 
-        let pool = SqlitePool::connect(&format!("sqlite:{}", path_str)).await?;
+        use sqlx::sqlite::SqliteConnectOptions;
+        use std::str::FromStr;
+        let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", path_str))?
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(options).await?;
         self.pools.write().await.insert(name.to_string(), DbPool::Sqlite(pool));
         Ok(())
     }

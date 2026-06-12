@@ -101,7 +101,7 @@ import {
     submitAddUser,
     deleteUser
 } from './users.js';
-import { loadSettings, submitSaveSettings } from './settings.js';
+import { loadSettings, submitSaveSettings, loadServiceStatus, installService, uninstallService, copyInstallCmd } from './settings.js';
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
 // This ensures any inline blade HTML template access matches module variables dynamically.
@@ -240,7 +240,11 @@ const functionsToBind = {
     submitAddUser,
     deleteUser,
     loadSettings,
-    submitSaveSettings
+    submitSaveSettings,
+    loadServiceStatus,
+    installService,
+    uninstallService,
+    copyInstallCmd
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {
@@ -284,14 +288,18 @@ window.addEventListener('DOMContentLoaded', () => {
             .btn-action[onclick*="openEdit"],
             button[onclick*="openAdd"],
             button[onclick*="openEdit"],
-            button[onclick*="delete"],
             button[onclick*="edit"],
-            button[onclick*="restart"],
-            button[onclick*="stop"],
-            button[onclick*="start"],
-            button[onclick*="kill"],
-            .data-table th:last-child,
-            .data-table td:last-child,
+            #tab-files button[onclick*="delete"],
+            #tab-managed button[onclick*="startProcess"],
+            #tab-managed button[onclick*="stopProcess"],
+            #tab-managed button[onclick*="restartProcess"],
+            #tab-managed button[onclick*="openEditProcessModal"],
+            #tab-managed button[onclick*="viewProcessLogs"],
+            #tab-managed .action-dropdown-menu hr,
+            #tab-users .data-table th:last-child,
+            #tab-users .data-table td:last-child,
+            #tab-proxy .data-table th:last-child,
+            #tab-proxy .data-table td:last-child,
             .file-actions-bar,
             #upload-trigger,
             .upload-btn {
@@ -322,6 +330,30 @@ window.addEventListener('DOMContentLoaded', () => {
         const allMenus = document.querySelectorAll('.action-dropdown-menu');
         allMenus.forEach(menu => {
             menu.classList.remove('show');
+            menu.style.position = '';
+            menu.style.top = '';
+            menu.style.left = '';
+            menu.style.right = '';
+            menu.style.bottom = '';
+            if (menu.parentElement) {
+                menu.parentElement.classList.remove('open-up');
+            }
         });
     });
+
+    // Close dropdowns on scroll (fixed-position menus don't follow scroll)
+    document.addEventListener('scroll', () => {
+        const allMenus = document.querySelectorAll('.action-dropdown-menu.show');
+        allMenus.forEach(menu => {
+            menu.classList.remove('show');
+            menu.style.position = '';
+            menu.style.top = '';
+            menu.style.left = '';
+            menu.style.right = '';
+            menu.style.bottom = '';
+            if (menu.parentElement) {
+                menu.parentElement.classList.remove('open-up');
+            }
+        });
+    }, true); // capture phase to catch all scroll events
 });

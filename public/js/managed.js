@@ -519,17 +519,68 @@ export function toggleProcessDropdown(event, id) {
     if (event) {
         event.stopPropagation();
     }
-    
+
     const targetMenu = document.getElementById(`menu-${id}`);
     const allMenus = document.querySelectorAll('.action-dropdown-menu');
-    
+
+    // Close all other open dropdowns and reset their fixed positioning
     allMenus.forEach(menu => {
         if (menu !== targetMenu) {
             menu.classList.remove('show');
+            menu.style.position = '';
+            menu.style.top = '';
+            menu.style.left = '';
+            menu.style.right = '';
+            menu.style.bottom = '';
+            if (menu.parentElement) {
+                menu.parentElement.classList.remove('open-up');
+            }
         }
     });
-    
+
     if (targetMenu) {
-        targetMenu.classList.toggle('show');
+        const isShowing = targetMenu.classList.toggle('show');
+
+        if (isShowing) {
+            // Use fixed positioning to escape overflow:hidden/auto clipping
+            const btn = targetMenu.previousElementSibling || targetMenu.parentElement.querySelector('.action-dropdown-btn');
+            if (btn) {
+                const btnRect = btn.getBoundingClientRect();
+                const menuWidth = 160; // min-width of the menu
+                const menuHeight = 180; // approximate menu height
+
+                // Position fixed, aligned to the right edge of the button
+                targetMenu.style.position = 'fixed';
+                targetMenu.style.right = 'auto';
+                targetMenu.style.bottom = 'auto';
+
+                const spaceBelow = window.innerHeight - btnRect.bottom;
+                const spaceAbove = btnRect.top;
+
+                if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+                    // Open upward
+                    targetMenu.style.top = `${btnRect.top - menuHeight - 5}px`;
+                    targetMenu.parentElement.classList.add('open-up');
+                } else {
+                    // Open downward
+                    targetMenu.style.top = `${btnRect.bottom + 5}px`;
+                    targetMenu.parentElement.classList.remove('open-up');
+                }
+
+                // Align right edge to button's right edge
+                const leftPos = btnRect.right - menuWidth;
+                targetMenu.style.left = `${Math.max(4, leftPos)}px`;
+            }
+        } else {
+            // Reset fixed positioning on close
+            targetMenu.style.position = '';
+            targetMenu.style.top = '';
+            targetMenu.style.left = '';
+            targetMenu.style.right = '';
+            targetMenu.style.bottom = '';
+            if (targetMenu.parentElement) {
+                targetMenu.parentElement.classList.remove('open-up');
+            }
+        }
     }
 }
