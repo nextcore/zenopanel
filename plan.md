@@ -68,3 +68,72 @@ Melanjutkan peningkatan sub-sistem reverse proxy ZenoPanel dengan fokus pada duk
 
 ### Pengujian Manual
 *   Buka halaman web menggunakan Google Chrome, tekan F12 (Inspect Element) -> Network Tab, dan pastikan kolom *Protocol* menunjukkan `h2` (HTTP/2) bukan `http/1.1`.
+
+
+Task
+# Auto SSL Let's Encrypt Integration Checklist
+
+## Tasks
+
+- [ ] Tambahkan `instant-acme` ke `Cargo.toml`
+- [ ] Implementasikan alur pembuatan/pemuatan kunci akun ACME di `./certs/acme_account.key`
+- [ ] Refaktor `trigger_acme_flow` di `src/sslman.rs` menggunakan `instant-acme`
+    - [ ] Hubungkan ke Let's Encrypt Staging / Production sesuai env `SSL_PRODUCTION`
+    - [ ] Buat order baru untuk domain
+    - [ ] Selesaikan tantangan HTTP-01 dan masukkan token ke map `ACME_CHALLENGES`
+    - [ ] Lakukan polling status validasi tantangan
+    - [ ] Buat CSR dengan `rcgen` dan finalisasi order
+    - [ ] Unduh sertifikat PEM dan simpan di `./certs/{domain}.crt` dan `.key`
+    - [ ] Hapus cache in-memory dan update database
+- [ ] Verifikasi kompilasi dan perbaiki error tipe data
+- [ ] Jalankan pengujian integrasi di lingkungan lokal
+
+Implementation Plan
+# Rencana Implementasi: Integrasi Let's Encrypt Auto SSL Asli
+
+Rencana ini merinci langkah-langkah teknis untuk mengganti sistem SSL simulasi di ZenoPanel dengan sistem **Auto SSL asli** berbasis protokol ACME v2 menggunakan Let's Encrypt (Staging & Production) dan pustaka `instant-acme`.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Tingkat Keberhasilan Verifikasi DNS & Port**:
+> Agar Let's Encrypt dapat memverifikasi kepemilikan domain via tantangan HTTP-01:
+> 1. Domain publik Anda harus sudah memiliki DNS A Record yang mengarah ke IP publik server Anda.
+> 2. ZenoPanel harus berjalan di port standar HTTP 80 (untuk tantangan Let's Encrypt) dan port HTTPS 443.
+> 3. Jika diuji secara lokal (tanpa domain publik asli), sistem akan otomatis mendeteksi kegagalan koneksi publik Let's Encrypt dan jatuh kembali (*fallback*) ke sertifikat *self-signed*, sehingga jalannya aplikasi tetap aman secara lokal.
+
+---
+
+## Proposed Changes
+
+### 1. Dependensi (`Cargo.toml`)
+*   Menambahkan pustaka **`instant-acme`** untuk menangani protokol ACME v2 secara asinkron.
+
+### 2. Modul SSL Manager (`src/sslman.rs`)
+Refaktorisasi alur `trigger_acme_flow` dengan langkah berikut:
+*   **Penyimpanan Kunci Akun**: Menyimpan/memuat kunci privat akun Let's Encrypt di `./certs/acme_account.key` agar tidak membuat akun baru setiap kali server dinyalakan ulang.
+*   **Pemilihan Environment (Staging vs Production)**: Mendeteksi variabel lingkungan `SSL_PRODUCTION=true`. Jika tidak ada, gunakan Let's Encrypt Staging agar tidak terkena *rate limit* saat testing.
+*   **Inisiasi ACME Order**: Membuat order sertifikat baru untuk domain target.
+*   **Fulfill HTTP-01 Challenge**:
+    *   Mendapatkan `token` dan `key_authorization` dari Let's Encrypt.
+    *   Memasukkannya ke dalam map global `ACME_CHALLENGES`.
+    *   Memanggil `.ready()` untuk memberi tahu Let's Encrypt untuk melakukan validasi.
+*   **Polling Status**: Melakukan polling status order secara asinkron dengan jeda waktu berkala hingga statusnya valid.
+*   **CSR Generation (Pembangkitan CSR)**: Menggunakan `rcgen` untuk membuat Certificate Signing Request (CSR) berbasis kunci privat baru untuk domain, lalu mengirimkannya ke Let's Encrypt via `.finalize()`.
+*   **Unduh Sertifikat**: Setelah order ditandatangani, unduh rantai sertifikat PEM penuh dan simpan di `./certs/{domain}.crt` dan `./certs/{domain}.key`.
+*   **Pembersihan Cache**: Menghapus cache memori sertifikat lama di `ZenoCertResolver` dan mengupdate kolom status database menjadi `"active_letsencrypt"`.
+
+---
+
+## Verification Plan
+
+### Automated/Integration Tests
+1.  **Pengujian Alur Fallback Lokal**: Jalankan pengujian di mesin lokal tanpa domain publik, verifikasi bahwa kegagalan validasi ACME ditangani dengan anggun dan otomatis beralih ke pembuatan sertifikat *self-signed* agar proxy lokal tetap berjalan aman.
+2.  **Uji Integrasi Skrip**:
+    *   Buat skrip `scratch/test_real_ssl.py` yang memicu registrasi SSL untuk domain lokal/uji dan memverifikasi transisi status database dari `pending` -> `active_self_signed` atau `active_letsencrypt`.
+
+### Manual Verification
+*   Jalankan server ZenoPanel di server VPS publik dengan domain asli, aktifkan SSL untuk domain tersebut lewat ZenoPanel, dan periksa apakah browser mendapatkan sertifikat valid yang diterbitkan oleh Let's Encrypt Authority.
+
