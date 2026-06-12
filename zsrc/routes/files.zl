@@ -89,3 +89,35 @@ http.post: '/api/files/extract' {
     }
     http.ok: { message: "Archive berhasil diekstrak" }
 }
+
+# 10d. File Manager - Upload Files API
+http.post: '/api/files/upload' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.save_uploads: { as: $success }
+            if: $success {
+                then: {
+                    http.ok: {
+                        success: true,
+                        message: "File uploaded successfully"
+                    }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Gagal mengunggah file"
+                    }
+                }
+            }
+        }
+        else: {
+            http.forbidden: {
+                success: false,
+                message: "Forbidden: Role Viewer tidak diijinkan mengupload file"
+            }
+        }
+    }
+}
+

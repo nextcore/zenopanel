@@ -11,7 +11,7 @@ use axum::{
     extract::{State, Query},
     http::{HeaderMap, Method, StatusCode, Uri},
     response::Response,
-    routing::{any, post},
+    routing::any,
     Router,
 };
 use std::collections::HashMap;
@@ -333,14 +333,9 @@ async fn main() {
 
     let app = Router::new()
         .nest_service("/public", static_service)
-        .route(
-            "/api/files/upload",
-            post(upload_file_handler)
-                .layer::<_, std::convert::Infallible>(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
-                .layer(axum::extract::DefaultBodyLimit::disable()),
-        )
         .fallback(any(wildcard_handler))
         .with_state(state.clone())
+        .layer(axum::extract::DefaultBodyLimit::disable())
         .layer(CorsLayer::permissive());
 
     let port = std::env::var("APP_PORT")
@@ -507,7 +502,6 @@ async fn wildcard_handler(
 ) -> Response {
     let path = uri.path();
     let method_str = method.as_str();
-    let entrance_path = state.entrance_path.lock().unwrap().clone();
 
     // Intercept ACME HTTP-01 challenges
     if path.starts_with("/.well-known/acme-challenge/") {
@@ -548,7 +542,7 @@ async fn wildcard_handler(
         }
 
         if check_service_unavailable {
-            let html = render_error_page(&app_status, &app_name, &format!("The linked process ({}) has status: {}", rule.managed_process_id.as_deref().unwrap_or(""), app_status));
+            let html = render_error_page(&state.engine, &app_status, &app_name, &format!("The linked process ({}) has status: {}", rule.managed_process_id.as_deref().unwrap_or(""), app_status));
             return Response::builder()
                 .status(StatusCode::SERVICE_UNAVAILABLE)
                 .header("Content-Type", "text/html")
@@ -560,7 +554,7 @@ async fn wildcard_handler(
             Ok(response) => return response,
             Err(e) => {
                 eprintln!("Reverse proxy error for {} {}: {}", method, uri, e);
-                let html = render_error_page("failed", &rule.name, &format!("Connection failed: {}\n\nThe application may still be initializing or binding to its port.", e));
+                let html = render_error_page(&state.engine, "failed", &rule.name, &format!("Connection failed: {}\n\nThe application may still be initializing or binding to its port.", e));
                 return Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .header("Content-Type", "text/html")
@@ -570,166 +564,11 @@ async fn wildcard_handler(
         }
     }
 
-    // 1. Check custom entrance path (e.g. /login)
-    if path == entrance_path {
-        if method == Method::GET {
-            let mut logged_in = false;
-            if let Some(token) = auth::extract_token(&headers) {
-                if auth::verify_jwt(&token, &state.jwt_secret).is_ok() {
-                    logged_in = true;
-                }
-            }
-            if logged_in {
-                return Response::builder()
-                    .status(StatusCode::SEE_OTHER)
-                    .header("Location", "/")
-                    .body(axum::body::Body::empty())
-                    .unwrap();
-            }
 
-            let csrf_token = match get_cookie_value(&headers, "_csrf") {
-                Some(token) => token,
-                None => generate_random_token(),
-            };
-            let html = render_login_page(&entrance_path, &csrf_token);
-            let mut res = Response::new(axum::body::Body::from(html));
-            res.headers_mut().insert(
-                axum::http::header::CONTENT_TYPE,
-                axum::http::HeaderValue::from_static("text/html; charset=utf-8"),
-            );
-            if get_cookie_value(&headers, "_csrf").is_none() {
-                let cookie_val = format!("_csrf={}; Path=/; SameSite=Lax", csrf_token);
-                if let Ok(cookie_hdr) = axum::http::HeaderValue::from_str(&cookie_val) {
-                    res.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_hdr);
-                }
-            }
-            return res;
-        } else if method == Method::POST {
-            // --- Rate Limiting ---
-            let client_ip = headers
-                .get("X-Forwarded-For")
-                .or_else(|| headers.get("X-Real-IP"))
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
-                .unwrap_or_else(|| "unknown".to_string());
+    // 2. Check logout path (kept minimal in Rust as fallback for non-ZenoLang contexts)
+    // Note: logout is now handled via ZenoLang in zsrc/routes/auth.zl
+    // This block is intentionally removed — logout is a ZenoLang POST route.
 
-            if state.login_limiter.is_blocked(&client_ip) {
-                return Response::builder()
-                    .status(StatusCode::TOO_MANY_REQUESTS)
-                    .header("Content-Type", "application/json")
-                    .header("Retry-After", "300")
-                    .body(axum::body::Body::from(
-                        serde_json::to_string(&serde_json::json!({
-                            "success": false,
-                            "message": "Terlalu banyak percobaan login. Coba lagi dalam 5 menit."
-                        })).unwrap()
-                    ))
-                    .unwrap();
-            }
-
-            #[derive(serde::Deserialize)]
-            struct LoginRequest {
-                username: String,
-                password: String,
-            }
-            if let Ok(login_req) = serde_json::from_slice::<LoginRequest>(&body_bytes) {
-                let default_pool = match state.db_manager.get_pool("default").await {
-                    Some(crate::db::DbPool::Sqlite(pool)) => Some(pool),
-                    _ => None,
-                };
-
-                let mut authenticated = false;
-                let mut user_role = String::new();
-
-                if let Some(pool) = default_pool {
-                    let user_row: Option<(String, String)> = sqlx::query_as(
-                        "SELECT password_hash, role FROM users WHERE username = ?"
-                    )
-                    .bind(&login_req.username)
-                    .fetch_optional(&pool)
-                    .await
-                    .unwrap_or(None);
-
-                    if let Some((password_hash, role)) = user_row {
-                        if bcrypt::verify(&login_req.password, &password_hash).unwrap_or(false) {
-                            authenticated = true;
-                            user_role = role;
-                        }
-                    }
-                }
-
-                if authenticated {
-                    state.login_limiter.clear(&client_ip);
-                    if let Ok(token) = auth::generate_jwt(&login_req.username, &user_role, &state.jwt_secret) {
-                        let mut res = Response::new(axum::body::Body::from(
-                            serde_json::to_string(&serde_json::json!({
-                                "success": true,
-                                "message": "Login successful"
-                            })).unwrap()
-                        ));
-                        res.headers_mut().insert(
-                            axum::http::header::CONTENT_TYPE,
-                            axum::http::HeaderValue::from_static("application/json"),
-                        );
-                        let cookie_val = format!("zeno_token={}; Path=/; HttpOnly; SameSite=Lax", token);
-                        if let Ok(cookie_hdr) = axum::http::HeaderValue::from_str(&cookie_val) {
-                            res.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_hdr);
-                        }
-                        let role_cookie = format!("zeno_role={}; Path=/; SameSite=Lax", user_role);
-                        if let Ok(role_hdr) = axum::http::HeaderValue::from_str(&role_cookie) {
-                            res.headers_mut().append(axum::http::header::SET_COOKIE, role_hdr);
-                        }
-                        return res;
-                    }
-                } else {
-                    let remaining = state.login_limiter.record_failure(&client_ip);
-                    let msg = if remaining == 0 {
-                        "Akun diblokir sementara karena terlalu banyak percobaan gagal. Coba lagi dalam 5 menit.".to_string()
-                    } else {
-                        format!("Username atau password salah. {} percobaan tersisa sebelum diblokir.", remaining)
-                    };
-                    return Response::builder()
-                        .status(StatusCode::UNAUTHORIZED)
-                        .header("Content-Type", "application/json")
-                        .body(axum::body::Body::from(
-                            serde_json::to_string(&serde_json::json!({
-                                "success": false,
-                                "message": msg
-                            })).unwrap()
-                        ))
-                        .unwrap();
-                }
-            }
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("Content-Type", "application/json")
-                .body(axum::body::Body::from(
-                    serde_json::to_string(&serde_json::json!({
-                        "success": false,
-                        "message": "Format request tidak valid"
-                    })).unwrap()
-                ))
-                .unwrap();
-        }
-    }
-
-    // 2. Check logout path
-    if path == "/logout" {
-        let mut res = Response::builder()
-            .status(StatusCode::SEE_OTHER)
-            .header("Location", &entrance_path)
-            .body(axum::body::Body::empty())
-            .unwrap();
-        let cookie_val1 = "zeno_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax";
-        let cookie_val2 = "zeno_role=; Path=/; Max-Age=0; SameSite=Lax";
-        if let Ok(cookie_hdr1) = axum::http::HeaderValue::from_str(cookie_val1) {
-            res.headers_mut().insert(axum::http::header::SET_COOKIE, cookie_hdr1);
-        }
-        if let Ok(cookie_hdr2) = axum::http::HeaderValue::from_str(cookie_val2) {
-            res.headers_mut().append(axum::http::header::SET_COOKIE, cookie_hdr2);
-        }
-        return res;
-    }
 
     // 3. Secure ZenoPanel page requests and APIs (exclude the login path)
     let mut current_claims = None;
@@ -741,20 +580,6 @@ async fn wildcard_handler(
 
     // Role-based authorization and user management APIs
     if let Some(claims) = &current_claims {
-        // 1. GET /api/auth/me
-        if path == "/api/auth/me" && method == Method::GET {
-            return Response::builder()
-                .header("Content-Type", "application/json")
-                .body(axum::body::Body::from(serde_json::to_string(&serde_json::json!({
-                    "success": true,
-                    "username": claims.sub,
-                    "role": claims.role
-                })).unwrap()))
-                .unwrap();
-        }
-
-
-
         // 3. Database SQL Console API - ADMIN only
         if path.starts_with("/api/database/") || path.starts_with("/api/db/") {
             if claims.role != "admin" {
@@ -891,6 +716,7 @@ async fn wildcard_handler(
     if state.csrf_enabled {
         ctx.set("csrf_token", csrf_token);
     }
+    ctx.set("request_method", method_str.to_string());
 
     let response_builder = HttpResponseBuilder {
         status: std::sync::Mutex::new(200),
@@ -912,6 +738,7 @@ async fn wildcard_handler(
     ctx.set("app_state", state.clone());
     ctx.set("request_headers", headers.clone());
     ctx.set("request_path", path.to_string());
+    ctx.set("request_body_bytes", body_bytes.clone());
 
 
 
@@ -1057,7 +884,7 @@ async fn forward_request(
     Ok(response)
 }
 
-fn render_error_page(status: &str, app_name: &str, details: &str) -> String {
+fn render_error_page(engine: &zenocore::Engine, status: &str, app_name: &str, details: &str) -> String {
     let status_color = match status {
         "starting" => "#eab308", // Yellow
         "stopped" => "#6b7280", // Gray
@@ -1079,482 +906,50 @@ fn render_error_page(status: &str, app_name: &str, details: &str) -> String {
         _ => "The proxy destination could not be reached. The service might be offline.",
     };
 
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Service Unavailable - ZenoPanel</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <style>
-        * {{
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }}
-        body {{
-            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: radial-gradient(circle at center, #1e1b4b 0%, #09090b 100%);
-            color: #f4f4f5;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }}
-        .container {{
-            max-width: 500px;
-            width: 100%;
-            padding: 2rem;
-            text-align: center;
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 24px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }}
-        @keyframes fadeIn {{
-            from {{ opacity: 0; transform: translateY(20px); }}
-            to {{ opacity: 1; transform: translateY(0); }}
-        }}
-        .logo {{
-            font-weight: 800;
-            font-size: 1.5rem;
-            letter-spacing: -0.05em;
-            background: linear-gradient(to right, #a78bfa, #818cf8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 2rem;
-        }}
-        .status-badge {{
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 6px 16px;
-            border-radius: 9999px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #d4d4d8;
-            margin-bottom: 1.5rem;
-        }}
-        .status-dot {{
-            width: 8px;
-            height: 8px;
-            background-color: {status_color};
-            border-radius: 50%;
-            box-shadow: 0 0 12px {status_color};
-            animation: pulse 1.5s infinite ease-in-out;
-        }}
-        @keyframes pulse {{
-            0%, 100% {{ opacity: 0.5; transform: scale(1); }}
-            50% {{ opacity: 1; transform: scale(1.2); }}
-        }}
-        h1 {{
-            font-size: 2.25rem;
-            font-weight: 800;
-            letter-spacing: -0.025em;
-            margin-bottom: 0.75rem;
-            color: #ffffff;
-        }}
-        .app-name {{
-            color: #818cf8;
-        }}
-        p {{
-            font-size: 1rem;
-            color: #a1a1aa;
-            line-height: 1.6;
-            margin-bottom: 2rem;
-        }}
-        .details-box {{
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 1rem;
-            font-family: monospace;
-            font-size: 0.85rem;
-            color: #e4e4e7;
-            text-align: left;
-            margin-bottom: 2rem;
-            white-space: pre-wrap;
-            word-break: break-all;
-            max-height: 120px;
-            overflow-y: auto;
-        }}
-        .btn {{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            padding: 0.75rem 1.5rem;
-            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: none;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-        }}
-        .btn:hover {{
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-        }}
-        .footer {{
-            margin-top: 2rem;
-            font-size: 0.75rem;
-            color: #52525b;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">ZenoPanel</div>
-        <div class="status-badge">
-            <span class="status-dot"></span>
-            <span>{status_label}</span>
-        </div>
-        <h1>Service <span class="app-name">{app_name}</span> is Unavailable</h1>
-        <p>{status_desc}</p>
-        <div class="details-box">{details}</div>
-        <button class="btn" onclick="window.location.reload()">Refresh Page</button>
-        <div class="footer">Powered by ZenoPanel Enterprise</div>
-    </div>
-</body>
-</html>"#,
-        status_color = status_color,
-        status_label = status_label,
-        app_name = app_name,
-        status_desc = status_desc,
-        details = details
-    )
-}
-
-fn render_login_page(entrance_path: &str, csrf_token: &str) -> String {
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - ZenoPanel</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <style>
-        * {{
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }}
-        body {{
-            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: radial-gradient(circle at center, #1e1b4b 0%, #09090b 100%);
-            color: #f4f4f5;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }}
-        .container {{
-            max-width: 400px;
-            width: 100%;
-            padding: 2.5rem;
-            background: rgba(15, 23, 42, 0.4);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 24px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }}
-        @keyframes fadeIn {{
-            from {{ opacity: 0; transform: translateY(20px); }}
-            to {{ opacity: 1; transform: translateY(0); }}
-        }}
-        .logo {{
-            font-weight: 800;
-            font-size: 2.25rem;
-            letter-spacing: -0.05em;
-            text-align: center;
-            background: linear-gradient(to right, #a78bfa, #818cf8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
-        }}
-        .subtitle {{
-            font-size: 0.875rem;
-            color: #a1a1aa;
-            text-align: center;
-            margin-bottom: 2rem;
-        }}
-        .form-group {{
-            margin-bottom: 1.25rem;
-            position: relative;
-        }}
-        label {{
-            display: block;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #e4e4e7;
-            margin-bottom: 0.5rem;
-        }}
-        input {{
-            width: 100%;
-            padding: 0.75rem 1rem;
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            color: white;
-            font-family: inherit;
-            font-size: 0.95rem;
-            transition: all 0.2s ease;
-        }}
-        input:focus {{
-            outline: none;
-            border-color: #818cf8;
-            box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
-            background: rgba(0, 0, 0, 0.35);
-        }}
-        .btn {{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            padding: 0.75rem 1.5rem;
-            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-weight: 600;
-            font-size: 0.95rem;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-            margin-top: 1rem;
-        }}
-        .btn:hover {{
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-        }}
-        .btn:active {{
-            transform: translateY(0);
-        }}
-        .error-alert {{
-            background: rgba(239, 68, 68, 0.15);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #fca5a5;
-            padding: 0.75rem 1rem;
-            border-radius: 12px;
-            font-size: 0.875rem;
-            margin-bottom: 1.5rem;
-            display: none;
-            animation: shake 0.4s ease-in-out;
-        }}
-        @keyframes shake {{
-            0%, 100% {{ transform: translateX(0); }}
-            25% {{ transform: translateX(-6px); }}
-            75% {{ transform: translateX(6px); }}
-        }}
-        .footer {{
-            margin-top: 2rem;
-            font-size: 0.75rem;
-            color: #52525b;
-            text-align: center;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">ZenoPanel</div>
-        <div class="subtitle">Sign in to manage your server</div>
-        
-        <div id="errorAlert" class="error-alert"></div>
-        
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" required autocomplete="username">
-            </div>
-            
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" required autocomplete="current-password">
-            </div>
-            
-            <button type="submit" class="btn">Sign In</button>
-        </form>
-        
-        <div class="footer">Powered by ZenoPanel Enterprise</div>
-    </div>
-
-    <script>
-        const loginForm = document.getElementById('loginForm');
-        const errorAlert = document.getElementById('errorAlert');
-
-        loginForm.addEventListener('submit', async (e) => {{
-            e.preventDefault();
-            errorAlert.style.display = 'none';
-
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-
-            try {{
-                const res = await fetch('{entrance_path}', {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json',
-                        'X-CSRF-Token': '{csrf_token}'
-                    }},
-                    body: JSON.stringify({{ username, password }})
-                }});
-
-                const data = await res.json();
-                if (res.ok && data.success) {{
-                    window.location.href = '/';
-                }} else {{
-                    errorAlert.textContent = data.message || 'Login gagal';
-                    errorAlert.style.display = 'block';
-                }}
-            }} catch (err) {{
-                errorAlert.textContent = 'Terjadi kesalahan jaringan. Coba lagi.';
-                errorAlert.style.display = 'block';
-            }}
-        }});
-    </script>
-</body>
-</html>"#,
-        entrance_path = entrance_path,
-        csrf_token = csrf_token
-    )
-}
-
-async fn auth_middleware(
-    State(state): State<Arc<AppState>>,
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Response {
-    let headers = req.headers();
-    let mut current_claims = None;
-    if let Some(token) = auth::extract_token(headers) {
-        if let Ok(claims) = auth::verify_jwt(&token, &state.jwt_secret) {
-            current_claims = Some(claims);
+    let code = r#"
+        view.blade: 'proxy_error' {
+            status_color: $status_color
+            status_label: $status_label
+            app_name: $app_name
+            status_desc: $status_desc
+            details: $details
         }
-    }
+    "#;
 
-    let claims = match current_claims {
-        Some(c) => c,
-        None => {
-            let body = serde_json::to_string(&serde_json::json!({
-                "success": false,
-                "message": "Unauthorized: Silakan login terlebih dahulu"
-            })).unwrap();
-            
-            return Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .header("Content-Type", "application/json")
-                .body(axum::body::Body::from(body))
-                .unwrap();
-        }
-    };
+    match zenocore::parser::parse_string(code, "proxy_error_render") {
+        Ok(node) => {
+            let mut ctx = zenocore::Context::new();
+            ctx.set("status_color", zenocore::Value::String(status_color.to_string()));
+            ctx.set("status_label", zenocore::Value::String(status_label.to_string()));
+            ctx.set("app_name", zenocore::Value::String(app_name.to_string()));
+            ctx.set("status_desc", zenocore::Value::String(status_desc.to_string()));
+            ctx.set("details", zenocore::Value::String(details.to_string()));
 
-    if claims.role == "viewer" {
-        let body = serde_json::to_string(&serde_json::json!({
-            "success": false,
-            "message": "Forbidden: Role Viewer tidak diijinkan mengupload file"
-        })).unwrap();
-        
-        return Response::builder()
-            .status(StatusCode::FORBIDDEN)
-            .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(body))
-            .unwrap();
-    }
+            let html_buffer = zeno_blade::slots::HtmlBuffer(std::sync::Mutex::new(String::new()));
+            ctx.set("httpWriter", html_buffer);
 
-    next.run(req).await
-}
+            let scope = std::sync::Arc::new(zenocore::Scope::new(None));
+            if let Err(e) = engine.execute(&mut ctx, &node, &scope) {
+                eprintln!("Failed to execute proxy_error render node: {}", e);
+                return format!("<html><body><h1>Service {} Unavailable</h1><p>{}</p><pre>{}</pre></body></html>", app_name, status_desc, details);
+            }
 
-async fn upload_file_handler(
-    State(_state): State<Arc<AppState>>,
-    mut multipart: axum::extract::Multipart,
-) -> Result<impl axum::response::IntoResponse, (axum::http::StatusCode, String)> {
-    let mut upload_path = None;
-    let mut files = Vec::new();
-
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (axum::http::StatusCode::BAD_REQUEST, format!("Multipart error: {}", e))
-    })? {
-        let name = field.name().unwrap_or("").to_string();
-        if name == "path" {
-            let val = field.text().await.map_err(|e| {
-                (axum::http::StatusCode::BAD_REQUEST, format!("Failed to read path field: {}", e))
-            })?;
-            upload_path = Some(val);
-        } else if name == "file" || name == "files" || field.file_name().is_some() {
-            let filename = field.file_name().unwrap_or("uploaded_file").to_string();
-            let data = field.bytes().await.map_err(|e| {
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read file data: {}", e))
-            })?;
-            files.push((filename, data));
-        }
-    }
-
-    let dest_dir = upload_path.ok_or_else(|| {
-        (axum::http::StatusCode::BAD_REQUEST, "Missing 'path' field".to_string())
-    })?;
-
-    let dest_dir_path = std::path::Path::new(&dest_dir);
-    if !dest_dir_path.exists() {
-        return Err((axum::http::StatusCode::BAD_REQUEST, format!("Destination directory does not exist: {}", dest_dir)));
-    }
-
-    for (filename, bytes) in files {
-        // --- Security: prevent path traversal attacks ---
-        // Extract only the final filename component, reject any directory separators.
-        let safe_name = std::path::Path::new(&filename)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-
-        if safe_name.is_empty() || safe_name.starts_with('.') {
-            return Err((
-                axum::http::StatusCode::BAD_REQUEST,
-                format!("Nama file tidak valid atau tidak diperbolehkan: '{}'", filename),
-            ));
-        }
-
-        let file_dest = dest_dir_path.join(&safe_name);
-
-        // Double-check the resolved path still lives inside dest_dir (defense in depth)
-        let canonical_dir = dest_dir_path.canonicalize().map_err(|e| {
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal resolve direktori tujuan: {}", e))
-        })?;
-        // We can't canonicalize a path that doesn't exist yet, so check the parent.
-        if let Some(parent) = file_dest.parent() {
-            if let Ok(canon_parent) = parent.canonicalize() {
-                if !canon_parent.starts_with(&canonical_dir) {
-                    return Err((
-                        axum::http::StatusCode::BAD_REQUEST,
-                        "Path traversal terdeteksi dan ditolak.".to_string(),
-                    ));
+            if let Some(html_buffer_arc) = ctx.get::<zeno_blade::slots::HtmlBuffer>("httpWriter") {
+                let html = html_buffer_arc.0.lock().unwrap().clone();
+                if !html.is_empty() {
+                    return html;
                 }
             }
+            format!("<html><body><h1>Service {} Unavailable</h1><p>{}</p><pre>{}</pre></body></html>", app_name, status_desc, details)
         }
-
-        tokio::fs::write(&file_dest, bytes).await.map_err(|e| {
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file '{}': {}", safe_name, e))
-        })?;
-        println!("[FileManager] Uploaded file successfully to {:?}", file_dest);
+        Err(e) => {
+            eprintln!("Failed to parse proxy_error template render snippet: {}", e);
+            format!("<html><body><h1>Service {} Unavailable</h1><p>{}</p><pre>{}</pre></body></html>", app_name, status_desc, details)
+        }
     }
-
-    Ok(axum::Json(serde_json::json!({
-        "success": true,
-        "message": "File uploaded successfully"
-    })))
 }
+
+
 
 pub(crate) async fn start_dynamic_proxy_listeners(
     state: Arc<AppState>,

@@ -463,8 +463,10 @@ pub fn register(engine: &mut Engine) {
                 }
             })?;
 
-            let db_pool = match tokio::runtime::Handle::current().block_on(async {
-                state.db_manager.get_pool("default").await
+            let db_pool = match tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    state.db_manager.get_pool("default").await
+                })
             }) {
                 Some(crate::db::DbPool::Sqlite(pool)) => pool,
                 _ => {
@@ -479,12 +481,14 @@ pub fn register(engine: &mut Engine) {
                 }
             };
 
-            let user_row: Option<(String, String)> = tokio::runtime::Handle::current().block_on(async {
-                sqlx::query_as("SELECT password_hash, role FROM users WHERE username = ?")
-                    .bind(&username)
-                    .fetch_optional(&db_pool)
-                    .await
-                    .unwrap_or(None)
+            let user_row: Option<(String, String)> = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    sqlx::query_as("SELECT password_hash, role FROM users WHERE username = ?")
+                        .bind(&username)
+                        .fetch_optional(&db_pool)
+                        .await
+                        .unwrap_or(None)
+                })
             });
 
             let mut success = false;
@@ -516,6 +520,120 @@ pub fn register(engine: &mut Engine) {
             inputs: HashMap::new(),
             required_blocks: Vec::new(),
             value_type: "map".to_string(),
+        },
+    );
+
+    // --- system.entrance_path ---
+    // Expose the current dynamic entrance path from AppState to ZenoLang.
+    engine.register(
+        "system.entrance_path",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "entrance_path".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default()
+                        .trim_start_matches('$').to_string();
+                }
+            }
+            let path = if let Some(state) = ctx.get::<Arc<AppState>>("app_state") {
+                state.entrance_path.lock().unwrap().clone()
+            } else {
+                "/login".to_string()
+            };
+            scope.set(&target, Value::String(path));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Get the current dynamic login entrance path".to_string(),
+            example: "system.entrance_path: { as: $login_path }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "string".to_string(),
+        },
+    );
+
+    // --- auth.login_check ---
+    // Check if the current request has a valid JWT — non-halting version of auth.guard.
+    // Sets $target to true/false without stopping execution.
+    engine.register(
+        "auth.login_check",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "is_logged_in".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default()
+                        .trim_start_matches('$').to_string();
+                }
+            }
+            let logged_in = if let (Some(headers), Some(state)) = (
+                ctx.get::<axum::http::HeaderMap>("request_headers"),
+                ctx.get::<Arc<AppState>>("app_state"),
+            ) {
+                crate::auth::extract_token(&headers)
+                    .and_then(|token| crate::auth::verify_jwt(&token, &state.jwt_secret).ok())
+                    .is_some()
+            } else {
+                false
+            };
+            scope.set(&target, Value::Bool(logged_in));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Check if request has a valid JWT (non-halting)".to_string(),
+            example: "auth.login_check: { as: $logged_in }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "bool".to_string(),
+        },
+    );
+
+    // --- auth.rate_limit ---
+    // Interface to the LoginLimiter in AppState.
+    // action: "check" → sets $target to true if blocked
+    // action: "record" → records a failure, sets $target to remaining attempts
+    // action: "clear" → clears attempts on success
+    engine.register(
+        "auth.rate_limit",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut action = "check".to_string();
+            let mut ip = String::new();
+            let mut target = "rate_limited".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "action" { action = val.to_string_coerce(); }
+                else if child.name == "ip" { ip = val.to_string_coerce(); }
+                else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default()
+                        .trim_start_matches('$').to_string();
+                }
+            }
+
+            if let Some(state) = ctx.get::<Arc<AppState>>("app_state") {
+                match action.as_str() {
+                    "check" => {
+                        let blocked = state.login_limiter.is_blocked(&ip);
+                        scope.set(&target, Value::Bool(blocked));
+                    }
+                    "record" => {
+                        let remaining = state.login_limiter.record_failure(&ip);
+                        scope.set(&target, Value::Int(remaining as i64));
+                    }
+                    "clear" => {
+                        state.login_limiter.clear(&ip);
+                        scope.set(&target, Value::Bool(true));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Interact with the login rate limiter".to_string(),
+            example: "auth.rate_limit: { action: 'check', ip: $client_ip, as: $blocked }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "any".to_string(),
         },
     );
 }

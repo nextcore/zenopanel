@@ -188,10 +188,36 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "log",
+        Arc::new(|engine, _ctx, node, scope| {
+            let val = if node.value.is_some() {
+                resolve_node_value(engine, node, scope)
+            } else {
+                let mut map = HashMap::new();
+                for child in &node.children {
+                    let child_val = engine.resolve_shorthand_value(child, scope);
+                    map.insert(child.name.clone(), child_val);
+                }
+                if map.is_empty() {
+                    Value::Nil
+                } else {
+                    Value::Map(map)
+                }
+            };
+            println!("[ZenoLang Log] {}", val.to_string_coerce());
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 
 fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>) -> bool {
-    let expr = expr.trim();
+    let mut expr = expr.trim();
+    if (expr.starts_with('"') && expr.ends_with('"')) || (expr.starts_with('\'') && expr.ends_with('\'')) {
+        expr = expr[1..expr.len()-1].trim();
+    }
     if expr.is_empty() {
         return false;
     }

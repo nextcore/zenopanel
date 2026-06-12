@@ -19,12 +19,6 @@ include: 'zsrc/routes/proxy.zl'
 include: 'zsrc/routes/settings.zl'
 include: 'zsrc/routes/users.zl'
 
-
-# 404 Handler
-http.get: /* {
-  do: {
-    http.not_found: {
-      body: "Halaman tidak ditemukan."
-    }
-  }
-}
+# Auth routes — login/logout dengan dynamic entrance path support
+# HARUS di-include terakhir karena mendaftarkan wildcard GET /* dan POST /*
+include: 'zsrc/routes/auth.zl'
