@@ -460,20 +460,35 @@ pub async fn check_and_renew_certs(proxy_manager: Arc<ProxyManager>, cert_resolv
         let needs_renewal = if !Path::new(&cert_path).exists() {
             true
         } else {
-            // Check file modification time
-            if let Ok(metadata) = std::fs::metadata(&cert_path) {
-                if let Ok(modified) = metadata.modified() {
-                    if let Ok(elapsed) = modified.elapsed() {
-                        // 60 days in seconds = 60 * 24 * 3600 = 5,184,000
-                        elapsed.as_secs() > 5184000
+            match load_certs_from_file(Path::new(&cert_path)) {
+                Ok(certs) => {
+                    if certs.is_empty() {
+                        true
                     } else {
-                        false
+                        let der_bytes = certs[0].as_ref();
+                        match x509_parser::parse_x509_certificate(der_bytes) {
+                            Ok((_, x509)) => {
+                                let validity = x509.validity();
+                                if let Some(duration_until_expiry) = validity.time_to_expiration() {
+                                    let secs = duration_until_expiry.whole_seconds();
+                                    println!("[SSL Renewal] Cert for '{}' has {} seconds (approx {:.1} days) remaining.", domain, secs, secs as f64 / 86400.0);
+                                    secs < 2592000
+                                } else {
+                                    println!("[SSL Renewal] Could not determine expiration duration for '{}'. Forcing renewal.", domain);
+                                    true
+                                }
+                            }
+                            Err(e) => {
+                                println!("[SSL Renewal] Failed to parse X509 certificate for '{}': {:?}. Forcing renewal.", domain, e);
+                                true
+                            }
+                        }
                     }
-                } else {
-                    false
                 }
-            } else {
-                true
+                Err(e) => {
+                    println!("[SSL Renewal] Failed to load certificate file for '{}': {}. Forcing renewal.", domain, e);
+                    true
+                }
             }
         };
         
