@@ -68,9 +68,10 @@ impl ZenoCertResolver {
         let key_path = format!("{}/{}.key", self.certs_dir, domain);
 
         if Path::new(&cert_path).exists() && Path::new(&key_path).exists() {
-            if let Ok(cert_der) = std::fs::read(&cert_path) {
-                if let Ok(key_der) = std::fs::read(&key_path) {
-                    if let Ok(certified_key) = self.construct_certified_key(cert_der, key_der) {
+            if let Ok(certs) = load_certs_from_file(Path::new(&cert_path)) {
+                if let Ok(key) = load_private_key_from_file(Path::new(&key_path)) {
+                    let provider = rustls::crypto::ring::default_provider();
+                    if let Ok(certified_key) = CertifiedKey::from_der(certs, key, &provider) {
                         let arc_key = Arc::new(certified_key);
                         self.cert_cache.write().await.insert(domain.to_string(), arc_key.clone());
                         return Some(arc_key);
@@ -105,23 +106,29 @@ impl ZenoCertResolver {
                 let _ = std::fs::write(&cert_path, &cert_der);
                 let _ = std::fs::write(&key_path, &key_der);
 
-                if let Ok(certified_key) = self.construct_certified_key(cert_der, key_der) {
-                    let arc_key = Arc::new(certified_key);
-                    self.cert_cache.write().await.insert(domain.to_string(), arc_key.clone());
+                if let Ok(certs) = load_certs_from_file(Path::new(&cert_path)) {
+                    if let Ok(key) = load_private_key_from_file(Path::new(&key_path)) {
+                        let provider = rustls::crypto::ring::default_provider();
+                        if let Ok(certified_key) = CertifiedKey::from_der(certs, key, &provider) {
+                            let arc_key = Arc::new(certified_key);
+                            self.cert_cache.write().await.insert(domain.to_string(), arc_key.clone());
 
-                    // If status is currently pending or none, update status to self-signed
-                    if rule.ssl_status == "pending" || rule.ssl_status == "none" {
-                        let pm = self.proxy_manager.clone();
-                        let rule_id = rule.id.clone();
-                        let domain_str = domain.to_string();
-                        tokio::spawn(async move {
-                            // Set status to active_self_signed, then trigger background ACME check if it's public
-                            let _ = pm.update_ssl_status(&rule_id, "active_self_signed").await;
-                            trigger_acme_flow(pm, rule_id, domain_str).await;
-                        });
+                            // If status is currently pending or none, update status to self-signed
+                            if rule.ssl_status == "pending" || rule.ssl_status == "none" {
+                                let pm = self.proxy_manager.clone();
+                                let rule_id = rule.id.clone();
+                                let domain_str = domain.to_string();
+                                tokio::spawn(async move {
+                                    // Set status to active_self_signed, then trigger background ACME check if it's public
+                                    let _ = pm.update_ssl_status(&rule_id, "active_self_signed").await;
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                                    trigger_acme_flow(pm, rule_id, domain_str).await;
+                                });
+                            }
+
+                            return Some(arc_key);
+                        }
                     }
-
-                    return Some(arc_key);
                 }
             }
             Err(e) => {
@@ -131,15 +138,40 @@ impl ZenoCertResolver {
 
         None
     }
+}
 
-    fn construct_certified_key(&self, cert_der: Vec<u8>, key_der: Vec<u8>) -> Result<CertifiedKey, String> {
-        let provider = rustls::crypto::ring::default_provider();
-        let cert = CertificateDer::from(cert_der);
-        let key = PrivateKeyDer::try_from(key_der)
-            .map_err(|e| format!("Invalid private key: {}", e))?;
+// Helpers to load PEM/DER certificates and keys
+fn load_certs_from_file(path: &Path) -> Result<Vec<CertificateDer<'static>>, String> {
+    let file = std::fs::File::open(path)
+        .map_err(|e| format!("Failed to open certificate file: {}", e))?;
+    let mut reader = std::io::BufReader::new(file);
+    let certs = rustls_pemfile::certs(&mut reader)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to parse PEM certificate chain: {}", e))?;
+        
+    if certs.is_empty() {
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("Failed to read certificate file bytes: {}", e))?;
+        if !bytes.is_empty() {
+            return Ok(vec![CertificateDer::from(bytes)]);
+        }
+        return Err("Certificate file is empty".to_string());
+    }
+    Ok(certs)
+}
 
-        CertifiedKey::from_der(vec![cert], key, &provider)
-            .map_err(|e| format!("Failed to build CertifiedKey: {}", e))
+fn load_private_key_from_file(path: &Path) -> Result<PrivateKeyDer<'static>, String> {
+    let file = std::fs::File::open(path)
+        .map_err(|e| format!("Failed to open private key file: {}", e))?;
+    let mut reader = std::io::BufReader::new(file);
+    if let Some(key) = rustls_pemfile::private_key(&mut reader)
+        .map_err(|e| format!("Failed to parse PEM private key: {}", e))? {
+        Ok(key)
+    } else {
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("Failed to read private key file bytes: {}", e))?;
+        PrivateKeyDer::try_from(bytes)
+            .map_err(|e| format!("Failed to parse private key as DER: {}", e))
     }
 }
 
@@ -172,63 +204,232 @@ async fn trigger_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: String, do
         return;
     }
 
-    // For public domains, simulate/run ACME Let's Encrypt HTTP-01 challenge
+    // For public domains, run real ACME Let's Encrypt HTTP-01 challenge
     println!("[SSL] Triggering Let's Encrypt HTTP-01 challenge for domain: {}", domain);
     let _ = proxy_manager.update_ssl_status(&rule_id, "pending").await;
 
+    let pm = proxy_manager.clone();
     tokio::spawn(async move {
-        // 1. Generate challenge token and response
-        let token = format!("zeno-acme-token-{}", rand::random::<u32>());
-        let key_auth = format!("{}.zeno-acme-key-auth-thumbprint-123456", token);
-
-        // 2. Register challenge in the global interceptor map
-        {
-            let mut challenges = ACME_CHALLENGES.lock().unwrap();
-            challenges.insert(token.clone(), key_auth.clone());
-        }
-
-        println!("[SSL] Registered HTTP-01 challenge token for {}: //.well-known/acme-challenge/{}", domain, token);
-
-        // 3. In a real environment, we'd trigger Let's Encrypt validation.
-        // We'll simulate validation by trying to hit ourselves on port 80/HTTP if reachable,
-        // or just wait for Let's Encrypt.
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-        // Perform self-validation check: try to fetch the challenge locally via HTTP
-        let self_test_url = format!("http://{}/.well-known/acme-challenge/{}", domain, token);
-        let client = reqwest::Client::builder().timeout(tokio::time::Duration::from_secs(3)).build().unwrap();
-        
-        let self_test_success = match client.get(&self_test_url).send().await {
-            Ok(resp) => {
-                if let Ok(text) = resp.text().await {
-                    text.trim() == key_auth
-                } else {
-                    false
-                }
+        match perform_acme_flow(pm.clone(), &rule_id, &domain).await {
+            Ok(_) => {
+                println!("[SSL] ACME certificate successfully provisioned for domain: {}", domain);
             }
-            Err(_) => false,
-        };
-
-        // Clean up challenge from map
-        {
-            let mut challenges = ACME_CHALLENGES.lock().unwrap();
-            challenges.remove(&token);
-        }
-
-        if self_test_success {
-            // Let's Encrypt validation succeeded!
-            // In a real client we'd fetch the cert here.
-            // Since this is a test/local setup, we keep the self-signed certificate
-            // but update status to 'active_letsencrypt' to indicate it is fully valid and configured!
-            let _ = proxy_manager.update_ssl_status(&rule_id, "active_letsencrypt").await;
-            println!("[SSL] Let's Encrypt HTTP-01 challenge validation succeeded for '{}'!", domain);
-        } else {
-            // If self-test fails (usually because of DNS/local dev setup),
-            // we fall back to self-signed certificate and set status to 'failed' (failed to provision LE, using self-signed fallback)
-            let _ = proxy_manager.update_ssl_status(&rule_id, "failed").await;
-            println!("[SSL] Let's Encrypt challenge self-check failed for '{}' (will use self-signed certificate instead)", domain);
+            Err(e) => {
+                eprintln!("[SSL] ACME certificate provisioning failed for domain {}: {}", domain, e);
+                let _ = pm.update_ssl_status(&rule_id, "failed").await;
+            }
         }
     });
+}
+
+// Actual ACME flow runner using instant-acme
+async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, domain: &str) -> Result<(), String> {
+    use instant_acme::{Account, NewAccount, NewOrder, Identifier, ChallengeType, AuthorizationStatus, LetsEncrypt, AccountCredentials};
+
+    // 1. Determine directory URL based on SSL_PRODUCTION env var
+    let production = std::env::var("SSL_PRODUCTION")
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false);
+    let directory_url = if production {
+        LetsEncrypt::Production.url().to_string()
+    } else {
+        LetsEncrypt::Staging.url().to_string()
+    };
+
+    println!("[SSL ACME] Using directory URL: {}", directory_url);
+
+    // 2. Load or register ACME account using AccountCredentials
+    let account_credentials_path = "./certs/acme_account.json";
+    let contact_email = std::env::var("SSL_CONTACT_EMAIL")
+        .unwrap_or_else(|_| "admin@zenopanel.local".to_string());
+    let contact_uri = format!("mailto:{}", contact_email);
+
+    let account = if std::path::Path::new(account_credentials_path).exists() {
+        println!("[SSL ACME] Loading existing ACME account credentials from {}", account_credentials_path);
+        let bytes = std::fs::read(account_credentials_path)
+            .map_err(|e| format!("Failed to read ACME credentials file: {}", e))?;
+        let creds: AccountCredentials = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("Failed to parse ACME credentials: {}", e))?;
+        Account::builder()
+            .map_err(|e| format!("Failed to create Account builder: {}", e))?
+            .from_credentials(creds)
+            .await
+            .map_err(|e| format!("Failed to restore ACME account: {}", e))?
+    } else {
+        println!("[SSL ACME] Registering new ACME account for: {}", contact_email);
+        let (acc, creds) = Account::builder()
+            .map_err(|e| format!("Failed to create Account builder: {}", e))?
+            .create(
+                &NewAccount {
+                    contact: &[&contact_uri],
+                    terms_of_service_agreed: true,
+                    only_return_existing: false,
+                },
+                directory_url.clone(),
+                None,
+            )
+            .await
+            .map_err(|e| format!("ACME Account creation failed: {}", e))?;
+        
+        let bytes = serde_json::to_vec(&creds)
+            .map_err(|e| format!("Failed to serialize ACME credentials: {}", e))?;
+        if let Some(parent) = std::path::Path::new(account_credentials_path).parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create certs directory: {}", e))?;
+        }
+        std::fs::write(account_credentials_path, bytes)
+            .map_err(|e| format!("Failed to save ACME credentials: {}", e))?;
+        acc
+    };
+
+    // 3. Create new order
+    println!("[SSL ACME] Creating ACME order for: {}", domain);
+    let idents = [Identifier::Dns(domain.to_string())];
+    let new_order = NewOrder::new(&idents);
+    let mut order = account.new_order(&new_order)
+        .await
+        .map_err(|e| format!("ACME Order creation failed: {}", e))?;
+
+    // 4. Retrieve authorizations and find HTTP-01 challenge
+    let mut challenge_token = None;
+    let mut authorizations = order.authorizations();
+    while let Some(auth_res) = authorizations.next().await {
+        let mut auth = auth_res.map_err(|e| format!("Failed to retrieve ACME authorization: {}", e))?;
+        if let Some(mut challenge_handle) = auth.challenge(ChallengeType::Http01) {
+            let token = challenge_handle.token.clone();
+            let key_auth = challenge_handle.key_authorization();
+            let key_auth_str = key_auth.as_str().to_string();
+
+            // Insert into the global challenges map
+            {
+                let mut challenges = ACME_CHALLENGES.lock().unwrap();
+                challenges.insert(token.clone(), key_auth_str);
+            }
+
+            challenge_token = Some(token);
+
+            println!("[SSL ACME] Fulfilling challenge for {}. Serving token: {} at /.well-known/acme-challenge/{}", 
+                     domain, challenge_handle.token, challenge_handle.token);
+
+            // Signal readiness to ACME server
+            challenge_handle.set_ready()
+                .await
+                .map_err(|e| format!("Failed to trigger ACME challenge: {}", e))?;
+            break;
+        }
+    }
+
+    if challenge_token.is_none() {
+        return Err("No HTTP-01 challenge found in ACME order".to_string());
+    }
+
+    // 5. Poll challenge status until it's valid or failed
+    let mut success = false;
+    for _ in 0..15 {
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        
+        let mut auths = order.authorizations();
+        let mut all_valid = true;
+        let mut any_failed = false;
+        
+        while let Some(auth_res) = auths.next().await {
+            let auth = auth_res.map_err(|e| format!("Failed to refresh authorization: {}", e))?;
+            match auth.status {
+                AuthorizationStatus::Valid => {},
+                AuthorizationStatus::Invalid => {
+                    any_failed = true;
+                },
+                _ => {
+                    all_valid = false;
+                }
+            }
+        }
+        
+        if all_valid {
+            success = true;
+            break;
+        }
+        
+        if any_failed {
+            // Clean up the challenge from the global map
+            if let Some(ref tok) = challenge_token {
+                let mut challenges = ACME_CHALLENGES.lock().unwrap();
+                challenges.remove(tok);
+            }
+            return Err("ACME challenge validation failed on server".to_string());
+        }
+    }
+    
+    // Clean up the challenge from the global map
+    if let Some(ref tok) = challenge_token {
+        let mut challenges = ACME_CHALLENGES.lock().unwrap();
+        challenges.remove(tok);
+    }
+    
+    if !success {
+        return Err("ACME challenge validation timed out".to_string());
+    }
+
+    // 6. Generate key pair and CSR for the domain
+    println!("[SSL ACME] Generating key pair and CSR for: {}", domain);
+    let mut params = rcgen::CertificateParams::new(vec![domain.to_string()])
+        .map_err(|e| format!("CertificateParams creation failed: {}", e))?;
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    params.distinguished_name.push(rcgen::DnType::CommonName, domain);
+    
+    let key_pair = rcgen::KeyPair::generate()
+        .map_err(|e| format!("KeyPair generation failed: {}", e))?;
+    
+    let csr = params.serialize_request(&key_pair)
+        .map_err(|e| format!("CSR serialization failed: {}", e))?;
+    
+    let csr_der = csr.der();
+
+    println!("[SSL ACME] Finalizing ACME order...");
+    order.finalize_csr(&csr_der)
+        .await
+        .map_err(|e| format!("Order finalization failed: {}", e))?;
+
+    // 7. Poll order certificate status until it is Valid
+    let mut certificate_pem = None;
+    for _ in 0..15 {
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        
+        match order.certificate().await {
+            Ok(Some(cert_pem)) => {
+                certificate_pem = Some(cert_pem);
+                break;
+            }
+            Ok(None) => {
+                println!("[SSL ACME] Certificate order is still processing...");
+            }
+            Err(e) => {
+                return Err(format!("Failed to retrieve certificate: {}", e));
+            }
+        }
+    }
+
+    let cert_pem = certificate_pem.ok_or_else(|| "ACME order certificate retrieval timed out".to_string())?;
+
+    // 8. Save signed certificate (PEM) and private key (DER) to disk
+    let cert_path = format!("./certs/{}.crt", domain);
+    let key_path = format!("./certs/{}.key", domain);
+    
+    if let Some(parent) = std::path::Path::new(&cert_path).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create certs directory: {}", e))?;
+    }
+
+    std::fs::write(&cert_path, cert_pem.as_bytes())
+        .map_err(|e| format!("Failed to save signed certificate: {}", e))?;
+    std::fs::write(&key_path, key_pair.serialized_der())
+        .map_err(|e| format!("Failed to save private key: {}", e))?;
+
+    // 9. Update SSL status in database to active_letsencrypt
+    let _ = proxy_manager.update_ssl_status(rule_id, "active_letsencrypt").await;
+    println!("[SSL ACME] SSL configuration successfully completed for: {}", domain);
+
+    Ok(())
 }
 
 // Check and renew all active SSL certificates if close to expiration (older than 60 days)
@@ -313,9 +514,10 @@ pub async fn run_tls_server(cert_resolver: Arc<ZenoCertResolver>, app: axum::Rou
         .parse::<u16>()
         .unwrap_or(8443);
 
-    let server_config = rustls::ServerConfig::builder()
+    let mut server_config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_cert_resolver(cert_resolver);
+    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     let acceptor = TlsAcceptor::from(Arc::new(server_config));
 
@@ -341,14 +543,24 @@ pub async fn run_tls_server(cert_resolver: Arc<ZenoCertResolver>, app: axum::Rou
         tokio::spawn(async move {
             match acceptor.accept(stream).await {
                 Ok(tls_stream) => {
+                    let alpn = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
                     let io = hyper_util::rt::TokioIo::new(tls_stream);
                     let service = hyper_util::service::TowerToHyperService::new(app);
                     
-                    if let Err(err) = hyper::server::conn::http1::Builder::new()
-                        .serve_connection(io, service)
-                        .await 
-                    {
-                        eprintln!("[SSL Server] Error serving connection: {:?}", err);
+                    if alpn.as_deref() == Some(b"h2") {
+                        if let Err(err) = hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                            .serve_connection(io, service)
+                            .await 
+                        {
+                            eprintln!("[SSL Server] HTTP/2 connection error: {:?}", err);
+                        }
+                    } else {
+                        if let Err(err) = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(io, service)
+                            .await 
+                        {
+                            eprintln!("[SSL Server] HTTP/1 connection error: {:?}", err);
+                        }
                     }
                 }
                 Err(e) => {

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use sqlx::SqlitePool;
@@ -52,6 +52,8 @@ pub struct ProxyManager {
     pool: SqlitePool,
     rules: Arc<RwLock<HashMap<String, ProxyRule>>>,
     rr_indices: Arc<tokio::sync::Mutex<HashMap<String, usize>>>,
+    active_conns: Arc<std::sync::Mutex<HashMap<String, usize>>>,
+    unhealthy_targets: Arc<RwLock<HashSet<String>>>,
 }
 
 impl ProxyManager {
@@ -81,10 +83,74 @@ impl ProxyManager {
         let _ = sqlx::query(alter_managed_process_id).execute(&pool).await;
         let _ = sqlx::query(alter_alternative_domain).execute(&pool).await;
 
+        let active_conns = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let unhealthy_targets = Arc::new(RwLock::new(HashSet::new()));
+
+        let unhealthy_clone = unhealthy_targets.clone();
+        let pool_clone = pool.clone();
+
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(3))
+                .build()
+                .unwrap();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                // Query targets from DB (for currently active/enabled rules)
+                let rows = match sqlx::query("SELECT target FROM proxy_rules WHERE enabled = 1")
+                    .fetch_all(&pool_clone)
+                    .await 
+                {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+
+                let mut targets_to_check = HashSet::new();
+                for row in rows {
+                    use sqlx::Row;
+                    if let Ok(target_str) = row.try_get::<String, _>("target") {
+                        for t in target_str.split(',') {
+                            let trimmed = t.trim();
+                            if !trimmed.is_empty() {
+                                targets_to_check.insert(trimmed.to_string());
+                            }
+                        }
+                    }
+                }
+
+                for target in targets_to_check {
+                    let url = if !target.starts_with("http://") && !target.starts_with("https://") {
+                        format!("http://{}", target)
+                    } else {
+                        target.clone()
+                    };
+
+                    let is_healthy = match client.get(&url).send().await {
+                        Ok(resp) => resp.status().is_success(),
+                        Err(_) => false,
+                    };
+
+                    let mut unhealthy = unhealthy_clone.write().await;
+                    if is_healthy {
+                        if unhealthy.remove(&target) {
+                            println!("[Health Check] Target {} is now HEALTHY", target);
+                        }
+                    } else {
+                        if unhealthy.insert(target.clone()) {
+                            println!("[Health Check] Target {} is now UNHEALTHY", target);
+                        }
+                    }
+                }
+            }
+        });
+
         Self {
             pool,
             rules: Arc::new(RwLock::new(HashMap::new())),
             rr_indices: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            active_conns,
+            unhealthy_targets,
         }
     }
 
@@ -373,7 +439,22 @@ impl ProxyManager {
         matched_rules.into_iter().next()
     }
 
-    pub async fn get_next_target(&self, rule_id: &str, targets_str: &str) -> String {
+    pub fn increment_conn(&self, target: &str) {
+        let mut conns = self.active_conns.lock().unwrap();
+        let count = conns.entry(target.to_string()).or_insert(0);
+        *count += 1;
+    }
+
+    pub fn decrement_conn(&self, target: &str) {
+        let mut conns = self.active_conns.lock().unwrap();
+        if let Some(count) = conns.get_mut(target) {
+            if *count > 0 {
+                *count -= 1;
+            }
+        }
+    }
+
+    pub async fn get_next_target(&self, _rule_id: &str, targets_str: &str) -> String {
         let targets: Vec<&str> = targets_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
         if targets.is_empty() {
             return String::new();
@@ -382,10 +463,33 @@ impl ProxyManager {
             return targets[0].to_string();
         }
 
-        let mut indices = self.rr_indices.lock().await;
-        let index = indices.entry(rule_id.to_string()).or_insert(0);
-        let selected = targets[*index % targets.len()].to_string();
-        *index = (*index + 1) % targets.len();
+        // Filter healthy targets
+        let unhealthy = self.unhealthy_targets.read().await;
+        let mut healthy_targets: Vec<&str> = targets
+            .iter()
+            .cloned()
+            .filter(|t| !unhealthy.contains(*t))
+            .collect();
+        
+        if healthy_targets.is_empty() {
+            // Fallback to all targets if all are unhealthy
+            healthy_targets = targets;
+        }
+
+        // Least Connections strategy: find target with minimum connections
+        let conns = self.active_conns.lock().unwrap();
+        let mut selected = healthy_targets[0].to_string();
+        let mut min_conn = conns.get(&selected).cloned().unwrap_or(0);
+
+        for target in healthy_targets.iter().skip(1) {
+            let t_str = target.to_string();
+            let c = conns.get(&t_str).cloned().unwrap_or(0);
+            if c < min_conn {
+                min_conn = c;
+                selected = t_str;
+            }
+        }
+
         selected
     }
 }
