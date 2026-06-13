@@ -18,7 +18,7 @@
 - Isolasi environment variable — env ZenoPanel tidak mencemari proses yang dikelola
 - Persistensi ke SQLite: konfigurasi proses tidak hilang saat server restart
 
-### 🔀 Reverse Proxy
+### 🔀 Reverse Proxy & Load Balancing
 - Route traffic berdasarkan **domain** dan **path prefix**
 - Mendukung **alternative domain** (contoh: `www.` redirect ke apex)
 - Strip path prefix sebelum diteruskan ke backend
@@ -26,13 +26,16 @@
 - Terintegrasi dengan Process Manager: cek status proses sebelum forward request
 - Tampilkan halaman error yang informatif jika backend offline
 - Mendukung **dynamic port listeners** — rule proxy dapat mendengarkan di port non-standar
+- **Least Connections Load Balancing**: Pembagian beban request cerdas ke target backend yang paling sedikit memegang koneksi aktif.
+- **Active Health Checks**: Worker background berkala untuk memantau kesehatan target backend dan secara dinamis mengecualikan target yang offline.
 
-### 🔒 SSL/TLS Otomatis
-- **Self-signed certificate** di-generate otomatis on-demand per domain
-- Alur **ACME HTTP-01 challenge** untuk domain publik (Let's Encrypt flow)
-- Background auto-renewal worker (cek setiap 12 jam)
-- Sertifikat di-cache di disk dan in-memory untuk performa
-- Server HTTPS berjalan paralel di port terpisah (default: 8443)
+### 🔒 SSL/TLS Otomatis & HTTP/2 ALPN
+- **Self-signed certificate** di-generate otomatis on-demand per domain sebagai fallback instan.
+- Protokol **HTTP/2 Multiplexing & ALPN** (`h2` dan `http/1.1`) didukung secara native untuk kecepatan akses optimal.
+- Alur **ACME Let's Encrypt asli** menggunakan pustaka produksi `instant-acme` v0.8.5 dengan pembuatan CSR berbasis `rcgen`.
+- **Pembaruan Sertifikat Otomatis Berbasis X.509**: Background auto-renewal worker (berjalan setiap 12 jam) yang melakukan parsing validitas sertifikat asli menggunakan `x509-parser` dan memicu pembaruan otomatis jika masa aktif tersisa kurang dari 30 hari.
+- Sertifikat di-cache secara efisien di disk dan in-memory untuk meminimalkan beban handshake.
+- Server HTTPS berjalan paralel di port terpisah (default: 8443).
 
 ### 👥 Multi-User & RBAC
 - Manajemen user dengan tiga role: **Admin**, **Editor**, **Viewer**
@@ -70,11 +73,13 @@ ZenoPanel dibangun di atas stack Rust yang solid:
 | Web framework | [Axum](https://github.com/tokio-rs/axum) |
 | Async runtime | [Tokio](https://tokio.rs/) |
 | Database | [SQLx](https://github.com/launchbadge/sqlx) + SQLite |
-| TLS | [Rustls](https://github.com/rustls/rustls) + [tokio-rustls](https://github.com/tokio-rs/tls) |
+| TLS & ALPN | [Rustls](https://github.com/rustls/rustls) + [tokio-rustls](https://github.com/tokio-rs/tls) |
 | HTTP client (proxy) | [reqwest](https://github.com/seanmonstar/reqwest) |
 | Routing engine | ZenoEngine (ZenoLang runtime) |
 | Template engine | Zeno-Blade (Blade-style template) |
 | Cert generation | [rcgen](https://github.com/rustls/rcgen) |
+| ACME client | [instant-acme](https://github.com/jsha/instant-acme) v0.8.5 |
+| X.509 parser | [x509-parser](https://github.com/rusticata/x509-parser) |
 
 Route handling, template rendering, dan logika bisnis didefinisikan dalam file `.zl` (ZenoLang), sehingga logika panel bisa dimodifikasi tanpa recompile Rust.
 
@@ -85,6 +90,7 @@ Route handling, template rendering, dan logika bisnis didefinisikan dalam file `
 ### Prasyarat
 - [Rust](https://rustup.rs/) (stable terbaru)
 - Git
+- OpenSSL (untuk helper pembentukan cert pengetesan lokal)
 
 ### Clone & Build
 
@@ -136,8 +142,8 @@ zenopanel/
 ├── src/
 │   ├── main.rs          # Entry point, router, middleware
 │   ├── procman.rs       # Process Manager (lifecycle, logging, monitoring)
-│   ├── proxyman.rs      # Reverse Proxy Manager + ZenoLang slots
-│   ├── sslman.rs        # SSL/TLS manager + ACME flow + auto-renewal
+│   ├── proxyman.rs      # Reverse Proxy & Load Balancer + Health checks
+│   ├── sslman.rs        # SSL/TLS manager + ACME flow + X.509 auto-renewal
 │   ├── auth.rs          # JWT generate & verify
 │   ├── db.rs            # Database connection manager
 │   └── slots/           # ZenoLang custom slots (HTTP, IO, DB, Auth, dll)
@@ -177,7 +183,7 @@ aaPanel dan 1Panel dirancang untuk sysadmin yang mengelola server berbasis LAMP/
 | **Deploy app Rust/Go** | Upload binary manual, tulis config vhost Nginx, reload service, buat systemd unit sendiri | Isi form: command, cwd, env vars → tekan Start. Auto-restart kalau crash. |
 | **Reverse proxy** | Edit file `/etc/nginx/conf.d/...`, test config, reload Nginx | Tambah rule di UI → langsung aktif, tidak ada file config yang disentuh |
 | **Lihat log app** | SSH ke server, `journalctl -u` atau `tail -f` file log | Buka tab Logs di UI, real-time dari browser |
-| **Environment variables** | Set di systemd unit file atau `.env` yang dikelola manual | Kelola per-proses di UI, tersimpan di DB, tidak bocor antar proses |
+| **Environment variables** | Set di systemd unit file or `.env` yang dikelola manual | Kelola per-proses di UI, tersimpan di DB, tidak bocor antar proses |
 | **Multi-user akses server** | Buat Linux user baru, atur sudo permissions, pasang SSH key | Tambah user di UI, assign role (Admin/Editor/Viewer), selesai |
 | **Kustomisasi behavior panel** | Fork repo, modifikasi kode PHP/Go, rebuild | Tulis atau edit file `.zl` (ZenoLang), tidak perlu recompile |
 
