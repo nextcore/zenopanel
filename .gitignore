@@ -45,4 +45,3 @@ ref/
 /zeno-rs/target/
 /zeno-rs/Cargo.lock
 target/
-dist/
