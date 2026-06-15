@@ -126,6 +126,17 @@ http.post: '/logout' {
 }
 
 # ============================================================
+# GET /logout — Hapus session cookies dan redirect ke login
+# ============================================================
+http.get: '/logout' {
+    system.entrance_path: { as: $login_path }
+    http.clear_cookie: 'zeno_token' { path: '/' }
+    http.clear_cookie: 'zeno_role' { path: '/' }
+    http.redirect: $login_path
+}
+
+
+# ============================================================
 # GET /api/auth/me — Ambil data user yang sedang login
 # ============================================================
 http.get: '/api/auth/me' {
