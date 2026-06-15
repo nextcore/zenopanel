@@ -11,6 +11,31 @@ use rcgen::generate_simple_self_signed;
 use once_cell::sync::Lazy;
 use crate::proxyman::ProxyManager;
 
+fn log_ssl(msg: String) {
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open("./certs/ssl.log")
+    {
+        use std::io::Write;
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        let _ = writeln!(file, "[{}] {}", timestamp, msg);
+    }
+}
+
+macro_rules! ssl_println {
+    ($($arg:tt)*) => {{
+        log_ssl(format!($($arg)*));
+    }};
+}
+
+macro_rules! ssl_eprintln {
+    ($($arg:tt)*) => {{
+        log_ssl(format!($($arg)*));
+    }};
+}
+
 // Global map to store active ACME challenge tokens and their responses
 pub static ACME_CHALLENGES: Lazy<Arc<std::sync::Mutex<HashMap<String, String>>>> = 
     Lazy::new(|| Arc::new(std::sync::Mutex::new(HashMap::new())));
@@ -50,7 +75,7 @@ impl ZenoCertResolver {
     pub async fn clear_cache(&self, domain: &str) {
         let mut cache = self.cert_cache.write().await;
         cache.remove(domain);
-        println!("[SSL] Cleared in-memory cert cache for domain: {}", domain);
+        ssl_println!("[SSL] Cleared in-memory cert cache for domain: {}", domain);
     }
 
     // Load cert & key from disk cache, or generate self-signed on demand
@@ -94,7 +119,7 @@ impl ZenoCertResolver {
         let rule = rule.unwrap();
 
         // 4. Generate self-signed certificate on demand (instant fallback)
-        println!("[SSL] Generating self-signed certificate for domain: {}", domain);
+        ssl_println!("[SSL] Generating self-signed certificate for domain: {}", domain);
         let subject_alt_names = vec![domain.to_string()];
         
         match generate_simple_self_signed(subject_alt_names) {
@@ -132,7 +157,7 @@ impl ZenoCertResolver {
                 }
             }
             Err(e) => {
-                eprintln!("[SSL] Failed to generate self-signed cert for {}: {}", domain, e);
+                ssl_eprintln!("[SSL] Failed to generate self-signed cert for {}: {}", domain, e);
             }
         }
 
@@ -200,22 +225,22 @@ async fn trigger_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: String, do
     if is_local {
         // Local domains immediately finalize with self-signed certificate (active_self_signed)
         let _ = proxy_manager.update_ssl_status(&rule_id, "active_self_signed").await;
-        println!("[SSL] Domain '{}' is local, finalized with self-signed certificate.", domain);
+        ssl_println!("[SSL] Domain '{}' is local, finalized with self-signed certificate.", domain);
         return;
     }
 
     // For public domains, run real ACME Let's Encrypt HTTP-01 challenge
-    println!("[SSL] Triggering Let's Encrypt HTTP-01 challenge for domain: {}", domain);
+    ssl_println!("[SSL] Triggering Let's Encrypt HTTP-01 challenge for domain: {}", domain);
     let _ = proxy_manager.update_ssl_status(&rule_id, "pending").await;
 
     let pm = proxy_manager.clone();
     tokio::spawn(async move {
         match perform_acme_flow(pm.clone(), &rule_id, &domain).await {
             Ok(_) => {
-                println!("[SSL] ACME certificate successfully provisioned for domain: {}", domain);
+                ssl_println!("[SSL] ACME certificate successfully provisioned for domain: {}", domain);
             }
             Err(e) => {
-                eprintln!("[SSL] ACME certificate provisioning failed for domain {}: {}", domain, e);
+                ssl_eprintln!("[SSL] ACME certificate provisioning failed for domain {}: {}", domain, e);
                 let _ = pm.update_ssl_status(&rule_id, "failed").await;
             }
         }
@@ -236,7 +261,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
         LetsEncrypt::Staging.url().to_string()
     };
 
-    println!("[SSL ACME] Using directory URL: {}", directory_url);
+    ssl_println!("[SSL ACME] Using directory URL: {}", directory_url);
 
     // 2. Load or register ACME account using AccountCredentials
     let account_credentials_path = "./certs/acme_account.json";
@@ -245,7 +270,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
     let contact_uri = format!("mailto:{}", contact_email);
 
     let account = if std::path::Path::new(account_credentials_path).exists() {
-        println!("[SSL ACME] Loading existing ACME account credentials from {}", account_credentials_path);
+        ssl_println!("[SSL ACME] Loading existing ACME account credentials from {}", account_credentials_path);
         let bytes = std::fs::read(account_credentials_path)
             .map_err(|e| format!("Failed to read ACME credentials file: {}", e))?;
         let creds: AccountCredentials = serde_json::from_slice(&bytes)
@@ -256,7 +281,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
             .await
             .map_err(|e| format!("Failed to restore ACME account: {}", e))?
     } else {
-        println!("[SSL ACME] Registering new ACME account for: {}", contact_email);
+        ssl_println!("[SSL ACME] Registering new ACME account for: {}", contact_email);
         let (acc, creds) = Account::builder()
             .map_err(|e| format!("Failed to create Account builder: {}", e))?
             .create(
@@ -283,7 +308,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
     };
 
     // 3. Create new order
-    println!("[SSL ACME] Creating ACME order for: {}", domain);
+    ssl_println!("[SSL ACME] Creating ACME order for: {}", domain);
     let idents = [Identifier::Dns(domain.to_string())];
     let new_order = NewOrder::new(&idents);
     let mut order = account.new_order(&new_order)
@@ -308,7 +333,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
 
             challenge_token = Some(token);
 
-            println!("[SSL ACME] Fulfilling challenge for {}. Serving token: {} at /.well-known/acme-challenge/{}", 
+            ssl_println!("[SSL ACME] Fulfilling challenge for {}. Serving token: {} at /.well-known/acme-challenge/{}", 
                      domain, challenge_handle.token, challenge_handle.token);
 
             // Signal readiness to ACME server
@@ -371,7 +396,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
     }
 
     // 6. Generate key pair and CSR for the domain
-    println!("[SSL ACME] Generating key pair and CSR for: {}", domain);
+    ssl_println!("[SSL ACME] Generating key pair and CSR for: {}", domain);
     let mut params = rcgen::CertificateParams::new(vec![domain.to_string()])
         .map_err(|e| format!("CertificateParams creation failed: {}", e))?;
     params.distinguished_name = rcgen::DistinguishedName::new();
@@ -385,7 +410,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
     
     let csr_der = csr.der();
 
-    println!("[SSL ACME] Finalizing ACME order...");
+    ssl_println!("[SSL ACME] Finalizing ACME order...");
     order.finalize_csr(&csr_der)
         .await
         .map_err(|e| format!("Order finalization failed: {}", e))?;
@@ -401,7 +426,7 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
                 break;
             }
             Ok(None) => {
-                println!("[SSL ACME] Certificate order is still processing...");
+                ssl_println!("[SSL ACME] Certificate order is still processing...");
             }
             Err(e) => {
                 return Err(format!("Failed to retrieve certificate: {}", e));
@@ -427,14 +452,14 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
 
     // 9. Update SSL status in database to active_letsencrypt
     let _ = proxy_manager.update_ssl_status(rule_id, "active_letsencrypt").await;
-    println!("[SSL ACME] SSL configuration successfully completed for: {}", domain);
+    ssl_println!("[SSL ACME] SSL configuration successfully completed for: {}", domain);
 
     Ok(())
 }
 
 // Check and renew all active SSL certificates if close to expiration (older than 60 days)
 pub async fn check_and_renew_certs(proxy_manager: Arc<ProxyManager>, cert_resolver: Arc<ZenoCertResolver>) {
-    println!("[SSL Renewal] Checking SSL certificates for active proxy rules...");
+    ssl_println!("[SSL Renewal] Checking SSL certificates for active proxy rules...");
     let rules = proxy_manager.list_rules().await;
     
     for rule in rules {
@@ -471,22 +496,22 @@ pub async fn check_and_renew_certs(proxy_manager: Arc<ProxyManager>, cert_resolv
                                 let validity = x509.validity();
                                 if let Some(duration_until_expiry) = validity.time_to_expiration() {
                                     let secs = duration_until_expiry.whole_seconds();
-                                    println!("[SSL Renewal] Cert for '{}' has {} seconds (approx {:.1} days) remaining.", domain, secs, secs as f64 / 86400.0);
+                                    ssl_println!("[SSL Renewal] Cert for '{}' has {} seconds (approx {:.1} days) remaining.", domain, secs, secs as f64 / 86400.0);
                                     secs < 2592000
                                 } else {
-                                    println!("[SSL Renewal] Could not determine expiration duration for '{}'. Forcing renewal.", domain);
+                                    ssl_println!("[SSL Renewal] Could not determine expiration duration for '{}'. Forcing renewal.", domain);
                                     true
                                 }
                             }
                             Err(e) => {
-                                println!("[SSL Renewal] Failed to parse X509 certificate for '{}': {:?}. Forcing renewal.", domain, e);
+                                ssl_println!("[SSL Renewal] Failed to parse X509 certificate for '{}': {:?}. Forcing renewal.", domain, e);
                                 true
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    println!("[SSL Renewal] Failed to load certificate file for '{}': {}. Forcing renewal.", domain, e);
+                    ssl_println!("[SSL Renewal] Failed to load certificate file for '{}': {}. Forcing renewal.", domain, e);
                     true
                 }
             }
@@ -496,7 +521,7 @@ pub async fn check_and_renew_certs(proxy_manager: Arc<ProxyManager>, cert_resolv
         let is_fallback_or_failed = rule.ssl_status == "failed" || rule.ssl_status == "active_self_signed";
         
         if needs_renewal || is_fallback_or_failed {
-            println!("[SSL Renewal] Cert for '{}' needs renewal (age check: {}, status: {}). Triggering ACME...", 
+            ssl_println!("[SSL Renewal] Cert for '{}' needs renewal (age check: {}, status: {}). Triggering ACME...", 
                      domain, needs_renewal, rule.ssl_status);
                      
             // Clear the in-memory cache for this domain
@@ -567,19 +592,19 @@ pub async fn run_tls_server(cert_resolver: Arc<ZenoCertResolver>, app: axum::Rou
                             .serve_connection(io, service)
                             .await 
                         {
-                            eprintln!("[SSL Server] HTTP/2 connection error: {:?}", err);
+                            ssl_eprintln!("[SSL Server] HTTP/2 connection error: {:?}", err);
                         }
                     } else {
                         if let Err(err) = hyper::server::conn::http1::Builder::new()
                             .serve_connection(io, service)
                             .await 
                         {
-                            eprintln!("[SSL Server] HTTP/1 connection error: {:?}", err);
+                            ssl_eprintln!("[SSL Server] HTTP/1 connection error: {:?}", err);
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("[SSL Server] TLS handshake failed: {}", e);
+                    ssl_eprintln!("[SSL Server] TLS handshake failed: {}", e);
                 }
             }
         });
