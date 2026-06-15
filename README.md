@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust&style=flat-square)](https://www.rust-lang.org)
 [![ZenoLang](https://img.shields.io/badge/engine-ZenoLang-purple?style=flat-square)](https://github.com/nextcore/zeno-rs)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache-blue?style=flat-square)](./LICENSE)
 [![RAM Usage](https://img.shields.io/badge/RAM-~15MB-brightgreen?style=flat-square)](#)
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 
@@ -111,4 +111,4 @@ Server Anda kini aktif! Buka `http://localhost:3000/login` (atau sub-path login 
 
 ## 🤝 Kontribusi & Lisensi
 
-ZenoPanel didistribusikan di bawah lisensi [MIT](./LICENSE). Kami sangat menyambut kontribusi kode, pelaporan bug, dan saran fitur melalui Pull Request dan Issues di GitHub.
+ZenoPanel didistribusikan di bawah lisensi [Apache 2.0](./LICENSE). Kami sangat menyambut kontribusi kode, pelaporan bug, dan saran fitur melalui Pull Request dan Issues di GitHub.
