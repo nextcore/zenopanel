@@ -77,21 +77,27 @@ fn generate_service_content(init_sys: &str) -> String {
         .unwrap_or_else(|_| "/home/max/Documents/PROJ/github/zenopanel".to_string());
 
     if init_sys == "systemd" {
+        let app_user = std::env::var("APP_USER").unwrap_or_else(|_| "root".to_string());
+        let cap_lines = if app_user != "root" {
+            "AmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\n"
+        } else {
+            ""
+        };
         format!(
             "[Unit]\n\
              Description=ZenoPanel Control Panel Service\n\
              After=network.target\n\n\
              [Service]\n\
              Type=simple\n\
-             User=root\n\
-             WorkingDirectory={}\n\
+             User={}\n\
+             {}WorkingDirectory={}\n\
              ExecStart={}\n\
              Restart=always\n\
              RestartSec=5\n\
              Environment=PATH=/usr/bin:/usr/local/bin\n\n\
              [Install]\n\
              WantedBy=multi-user.target\n",
-            working_dir, exe_path
+            app_user, cap_lines, working_dir, exe_path
         )
     } else {
         format!(
