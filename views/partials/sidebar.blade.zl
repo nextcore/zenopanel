@@ -34,6 +34,10 @@
             <i class="fa-solid fa-users-gear"></i>
             <span>Users</span>
         </div>
+        <div class="nav-item" data-tab="security" id="nav-security" style="display: none;">
+            <i class="fa-solid fa-shield-halved"></i>
+            <span>Security</span>
+        </div>
         <div class="nav-item" data-tab="settings" id="nav-settings" style="display: none;">
             <i class="fa-solid fa-sliders"></i>
             <span>Settings</span>

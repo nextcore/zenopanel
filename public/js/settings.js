@@ -16,7 +16,6 @@ export async function loadSettings() {
             }
         }
         await loadServiceStatus();
-        await loadSecuritySettings();
     } catch (err) {
         showToast('error', 'Error loading settings: ' + err.message);
     }

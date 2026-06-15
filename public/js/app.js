@@ -279,6 +279,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (userRole === 'admin') {
         const navUsers = document.getElementById('nav-users');
         if (navUsers) navUsers.style.display = 'flex';
+        const navSecurity = document.getElementById('nav-security');
+        if (navSecurity) navSecurity.style.display = 'flex';
         const navSettings = document.getElementById('nav-settings');
         if (navSettings) navSettings.style.display = 'flex';
     } else {
@@ -290,6 +292,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
         const usersTab = document.querySelector('.nav-item[data-tab="users"]');
         if (usersTab) usersTab.style.display = 'none';
+
+        const securityTab = document.querySelector('.nav-item[data-tab="security"]');
+        if (securityTab) securityTab.style.display = 'none';
     }
 
     if (userRole === 'viewer') {

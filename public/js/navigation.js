@@ -6,7 +6,7 @@ import { focusTerminalInput } from './terminal.js';
 import { loadManagedProcesses, startManagedPolling, stopManagedPolling } from './managed.js';
 import { loadProxyRules } from './proxy.js';
 import { loadUsers } from './users.js';
-import { loadSettings } from './settings.js';
+import { loadSettings, loadSecuritySettings } from './settings.js';
 
 // Tab Navigation state
 export let currentTab = 'dashboard';
@@ -69,6 +69,10 @@ export function switchTab(tab) {
 
     if (tab === 'settings') {
         loadSettings();
+    }
+
+    if (tab === 'security') {
+        loadSecuritySettings();
     }
 }
 

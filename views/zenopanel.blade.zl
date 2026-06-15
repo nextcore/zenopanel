@@ -25,6 +25,7 @@
 
         @include('partials/tab_proxy')
         @include('partials/tab_users')
+        @include('partials/tab_security')
         @include('partials/tab_settings')
     </main>
 
