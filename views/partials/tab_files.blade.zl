@@ -65,6 +65,7 @@
                         <th class="sortable" id="th-name" onclick="setSortBy('name')">Name <i class="fa-solid fa-sort sort-icon"></i></th>
                         <th class="sortable" id="th-size" onclick="setSortBy('size')">Size <i class="fa-solid fa-sort sort-icon"></i></th>
                         <th class="sortable" id="th-type" onclick="setSortBy('type')">Type <i class="fa-solid fa-sort sort-icon"></i></th>
+                        <th class="sortable" id="th-mode" onclick="setSortBy('mode')">Permissions <i class="fa-solid fa-sort sort-icon"></i></th>
                         <th class="sortable" id="th-mod" onclick="setSortBy('mod_time')">Modified <i class="fa-solid fa-sort sort-icon"></i></th>
                         <th style="text-align:right;">Action</th>
                     </tr>

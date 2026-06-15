@@ -46,7 +46,12 @@ import {
     saveActiveFile,
     triggerFileUpload,
     handleFileUpload,
-    initFileManager
+    initFileManager,
+    changePermissionsPrompt,
+    closePermissionsModal,
+    submitChangePermissions,
+    updateOctalFromCheckboxes,
+    updateCheckboxesFromOctal
 } from './filemanager.js';
 import { loadDatabaseTables, runSqlQuery, renderDbSelectResult } from './database.js';
 import { terminalHistory, terminalHistoryIndex, focusTerminalInput, handleTerminalCommand, initTerminal } from './terminal.js';
@@ -193,6 +198,11 @@ const functionsToBind = {
     saveActiveFile,
     triggerFileUpload,
     handleFileUpload,
+    changePermissionsPrompt,
+    closePermissionsModal,
+    submitChangePermissions,
+    updateOctalFromCheckboxes,
+    updateCheckboxesFromOctal,
     loadDatabaseTables,
     runSqlQuery,
     renderDbSelectResult,
@@ -290,6 +300,7 @@ window.addEventListener('DOMContentLoaded', () => {
             button[onclick*="openEdit"],
             button[onclick*="edit"],
             #tab-files button[onclick*="delete"],
+            #tab-files button[onclick*="changePermissionsPrompt"],
             #tab-managed button[onclick*="startProcess"],
             #tab-managed button[onclick*="stopProcess"],
             #tab-managed button[onclick*="restartProcess"],

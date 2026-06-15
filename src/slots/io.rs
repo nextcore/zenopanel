@@ -464,4 +464,103 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "io.file.chmod",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut path = String::new();
+            let mut mode_str = String::new();
+            let mut mode_int: Option<i64> = None;
+            let mut recursive = false;
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "path" {
+                    path = val.to_string_coerce();
+                } else if child.name == "mode" {
+                    match val {
+                        Value::Int(i) => mode_int = Some(i),
+                        Value::String(s) => mode_str = s,
+                        _ => mode_str = val.to_string_coerce(),
+                    }
+                } else if child.name == "recursive" {
+                    recursive = val.to_bool();
+                }
+            }
+
+            if path.is_empty() {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "io.file.chmod: path is required".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.chmod".to_string()),
+                });
+            }
+
+            let mode = if let Some(mi) = mode_int {
+                u32::from_str_radix(&mi.to_string(), 8).unwrap_or(mi as u32)
+            } else {
+                let clean_mode = mode_str.trim().trim_start_matches("0o");
+                u32::from_str_radix(clean_mode, 8).map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.chmod: invalid mode '{}': {}", mode_str, e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.chmod".to_string()),
+                    }
+                })?
+            };
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let permissions = std::fs::Permissions::from_mode(mode);
+                let path_obj = std::path::Path::new(&path);
+
+                if recursive && path_obj.is_dir() {
+                    fn set_perm_recursive(dir: &std::path::Path, perm: &std::fs::Permissions) -> std::io::Result<()> {
+                        std::fs::set_permissions(dir, perm.clone())?;
+                        for entry in std::fs::read_dir(dir)? {
+                            let entry = entry?;
+                            let entry_path = entry.path();
+                            if entry_path.is_dir() {
+                                set_perm_recursive(&entry_path, perm)?;
+                            } else {
+                                std::fs::set_permissions(&entry_path, perm.clone())?;
+                            }
+                        }
+                        Ok(())
+                    }
+                    set_perm_recursive(path_obj, &permissions).map_err(|e| {
+                        Diagnostic {
+                            r#type: "error".to_string(),
+                            message: format!("io.file.chmod recursive failed: {}", e),
+                            filename: node.filename.clone(),
+                            line: node.line,
+                            col: node.col,
+                            slot: Some("io.file.chmod".to_string()),
+                        }
+                    })?;
+                } else {
+                    std::fs::set_permissions(&path, permissions).map_err(|e| {
+                        Diagnostic {
+                            r#type: "error".to_string(),
+                            message: format!("io.file.chmod failed: {}", e),
+                            filename: node.filename.clone(),
+                            line: node.line,
+                            col: node.col,
+                            slot: Some("io.file.chmod".to_string()),
+                        }
+                    })?;
+                }
+            }
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }

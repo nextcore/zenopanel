@@ -121,3 +121,21 @@ http.post: '/api/files/upload' {
     }
 }
 
+# 10e. File Manager - Change Permissions API
+http.post: '/api/files/chmod' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $file_path { val: $body.path }
+    var: $mode { val: $body.mode }
+    coalesce: $body.recursive {
+        default: false
+        as: $recursive
+    }
+    io.file.chmod: {
+        path: $file_path
+        mode: $mode
+        recursive: $recursive
+    }
+    http.ok: { message: "Permissions berhasil diperbarui" }
+}
+

@@ -21,8 +21,8 @@ export function setSortBy(key) {
 }
 
 export function updateSortHeaders() {
-    const cols = { name: 'th-name', size: 'th-size', type: 'th-type', mod_time: 'th-mod' };
-    const icons = { name: 'fa-sort', size: 'fa-sort', type: 'fa-sort', mod_time: 'fa-sort' };
+    const cols = { name: 'th-name', size: 'th-size', type: 'th-type', mode: 'th-mode', mod_time: 'th-mod' };
+    const icons = { name: 'fa-sort', size: 'fa-sort', type: 'fa-sort', mode: 'fa-sort', mod_time: 'fa-sort' };
     Object.entries(cols).forEach(([k, id]) => {
         const th = document.getElementById(id);
         if (!th) return;
@@ -48,6 +48,7 @@ export function sortData(data) {
         if (fmSortKey === 'name')     { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
         else if (fmSortKey === 'size') { va = a.size; vb = b.size; }
         else if (fmSortKey === 'type') { va = a.is_dir ? 'dir' : a.name.split('.').pop().toLowerCase(); vb = b.is_dir ? 'dir' : b.name.split('.').pop().toLowerCase(); }
+        else if (fmSortKey === 'mode') { va = a.mode || ''; vb = b.mode || ''; }
         else if (fmSortKey === 'mod_time') { va = a.mod_time; vb = b.mod_time; }
         else { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); }
 
@@ -81,6 +82,7 @@ export function renderFileRows(data) {
                          currentFilePath + '/' + item.name;
         const isZip = item.name.endsWith('.zip') || item.name.endsWith('.tar.gz') || item.name.endsWith('.7z');
         const typeText = item.is_dir ? 'Directory' : (item.name.includes('.') ? item.name.split('.').pop().toUpperCase() : 'File');
+        const permText = formatPermissions(item.mode);
 
         tr.innerHTML = `
             <td style="width:36px;" onclick="event.stopPropagation()">
@@ -92,11 +94,13 @@ export function renderFileRows(data) {
             </td>
             <td>${sizeText}</td>
             <td>${typeText}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem;">${permText}</td>
             <td>${new Date(item.mod_time).toLocaleString()}</td>
             <td style="text-align:right;">
                 ${!item.is_dir ? `<button class="btn-icon" style="color:var(--accent-primary)" onclick="editFile('${itemPath}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
                 <button class="btn-icon" style="color:var(--success)" onclick="archiveFile('${itemPath}')" title="Compress to ZIP"><i class="fa-solid fa-file-zipper"></i></button>
                 ${isZip ? `<button class="btn-icon" style="color:var(--warning)" onclick="extractFile('${itemPath}')" title="Extract Archive"><i class="fa-solid fa-folder-open"></i></button>` : ''}
+                <button class="btn-icon" style="color:var(--text-muted)" onclick="changePermissionsPrompt('${itemPath}', '${item.mode}')" title="Ubah Permission"><i class="fa-solid fa-shield-halved"></i></button>
                 <button class="btn-icon" style="color:var(--danger)" onclick="deleteFile('${itemPath}')" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
             </td>
         `;
@@ -535,4 +539,162 @@ export function initFileManager() {
             handleFileUpload(e);
         });
     }
+}
+
+// ---- File Permission Helpers ----
+
+export function formatPermissions(modeStr) {
+    if (!modeStr) return '-';
+    const mode = parseInt(modeStr, 8);
+    if (isNaN(mode)) return modeStr;
+
+    // Get last 3 octal digits
+    const octal = (mode & 0o777).toString(8).padStart(3, '0');
+
+    let symbolic = '';
+    // Owner
+    symbolic += (mode & 0o400) ? 'r' : '-';
+    symbolic += (mode & 0o200) ? 'w' : '-';
+    symbolic += (mode & 0o100) ? 'x' : '-';
+
+    // Group
+    symbolic += (mode & 0o040) ? 'r' : '-';
+    symbolic += (mode & 0o020) ? 'w' : '-';
+    symbolic += (mode & 0o010) ? 'x' : '-';
+
+    // Others
+    symbolic += (mode & 0o004) ? 'r' : '-';
+    symbolic += (mode & 0o002) ? 'w' : '-';
+    symbolic += (mode & 0o001) ? 'x' : '-';
+
+    return `${octal} (${symbolic})`;
+}
+
+export function changePermissionsPrompt(path, currentMode) {
+    const modal = document.getElementById('permissions-modal');
+    if (!modal) return;
+
+    document.getElementById('perm-path-val').value = path;
+    document.getElementById('perm-path-display').value = path;
+
+    // Show/hide recursive checkbox depending on whether it's a directory
+    const recursiveContainer = document.getElementById('perm-recursive-container');
+    const isDir = fmCurrentData.find(item => {
+        const itemPath = currentFilePath === '.' ? item.name :
+                         currentFilePath === '/' ? '/' + item.name :
+                         currentFilePath + '/' + item.name;
+        return itemPath === path;
+    })?.is_dir || false;
+
+    if (recursiveContainer) {
+        recursiveContainer.style.display = isDir ? 'block' : 'none';
+    }
+
+    const recursiveCb = document.getElementById('perm-recursive');
+    if (recursiveCb) recursiveCb.checked = false;
+
+    let initialMode = '644';
+    if (currentMode) {
+        const mode = parseInt(currentMode, 8);
+        if (!isNaN(mode)) {
+            initialMode = (mode & 0o777).toString(8).padStart(3, '0');
+        }
+    }
+
+    const octalInput = document.getElementById('perm-octal-val');
+    if (octalInput) {
+        octalInput.value = initialMode;
+    }
+    updateCheckboxesFromOctal();
+
+    modal.classList.add('active');
+}
+
+export function closePermissionsModal() {
+    const modal = document.getElementById('permissions-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+export function updateOctalFromCheckboxes() {
+    let owner = 0;
+    if (document.getElementById('perm-owner-r').checked) owner += 4;
+    if (document.getElementById('perm-owner-w').checked) owner += 2;
+    if (document.getElementById('perm-owner-x').checked) owner += 1;
+
+    let group = 0;
+    if (document.getElementById('perm-group-r').checked) group += 4;
+    if (document.getElementById('perm-group-w').checked) group += 2;
+    if (document.getElementById('perm-group-x').checked) group += 1;
+
+    let others = 0;
+    if (document.getElementById('perm-others-r').checked) others += 4;
+    if (document.getElementById('perm-others-w').checked) others += 2;
+    if (document.getElementById('perm-others-x').checked) others += 1;
+
+    const octalInput = document.getElementById('perm-octal-val');
+    if (octalInput) {
+        octalInput.value = `${owner}${group}${others}`;
+    }
+}
+
+export function updateCheckboxesFromOctal() {
+    const octalInput = document.getElementById('perm-octal-val');
+    if (!octalInput) return;
+    let val = octalInput.value.trim();
+    if (val.length > 4) {
+        val = val.substring(val.length - 4);
+    }
+    val = val.replace(/[^0-7]/g, '');
+    octalInput.value = val;
+
+    if (val.length === 3 || val.length === 4) {
+        const last3 = val.substring(val.length - 3);
+        const owner = parseInt(last3[0], 10);
+        const group = parseInt(last3[1], 10);
+        const others = parseInt(last3[2], 10);
+
+        document.getElementById('perm-owner-r').checked = !!(owner & 4);
+        document.getElementById('perm-owner-w').checked = !!(owner & 2);
+        document.getElementById('perm-owner-x').checked = !!(owner & 1);
+
+        document.getElementById('perm-group-r').checked = !!(group & 4);
+        document.getElementById('perm-group-w').checked = !!(group & 2);
+        document.getElementById('perm-group-x').checked = !!(group & 1);
+
+        document.getElementById('perm-others-r').checked = !!(others & 4);
+        document.getElementById('perm-others-w').checked = !!(others & 2);
+        document.getElementById('perm-others-x').checked = !!(others & 1);
+    }
+}
+
+export function submitChangePermissions() {
+    const path = document.getElementById('perm-path-val').value;
+    const mode = document.getElementById('perm-octal-val').value;
+    const recursiveCb = document.getElementById('perm-recursive');
+    const recursive = recursiveCb ? recursiveCb.checked : false;
+
+    if (!mode || mode.length < 3) {
+        showToast('error', 'Masukkan notasi oktal yang valid (contoh: 755)');
+        return;
+    }
+
+    fetch('/api/files/chmod', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCSRFToken()
+        },
+        body: JSON.stringify({ path, mode, recursive })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast('success', res.message || 'Permission berhasil diperbarui');
+            closePermissionsModal();
+            loadFilesList(currentFilePath);
+        } else {
+            showToast('error', res.message || 'Gagal mengubah permission');
+        }
+    })
+    .catch(err => showToast('error', 'Terjadi kesalahan: ' + err.toString()));
 }
