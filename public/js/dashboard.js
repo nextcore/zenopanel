@@ -9,7 +9,9 @@ let diskRing = null;
 // Stats history trackers
 export let sysStatsInterval = null;
 export let performanceChart = null;
+export let trafficChart = null;
 let chartDataPoints = { labels: [], cpu: [], ram: [] };
+let trafficDataPoints = { labels: [], rps: [], latency: [] };
 let lastRxBytes = 0;
 let lastTxBytes = 0;
 let lastNetCheckTime = 0;
@@ -90,6 +92,91 @@ export function initPerformanceChart() {
                     max: 100,
                     grid: { color: 'rgba(255,255,255,0.03)' },
                     ticks: { color: '#64748b', font: { size: 10 } }
+                }
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#f1f5f9', font: { size: 11 } }
+                }
+            }
+        }
+    });
+}
+
+export function initTrafficChart() {
+    const chartEl = document.getElementById('trafficChart');
+    if (!chartEl) return;
+    const ctx = chartEl.getContext('2d');
+    
+    const rpsGrad = ctx.createLinearGradient(0, 0, 0, 300);
+    rpsGrad.addColorStop(0, 'rgba(168, 85, 247, 0.4)');
+    rpsGrad.addColorStop(1, 'rgba(168, 85, 247, 0.0)');
+
+    const latGrad = ctx.createLinearGradient(0, 0, 0, 300);
+    latGrad.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+    latGrad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js is not loaded');
+        return;
+    }
+
+    trafficChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: trafficDataPoints.labels,
+            datasets: [
+                {
+                    label: 'RPS (Reqs/Sec)',
+                    data: trafficDataPoints.rps,
+                    borderColor: '#a855f7',
+                    borderWidth: 2,
+                    backgroundColor: rpsGrad,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Latency (ms)',
+                    data: trafficDataPoints.latency,
+                    borderColor: '#10b981',
+                    borderWidth: 2,
+                    backgroundColor: latGrad,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#64748b', font: { size: 10 } }
+                },
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    min: 0,
+                    grid: { color: 'rgba(255,255,255,0.03)' },
+                    ticks: { color: '#a855f7', font: { size: 10 } },
+                    title: { display: true, text: 'RPS', color: '#a855f7', font: { size: 10, weight: 'bold' } }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    min: 0,
+                    grid: { drawOnChartArea: false },
+                    ticks: { color: '#10b981', font: { size: 10 } },
+                    title: { display: true, text: 'Latency (ms)', color: '#10b981', font: { size: 10, weight: 'bold' } }
                 }
             },
             plugins: {
@@ -264,13 +351,71 @@ export function killProcess(pid) {
     }
 }
 
+export function loadTrafficStats() {
+    fetch('/api/settings/analytics')
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.history) {
+                const history = res.history;
+                
+                trafficDataPoints.labels = [];
+                trafficDataPoints.rps = [];
+                trafficDataPoints.latency = [];
+                
+                const itemsToShow = history.slice(-15);
+                
+                itemsToShow.forEach(item => {
+                    const time = new Date(item.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    trafficDataPoints.labels.push(time);
+                    
+                    const rpsVal = item.requests / 2.0;
+                    trafficDataPoints.rps.push(rpsVal);
+                    
+                    const avgLat = item.requests > 0 ? (item.latency_ms / item.requests) : 0;
+                    trafficDataPoints.latency.push(avgLat);
+                });
+
+                if (history.length > 0) {
+                    const latest = history[history.length - 1];
+                    const currentRps = latest.requests / 2.0;
+                    const avgLatency = latest.requests > 0 ? (latest.latency_ms / latest.requests) : 0;
+                    
+                    const rxSpeedKB = (latest.bytes_received / 1024) / 2.0;
+                    const txSpeedKB = (latest.bytes_sent / 1024) / 2.0;
+
+                    const rpsEl = document.getElementById('traffic-rps');
+                    if (rpsEl) rpsEl.innerText = currentRps.toFixed(1) + ' reqs/s';
+                    
+                    const latEl = document.getElementById('traffic-latency');
+                    if (latEl) latEl.innerText = Math.round(avgLatency) + ' ms';
+
+                    const inEl = document.getElementById('traffic-in');
+                    if (inEl) inEl.innerText = formatSpeed(rxSpeedKB);
+
+                    const outEl = document.getElementById('traffic-out');
+                    if (outEl) outEl.innerText = formatSpeed(txSpeedKB);
+                }
+
+                if (trafficChart) {
+                    trafficChart.data.labels = trafficDataPoints.labels;
+                    trafficChart.data.datasets[0].data = trafficDataPoints.rps;
+                    trafficChart.data.datasets[1].data = trafficDataPoints.latency;
+                    trafficChart.update();
+                }
+            }
+        })
+        .catch(err => console.error("Error loading traffic stats:", err));
+}
+
 export function startStatsPolling() {
     if (!sysStatsInterval) {
         loadSystemStats();
         loadProcesses();
+        loadTrafficStats();
         sysStatsInterval = setInterval(() => {
             loadSystemStats();
             loadProcesses();
+            loadTrafficStats();
         }, 3000);
     }
 }

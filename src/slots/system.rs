@@ -552,4 +552,121 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "system.get_security_settings",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "sec_settings".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.get_security_settings".to_string()) })?;
+
+            let mut map = HashMap::new();
+            map.insert("waf_enabled".to_string(), Value::Bool(app_state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed)));
+            map.insert("rate_limit_enabled".to_string(), Value::Bool(app_state.rate_limiter.is_enabled()));
+            map.insert("rate_limit_max".to_string(), Value::Int(app_state.rate_limiter.max_requests() as i64));
+            map.insert("rate_limit_window".to_string(), Value::Int(app_state.rate_limiter.window_secs() as i64));
+
+            scope.set(&target, Value::Map(map));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "system.update_security_settings",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut target = "success".to_string();
+            let mut waf_enabled = true;
+            let mut rate_limit_enabled = true;
+            let mut rate_limit_max = 100;
+            let mut rate_limit_window = 60;
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "waf_enabled" {
+                    waf_enabled = val.to_bool();
+                } else if child.name == "rate_limit_enabled" {
+                    rate_limit_enabled = val.to_bool();
+                } else if child.name == "rate_limit_max" {
+                    rate_limit_max = val.to_int() as usize;
+                } else if child.name == "rate_limit_window" {
+                    rate_limit_window = val.to_int() as u64;
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.update_security_settings".to_string()) })?;
+
+            app_state.waf_enabled.store(waf_enabled, std::sync::atomic::Ordering::Relaxed);
+            app_state.rate_limiter.update(rate_limit_enabled, rate_limit_max, rate_limit_window);
+
+            let db_manager = app_state.db_manager.clone();
+            tokio::spawn(async move {
+                if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(if waf_enabled { "true" } else { "false" })
+                        .execute(&pool)
+                        .await;
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(if rate_limit_enabled { "true" } else { "false" })
+                        .execute(&pool)
+                        .await;
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_max', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(rate_limit_max.to_string())
+                        .execute(&pool)
+                        .await;
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_window', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(rate_limit_window.to_string())
+                        .execute(&pool)
+                        .await;
+                }
+            });
+
+            scope.set(&target, Value::Bool(true));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "system.get_traffic_history",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "traffic_history".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.get_traffic_history".to_string()) })?;
+
+            let history = app_state.traffic_stats.get_history();
+            let mut zeno_list = Vec::new();
+            for item in history {
+                let mut map = HashMap::new();
+                map.insert("timestamp".to_string(), Value::Int(item.timestamp as i64));
+                map.insert("requests".to_string(), Value::Int(item.requests as i64));
+                map.insert("bytes_sent".to_string(), Value::Int(item.bytes_sent as i64));
+                map.insert("bytes_received".to_string(), Value::Int(item.bytes_received as i64));
+                map.insert("latency_ms".to_string(), Value::Int(item.latency_ms as i64));
+                zeno_list.push(Value::Map(map));
+            }
+
+            scope.set(&target, Value::List(zeno_list));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }

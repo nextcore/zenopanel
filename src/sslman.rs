@@ -315,37 +315,81 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
         .await
         .map_err(|e| format!("ACME Order creation failed: {}", e))?;
 
-    // 4. Retrieve authorizations and find HTTP-01 challenge
+    let is_wildcard = domain.starts_with("*.");
+
+    // 4. Retrieve authorizations and find appropriate challenge
     let mut challenge_token = None;
+    let mut cloudflare_record_id = None;
     let mut authorizations = order.authorizations();
     while let Some(auth_res) = authorizations.next().await {
         let mut auth = auth_res.map_err(|e| format!("Failed to retrieve ACME authorization: {}", e))?;
-        if let Some(mut challenge_handle) = auth.challenge(ChallengeType::Http01) {
-            let token = challenge_handle.token.clone();
-            let key_auth = challenge_handle.key_authorization();
-            let key_auth_str = key_auth.as_str().to_string();
+        
+        if is_wildcard {
+            if let Some(mut challenge_handle) = auth.challenge(ChallengeType::Dns01) {
+                let token = challenge_handle.token.clone();
+                let key_auth = challenge_handle.key_authorization();
+                let key_auth_str = key_auth.as_str().to_string();
 
-            // Insert into the global challenges map
-            {
-                let mut challenges = ACME_CHALLENGES.lock().unwrap();
-                challenges.insert(token.clone(), key_auth_str);
+                // Generate key auth digest for DNS TXT record: base64url(sha256(key_auth))
+                use sha2::{Sha256, Digest};
+                use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+                let mut hasher = Sha256::new();
+                hasher.update(key_auth_str.as_bytes());
+                let hash = hasher.finalize();
+                let txt_value = URL_SAFE_NO_PAD.encode(hash);
+
+                let dns_record_name = format!("_acme-challenge.{}", domain.trim_start_matches("*."));
+                ssl_println!("[SSL ACME] Wildcard domain detected. Fulfilling DNS-01 challenge for {}. Adding TXT record: {}", domain, dns_record_name);
+
+                let cf_token = std::env::var("CLOUDFLARE_API_TOKEN").unwrap_or_default();
+                let cf_zone_id = std::env::var("CLOUDFLARE_ZONE_ID").unwrap_or_default();
+                
+                let client = reqwest::Client::new();
+                let record_id = add_cloudflare_txt_record(&client, &cf_token, &cf_zone_id, &dns_record_name, &txt_value)
+                    .await
+                    .map_err(|e| format!("Cloudflare DNS-01 failed: {}", e))?;
+                
+                cloudflare_record_id = Some(record_id);
+                challenge_token = Some(token);
+
+                // Wait 5 seconds for DNS propagation
+                ssl_println!("[SSL ACME] Waiting 5 seconds for Cloudflare DNS propagation...");
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+                // Signal readiness to ACME server
+                challenge_handle.set_ready()
+                    .await
+                    .map_err(|e| format!("Failed to trigger ACME DNS-01 challenge: {}", e))?;
+                break;
             }
+        } else {
+            if let Some(mut challenge_handle) = auth.challenge(ChallengeType::Http01) {
+                let token = challenge_handle.token.clone();
+                let key_auth = challenge_handle.key_authorization();
+                let key_auth_str = key_auth.as_str().to_string();
 
-            challenge_token = Some(token);
+                // Insert into the global challenges map
+                {
+                    let mut challenges = ACME_CHALLENGES.lock().unwrap();
+                    challenges.insert(token.clone(), key_auth_str);
+                }
 
-            ssl_println!("[SSL ACME] Fulfilling challenge for {}. Serving token: {} at /.well-known/acme-challenge/{}", 
-                     domain, challenge_handle.token, challenge_handle.token);
+                challenge_token = Some(token);
 
-            // Signal readiness to ACME server
-            challenge_handle.set_ready()
-                .await
-                .map_err(|e| format!("Failed to trigger ACME challenge: {}", e))?;
-            break;
+                ssl_println!("[SSL ACME] Fulfilling challenge for {}. Serving token: {} at /.well-known/acme-challenge/{}", 
+                         domain, challenge_handle.token, challenge_handle.token);
+
+                // Signal readiness to ACME server
+                challenge_handle.set_ready()
+                    .await
+                    .map_err(|e| format!("Failed to trigger ACME challenge: {}", e))?;
+                break;
+            }
         }
     }
 
     if challenge_token.is_none() {
-        return Err("No HTTP-01 challenge found in ACME order".to_string());
+        return Err(format!("No appropriate challenge found in ACME order (is_wildcard: {})", is_wildcard));
     }
 
     // 5. Poll challenge status until it's valid or failed
@@ -381,6 +425,13 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
                 let mut challenges = ACME_CHALLENGES.lock().unwrap();
                 challenges.remove(tok);
             }
+            // Clean up Cloudflare TXT record if present
+            if let Some(ref rec_id) = cloudflare_record_id {
+                let cf_token = std::env::var("CLOUDFLARE_API_TOKEN").unwrap_or_default();
+                let cf_zone_id = std::env::var("CLOUDFLARE_ZONE_ID").unwrap_or_default();
+                let client = reqwest::Client::new();
+                delete_cloudflare_txt_record(&client, &cf_token, &cf_zone_id, rec_id).await;
+            }
             return Err("ACME challenge validation failed on server".to_string());
         }
     }
@@ -389,6 +440,13 @@ async fn perform_acme_flow(proxy_manager: Arc<ProxyManager>, rule_id: &str, doma
     if let Some(ref tok) = challenge_token {
         let mut challenges = ACME_CHALLENGES.lock().unwrap();
         challenges.remove(tok);
+    }
+    // Clean up Cloudflare TXT record if present
+    if let Some(ref rec_id) = cloudflare_record_id {
+        let cf_token = std::env::var("CLOUDFLARE_API_TOKEN").unwrap_or_default();
+        let cf_zone_id = std::env::var("CLOUDFLARE_ZONE_ID").unwrap_or_default();
+        let client = reqwest::Client::new();
+        delete_cloudflare_txt_record(&client, &cf_token, &cf_zone_id, rec_id).await;
     }
     
     if !success {
@@ -608,5 +666,145 @@ pub async fn run_tls_server(cert_resolver: Arc<ZenoCertResolver>, app: axum::Rou
                 }
             }
         });
+    }
+}
+
+async fn add_cloudflare_txt_record(
+    client: &reqwest::Client,
+    token: &str,
+    zone_id: &str,
+    name: &str,
+    content: &str,
+) -> Result<String, String> {
+    if token.is_empty() || zone_id.is_empty() {
+        return Err("Cloudflare credentials (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ZONE_ID) are missing".to_string());
+    }
+
+    let api_endpoint = std::env::var("CLOUDFLARE_API_ENDPOINT")
+        .unwrap_or_else(|_| "https://api.cloudflare.com".to_string());
+    let url = format!("{}/client/v4/zones/{}/dns_records", api_endpoint, zone_id);
+    let payload = serde_json::json!({
+        "type": "TXT",
+        "name": name,
+        "content": content,
+        "ttl": 60
+    });
+
+    let resp = client.post(&url)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send request to Cloudflare: {}", e))?;
+
+    if !resp.status().is_success() {
+        let err_text = resp.text().await.unwrap_or_default();
+        return Err(format!("Cloudflare API returned error: {}", err_text));
+    }
+
+    let body: serde_json::Value = resp.json()
+        .await
+        .map_err(|e| format!("Failed to parse Cloudflare response: {}", e))?;
+
+    let record_id = body["result"]["id"].as_str()
+        .ok_or_else(|| format!("Record ID not found in Cloudflare response: {:?}", body))?
+        .to_string();
+
+    ssl_println!("[SSL DNS-01] Successfully added Cloudflare TXT record for {} with ID: {}", name, record_id);
+    Ok(record_id)
+}
+
+async fn delete_cloudflare_txt_record(
+    client: &reqwest::Client,
+    token: &str,
+    zone_id: &str,
+    record_id: &str,
+) {
+    if token.is_empty() || zone_id.is_empty() || record_id.is_empty() {
+        return;
+    }
+
+    let api_endpoint = std::env::var("CLOUDFLARE_API_ENDPOINT")
+        .unwrap_or_else(|_| "https://api.cloudflare.com".to_string());
+    let url = format!("{}/client/v4/zones/{}/dns_records/{}", api_endpoint, zone_id, record_id);
+    let resp = client.delete(&url)
+        .bearer_auth(token)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            ssl_println!("[SSL DNS-01] Successfully deleted Cloudflare TXT record ID: {}", record_id);
+        }
+        Ok(r) => {
+            let err_text = r.text().await.unwrap_or_default();
+            ssl_eprintln!("[SSL DNS-01] Failed to delete Cloudflare TXT record ID {}: {}", record_id, err_text);
+        }
+        Err(e) => {
+            ssl_eprintln!("[SSL DNS-01] Request to delete Cloudflare TXT record ID {} failed: {}", record_id, e);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{routing::{post, delete}, Router, Json};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_cloudflare_dns_api() {
+        let app = Router::new()
+            .route("/client/v4/zones/test-zone/dns_records", post(|Json(payload): Json<serde_json::Value>| async move {
+                assert_eq!(payload["type"], "TXT");
+                assert_eq!(payload["name"], "_acme-challenge.test.com");
+                assert_eq!(payload["content"], "test-digest");
+                Json(json!({
+                    "result": {
+                        "id": "mock-record-123"
+                    }
+                }))
+            }))
+            .route("/client/v4/zones/test-zone/dns_records/mock-record-123", delete(|| async move {
+                Json(json!({
+                    "result": {
+                        "id": "mock-record-123"
+                    }
+                }))
+            }));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        unsafe {
+            std::env::set_var("CLOUDFLARE_API_ENDPOINT", format!("http://{}", addr));
+        }
+
+        let client = reqwest::Client::new();
+        
+        let record_id = add_cloudflare_txt_record(&client, "test-token", "test-zone", "_acme-challenge.test.com", "test-digest")
+            .await
+            .unwrap();
+        assert_eq!(record_id, "mock-record-123");
+
+        delete_cloudflare_txt_record(&client, "test-token", "test-zone", &record_id).await;
+    }
+    
+    #[test]
+    fn test_key_authorization_digest() {
+        use sha2::{Sha256, Digest};
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        
+        let key_auth = "dummy-key-auth-string";
+        let mut hasher = Sha256::new();
+        hasher.update(key_auth.as_bytes());
+        let hash = hasher.finalize();
+        let txt_value = URL_SAFE_NO_PAD.encode(hash);
+        
+        assert_eq!(txt_value, "UbZQt9NCHG_qTUyOM2urdIdEVVzfu2eHh2vBGMiGvPU");
     }
 }

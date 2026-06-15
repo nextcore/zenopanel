@@ -95,7 +95,8 @@ pub(crate) struct AppState {
     pub(crate) entrance_path: Mutex<String>,
     pub(crate) login_limiter: Arc<LoginLimiter>,
     pub(crate) rate_limiter: Arc<crate::waf::RateLimiter>,
-    pub(crate) waf_enabled: bool,
+    pub(crate) waf_enabled: std::sync::atomic::AtomicBool,
+    pub(crate) traffic_stats: Arc<crate::waf::TrafficStatsManager>,
 }
 
 #[tokio::main]
@@ -204,6 +205,19 @@ async fn main() {
     .await
     .expect("Failed to create settings table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS waf_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            target TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create waf_logs table");
+
     // Load custom entrance path if configured in DB
     if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'entrance_path'")
         .fetch_optional(&default_pool)
@@ -220,7 +234,7 @@ async fn main() {
         eprintln!("Failed to load processes from DB: {}", e);
     }
 
-    let proxy_manager = Arc::new(proxyman::ProxyManager::new(default_pool).await);
+    let proxy_manager = Arc::new(proxyman::ProxyManager::new(default_pool.clone()).await);
     if let Err(e) = proxy_manager.load_from_db().await {
         eprintln!("Failed to load proxies from DB: {}", e);
     }
@@ -317,11 +331,74 @@ async fn main() {
     let reqwest_client = reqwest::Client::new();
     let login_limiter = Arc::new(LoginLimiter::new());
 
-    let waf_enabled = std::env::var("WAF_ENABLED").map(|v| v == "true").unwrap_or(true);
-    let rate_limit_enabled = std::env::var("RATE_LIMIT_ENABLED").map(|v| v == "true").unwrap_or(true);
-    let rate_limit_max = std::env::var("RATE_LIMIT_MAX_REQUESTS").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(100);
-    let rate_limit_window = std::env::var("RATE_LIMIT_WINDOW_SECS").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(60);
-    let rate_limiter = Arc::new(waf::RateLimiter::new(rate_limit_enabled, rate_limit_max, rate_limit_window));
+    let pool = &default_pool;
+    
+    let mut db_waf_enabled = std::env::var("WAF_ENABLED").map(|v| v == "true").unwrap_or(true);
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'waf_enabled'")
+        .fetch_optional(pool)
+        .await
+    {
+        db_waf_enabled = db_val == "true";
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_enabled', ?)")
+            .bind(if db_waf_enabled { "true" } else { "false" })
+            .execute(pool)
+            .await;
+    }
+
+    let mut db_rate_limit_enabled = std::env::var("RATE_LIMIT_ENABLED").map(|v| v == "true").unwrap_or(true);
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'rate_limit_enabled'")
+        .fetch_optional(pool)
+        .await
+    {
+        db_rate_limit_enabled = db_val == "true";
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_enabled', ?)")
+            .bind(if db_rate_limit_enabled { "true" } else { "false" })
+            .execute(pool)
+            .await;
+    }
+
+    let mut db_rate_limit_max = std::env::var("RATE_LIMIT_MAX_REQUESTS").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(100);
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'rate_limit_max'")
+        .fetch_optional(pool)
+        .await
+    {
+        if let Ok(val) = db_val.parse::<usize>() {
+            db_rate_limit_max = val;
+        }
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_max', ?)")
+            .bind(db_rate_limit_max.to_string())
+            .execute(pool)
+            .await;
+    }
+
+    let mut db_rate_limit_window = std::env::var("RATE_LIMIT_WINDOW_SECS").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(60);
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'rate_limit_window'")
+        .fetch_optional(pool)
+        .await
+    {
+        if let Ok(val) = db_val.parse::<u64>() {
+            db_rate_limit_window = val;
+        }
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_window', ?)")
+            .bind(db_rate_limit_window.to_string())
+            .execute(pool)
+            .await;
+    }
+
+    let rate_limiter = Arc::new(waf::RateLimiter::new(db_rate_limit_enabled, db_rate_limit_max, db_rate_limit_window));
+    let traffic_stats = Arc::new(waf::TrafficStatsManager::new());
+
+    let ts_clone = traffic_stats.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            ts_clone.tick();
+        }
+    });
 
     let state = Arc::new(AppState {
         engine,
@@ -337,7 +414,8 @@ async fn main() {
         entrance_path: Mutex::new(entrance_path),
         login_limiter,
         rate_limiter,
-        waf_enabled,
+        waf_enabled: std::sync::atomic::AtomicBool::new(db_waf_enabled),
+        traffic_stats,
     });
 
     let static_service = ServeDir::new("public");

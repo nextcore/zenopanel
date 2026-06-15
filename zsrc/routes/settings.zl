@@ -124,3 +124,72 @@ http.post: '/api/settings/service-uninstall' {
     }
 }
 
+# 6. GET /api/settings/security
+http.get: '/api/settings/security' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.get_security_settings: { as: $sec }
+            db.select: "SELECT * FROM waf_logs ORDER BY id DESC LIMIT 50" {
+                as: $logs
+            }
+            http.ok: {
+                success: true
+                settings: $sec
+                logs: $logs
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 7. POST /api/settings/security
+http.post: '/api/settings/security' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            system.update_security_settings: {
+                waf_enabled: $body.waf_enabled
+                rate_limit_enabled: $body.rate_limit_enabled
+                rate_limit_max: $body.rate_limit_max
+                rate_limit_window: $body.rate_limit_window
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Pengaturan keamanan berhasil diperbarui" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal memperbarui pengaturan keamanan" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 8. GET /api/settings/analytics
+http.get: '/api/settings/analytics' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.get_traffic_history: { as: $history }
+            http.ok: {
+                success: true
+                history: $history
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+

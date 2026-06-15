@@ -8,6 +8,8 @@ import {
     performanceChart,
     setRingProgress,
     initPerformanceChart,
+    initTrafficChart,
+    loadTrafficStats,
     updatePerformanceChart,
     loadSystemStats,
     formatSpeed,
@@ -106,7 +108,7 @@ import {
     submitAddUser,
     deleteUser
 } from './users.js';
-import { loadSettings, submitSaveSettings, loadServiceStatus, installService, uninstallService, copyInstallCmd } from './settings.js';
+import { loadSettings, submitSaveSettings, loadServiceStatus, installService, uninstallService, copyInstallCmd, loadSecuritySettings, submitSaveSecurity, toggleRateLimitFields } from './settings.js';
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
 // This ensures any inline blade HTML template access matches module variables dynamically.
@@ -167,6 +169,8 @@ const functionsToBind = {
     refreshCurrentTab,
     setRingProgress,
     initPerformanceChart,
+    initTrafficChart,
+    loadTrafficStats,
     updatePerformanceChart,
     loadSystemStats,
     formatSpeed,
@@ -254,7 +258,10 @@ const functionsToBind = {
     loadServiceStatus,
     installService,
     uninstallService,
-    copyInstallCmd
+    copyInstallCmd,
+    loadSecuritySettings,
+    submitSaveSecurity,
+    toggleRateLimitFields
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {
@@ -334,6 +341,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Start chart and performance metrics polling
     initPerformanceChart();
+    initTrafficChart();
     startStatsPolling();
 
     // Close all action dropdown menus when clicking outside

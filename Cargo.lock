@@ -4058,6 +4058,7 @@ name = "zeno"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bcrypt",
  "chrono",
  "dotenvy",
@@ -4078,6 +4079,7 @@ dependencies = [
  "rustls-pki-types",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "sysinfo",
  "tokio",

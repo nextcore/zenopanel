@@ -16,6 +16,7 @@ export async function loadSettings() {
             }
         }
         await loadServiceStatus();
+        await loadSecuritySettings();
     } catch (err) {
         showToast('error', 'Error loading settings: ' + err.message);
     }
@@ -227,5 +228,132 @@ export function copyInstallCmd() {
     navigator.clipboard.writeText(input.value)
         .then(() => showToast('success', 'Perintah berhasil disalin!'))
         .catch(() => showToast('error', 'Gagal menyalin perintah'));
+}
+
+export function toggleRateLimitFields() {
+    const rlCheckbox = document.getElementById('settings-rl-enabled');
+    const rlEnabled = rlCheckbox ? rlCheckbox.checked : false;
+    const details = document.getElementById('rate-limit-details');
+    if (details) {
+        details.style.display = rlEnabled ? 'flex' : 'none';
+    }
+}
+
+export async function loadSecuritySettings() {
+    try {
+        const tbody = document.getElementById('waf-logs-tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Loading audit logs...</td></tr>';
+        }
+
+        const response = await fetch('/api/settings/security');
+        if (!response.ok) {
+            throw new Error('Failed to fetch security settings');
+        }
+        const data = await response.json();
+        if (data.success) {
+            const wafCheckbox = document.getElementById('settings-waf-enabled');
+            if (wafCheckbox) {
+                wafCheckbox.checked = data.settings.waf_enabled;
+            }
+            const rlCheckbox = document.getElementById('settings-rl-enabled');
+            if (rlCheckbox) {
+                rlCheckbox.checked = data.settings.rate_limit_enabled;
+            }
+            
+            const maxInput = document.getElementById('settings-rl-max');
+            if (maxInput) {
+                maxInput.value = data.settings.rate_limit_max;
+            }
+            
+            const windowInput = document.getElementById('settings-rl-window');
+            if (windowInput) {
+                windowInput.value = data.settings.rate_limit_window;
+            }
+            
+            toggleRateLimitFields();
+
+            if (tbody) {
+                if (!data.logs || data.logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Belum ada log aktivitas keamanan terdeteksi.</td></tr>';
+                } else {
+                    tbody.innerHTML = data.logs.map(log => `
+                        <tr>
+                            <td>${log.id}</td>
+                            <td><span style="font-family:var(--font-code); color:var(--accent-primary);">${log.ip}</span></td>
+                            <td><span class="badge" style="background:rgba(239, 44, 44, 0.12); color:var(--danger); border:1px solid rgba(239, 44, 44, 0.1);">${escapeHtml(log.reason)}</span></td>
+                            <td><span style="font-family:var(--font-code);">${escapeHtml(log.target)}</span></td>
+                            <td style="color:var(--text-muted);">${formatDate(log.timestamp)}</td>
+                        </tr>
+                    `).join('');
+                }
+            }
+        }
+    } catch (err) {
+        showToast('error', 'Error loading security settings: ' + err.message);
+    }
+}
+
+export async function submitSaveSecurity() {
+    const wafEnabled = document.getElementById('settings-waf-enabled').checked;
+    const rateLimitEnabled = document.getElementById('settings-rl-enabled').checked;
+    const rateLimitMax = parseInt(document.getElementById('settings-rl-max').value.trim(), 10) || 100;
+    const rateLimitWindow = parseInt(document.getElementById('settings-rl-window').value.trim(), 10) || 60;
+
+    const csrfToken = getCSRFToken();
+    const btn = document.getElementById('btn-save-security');
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+        
+        const response = await fetch('/api/settings/security', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({
+                waf_enabled: wafEnabled,
+                rate_limit_enabled: rateLimitEnabled,
+                rate_limit_max: rateLimitMax,
+                rate_limit_window: rateLimitWindow
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Pengaturan keamanan berhasil disimpan');
+            await loadSecuritySettings();
+        } else {
+            showToast('error', data.message || 'Gagal menyimpan pengaturan keamanan');
+        }
+    } catch (err) {
+        showToast('error', 'Error saving security settings: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    try {
+        const date = new Date(dateStr);
+        return date.toLocaleString();
+    } catch (e) {
+        return dateStr;
+    }
 }
 
