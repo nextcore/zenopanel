@@ -51,6 +51,7 @@ fn proxy_rule_to_value(rule: &ProxyRule) -> Value {
     map.insert("ssl_enabled".to_string(), Value::Bool(rule.ssl_enabled));
     map.insert("ssl_status".to_string(), Value::String(rule.ssl_status.clone()));
     map.insert("managed_process_id".to_string(), Value::String(rule.managed_process_id.clone().unwrap_or_default()));
+    map.insert("rule_type".to_string(), Value::String(rule.rule_type.clone()));
 
     let (issuer, expiry, days) = get_cert_details(&rule.domain, &rule.ssl_status);
     map.insert("ssl_issuer".to_string(), Value::String(issuer));
@@ -119,6 +120,7 @@ pub fn register(engine: &mut Engine) {
             let mut enabled = true;
             let mut ssl_enabled = false;
             let mut managed_process_id = None;
+            let mut rule_type = "proxy".to_string();
             let mut target = "id".to_string();
 
             if node.value.is_some() {
@@ -148,12 +150,14 @@ pub fn register(engine: &mut Engine) {
                     if !s.is_empty() {
                         managed_process_id = Some(s);
                     }
+                } else if child.name == "rule_type" {
+                    rule_type = val.to_string_coerce();
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
             }
 
-            let add_fut = pm.add_rule(name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
+            let add_fut = pm.add_rule(name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id, rule_type);
             let id = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(add_fut)
             }).map_err(|e| Diagnostic {
@@ -196,6 +200,7 @@ pub fn register(engine: &mut Engine) {
             let mut enabled = true;
             let mut ssl_enabled = false;
             let mut managed_process_id = None;
+            let mut rule_type = "proxy".to_string();
             let mut target = "success".to_string();
 
             if node.value.is_some() {
@@ -227,12 +232,14 @@ pub fn register(engine: &mut Engine) {
                     if !s.is_empty() {
                         managed_process_id = Some(s);
                     }
+                } else if child.name == "rule_type" {
+                    rule_type = val.to_string_coerce();
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
             }
 
-            let update_fut = pm.update_rule(&id, name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id);
+            let update_fut = pm.update_rule(&id, name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id, rule_type);
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(update_fut)
             });

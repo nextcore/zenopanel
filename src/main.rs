@@ -649,6 +649,81 @@ async fn wildcard_handler(
                 .unwrap();
         }
 
+        if rule.rule_type == "static" {
+            let target_path = std::path::Path::new(&rule.target);
+            if !target_path.exists() || !target_path.is_dir() {
+                let html = render_error_page(
+                    &state.engine,
+                    "failed",
+                    &rule.name,
+                    &format!("Target directory does not exist or is not a directory: {}", rule.target)
+                );
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .header("Content-Type", "text/html")
+                    .body(axum::body::Body::from(html))
+                    .unwrap();
+            }
+
+            let relative_path = if rule.strip_path {
+                path.strip_prefix(&rule.path).unwrap_or(path)
+            } else {
+                path
+            };
+
+            let relative_path_slashed = if relative_path.starts_with('/') {
+                relative_path.to_string()
+            } else {
+                format!("/{}", relative_path)
+            };
+
+            let uri_string = if let Some(query) = uri.query() {
+                format!("{}?{}", relative_path_slashed, query)
+            } else {
+                relative_path_slashed
+            };
+
+            let mut req_for_serve = axum::http::Request::builder()
+                .method(method.clone())
+                .uri(uri_string);
+
+            if let Some(headers_mut) = req_for_serve.headers_mut() {
+                *headers_mut = headers.clone();
+            }
+
+            let req_for_serve = req_for_serve
+                .body(axum::body::Body::empty())
+                .unwrap();
+
+            use axum::tower::ServiceExt;
+            let serve_dir = ServeDir::new(&rule.target)
+                .precompressed_gzip()
+                .precompressed_br()
+                .precompressed_deflate()
+                .precompressed_zstd()
+                .fallback(tower_http::services::ServeFile::new(format!("{}/index.html", rule.target)));
+
+            match serve_dir.oneshot(req_for_serve).await {
+                Ok(response) => {
+                    use axum::response::IntoResponse;
+                    return response.into_response();
+                }
+                Err(e) => {
+                    let html = render_error_page(
+                        &state.engine,
+                        "failed",
+                        &rule.name,
+                        &format!("Failed to serve static file: {}", e)
+                    );
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("Content-Type", "text/html")
+                        .body(axum::body::Body::from(html))
+                        .unwrap();
+                }
+            }
+        }
+
         // Get the next target for load balancing
         let selected_target = state.proxy_manager.get_next_target(&rule.id, &rule.target).await;
         state.proxy_manager.increment_conn(&selected_target);

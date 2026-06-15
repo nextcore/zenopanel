@@ -110,8 +110,15 @@ export function renderProxyRules(rules) {
             sslBadge = `<span class="badge" style="background:rgba(255,255,255,0.02); color:var(--text-muted); border:1px solid transparent; opacity:0.5;"><i class="fa-solid fa-unlock" style="margin-right:4px;"></i> Disabled</span>`;
         }
 
+        const typeBadge = rule.rule_type === 'static'
+            ? `<span class="badge" style="background:rgba(59,130,246,0.1); color:var(--accent-primary); border:1px solid rgba(59,130,246,0.15); font-size:0.7rem; padding:2px 6px;"><i class="fa-solid fa-folder-open" style="margin-right:4px;"></i> Static Site</span>`
+            : `<span class="badge" style="background:rgba(139,92,246,0.1); color:#a78bfa; border:1px solid rgba(139,92,246,0.15); font-size:0.7rem; padding:2px 6px;"><i class="fa-solid fa-arrow-right-arrow-left" style="margin-right:4px;"></i> Proxy</span>`;
+
         tr.innerHTML = `
-            <td style="font-weight:600; color:var(--text-main);">${escapeHtml(rule.name)}</td>
+            <td style="font-weight:600; color:var(--text-main);">
+                ${escapeHtml(rule.name)}
+                <div style="margin-top:4px;">${typeBadge}</div>
+            </td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">
                 ${rule.domain && rule.domain !== '*' ? `<a href="${rule.ssl_enabled ? 'https' : 'http'}://${rule.domain}${rule.path}" target="_blank" style="color:var(--text-main); text-decoration:none; border-bottom:1px dashed var(--text-muted);">${escapeHtml(rule.domain)}</a>` : (rule.domain ? escapeHtml(rule.domain) : '*')}
                 ${rule.alternative_domain ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Alt: <a href="${rule.ssl_enabled ? 'https' : 'http'}://${rule.alternative_domain}${rule.path}" target="_blank" style="color:var(--text-muted); text-decoration:none; border-bottom:1px dashed rgba(255,255,255,0.2);">${escapeHtml(rule.alternative_domain)}</a></div>` : ''}
@@ -271,7 +278,42 @@ export function populateManagedProcessesDropdown(selectedValue) {
     });
 }
 
+function onProxyRuleTypeChange() {
+    const typeSelect = document.getElementById('proxy-rule-type');
+    if (!typeSelect) return;
+    
+    const ruleType = typeSelect.value;
+    const groupProcess = document.getElementById('proxy-group-managed-process');
+    const groupStrip = document.getElementById('proxy-group-strip-path');
+    const labelTarget = document.getElementById('proxy-target-label');
+    const inputTarget = document.getElementById('proxy-target');
+
+    if (ruleType === 'static') {
+        if (groupProcess) groupProcess.style.display = 'none';
+        if (groupStrip) groupStrip.style.display = 'none';
+        if (labelTarget) labelTarget.innerText = 'Local Directory Path';
+        if (inputTarget) {
+            inputTarget.placeholder = 'e.g. /var/www/my-site';
+        }
+    } else {
+        if (groupProcess) groupProcess.style.display = 'block';
+        if (groupStrip) groupStrip.style.display = 'flex';
+        if (labelTarget) labelTarget.innerText = 'Target Destination URL';
+        if (inputTarget) {
+            inputTarget.placeholder = 'e.g. http://127.0.0.1:8000';
+        }
+    }
+}
+
 export function openAddProxyModal() {
+    const typeSelect = document.getElementById('proxy-rule-type');
+    if (typeSelect && !typeSelect.dataset.listenerAdded) {
+        typeSelect.addEventListener('change', onProxyRuleTypeChange);
+        typeSelect.dataset.listenerAdded = 'true';
+    }
+    if (typeSelect) typeSelect.value = 'proxy';
+    onProxyRuleTypeChange();
+
     const idVal = document.getElementById('proxy-id-val');
     const nameInput = document.getElementById('proxy-name');
     const domInput = document.getElementById('proxy-domain');
@@ -306,6 +348,14 @@ export function openAddProxyModal() {
 export function openEditProxyModal(id) {
     const rule = allProxyRules.find(r => r.id === id);
     if (!rule) return;
+
+    const typeSelect = document.getElementById('proxy-rule-type');
+    if (typeSelect && !typeSelect.dataset.listenerAdded) {
+        typeSelect.addEventListener('change', onProxyRuleTypeChange);
+        typeSelect.dataset.listenerAdded = 'true';
+    }
+    if (typeSelect) typeSelect.value = rule.rule_type || 'proxy';
+    onProxyRuleTypeChange();
 
     const idVal = document.getElementById('proxy-id-val');
     const nameInput = document.getElementById('proxy-name');
@@ -354,6 +404,7 @@ export function submitAddProxy() {
     const enCheck = document.getElementById('proxy-enabled');
     const sslCheck = document.getElementById('proxy-ssl-enabled');
     const mpSelect = document.getElementById('proxy-managed-process-id');
+    const typeSelect = document.getElementById('proxy-rule-type');
 
     const id = idVal ? idVal.value : '';
     const name = nameInput ? nameInput.value.trim() : '';
@@ -365,6 +416,7 @@ export function submitAddProxy() {
     const enabled = enCheck ? enCheck.checked : true;
     const ssl_enabled = sslCheck ? sslCheck.checked : false;
     const managed_process_id = mpSelect ? mpSelect.value : '';
+    const rule_type = typeSelect ? typeSelect.value : 'proxy';
 
     if (!name || !path || !target) {
         showToast('warning', 'Name, Path, and Target Destination are required');
@@ -372,7 +424,7 @@ export function submitAddProxy() {
     }
 
     const url = id ? '/api/proxy/update' : '/api/proxy/add';
-    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id };
+    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type };
     if (id) {
         body.id = id;
     }

@@ -45,6 +45,7 @@ pub struct ProxyRule {
     pub ssl_enabled: bool,
     pub ssl_status: String,
     pub managed_process_id: Option<String>,
+    pub rule_type: String,
 }
 
 #[derive(Clone)]
@@ -78,10 +79,12 @@ impl ProxyManager {
         let alter_ssl_status = "ALTER TABLE proxy_rules ADD COLUMN ssl_status TEXT NOT NULL DEFAULT 'none';";
         let alter_managed_process_id = "ALTER TABLE proxy_rules ADD COLUMN managed_process_id TEXT;";
         let alter_alternative_domain = "ALTER TABLE proxy_rules ADD COLUMN alternative_domain TEXT NOT NULL DEFAULT '';";
+        let alter_rule_type = "ALTER TABLE proxy_rules ADD COLUMN rule_type TEXT NOT NULL DEFAULT 'proxy';";
         let _ = sqlx::query(alter_ssl_enabled).execute(&pool).await;
         let _ = sqlx::query(alter_ssl_status).execute(&pool).await;
         let _ = sqlx::query(alter_managed_process_id).execute(&pool).await;
         let _ = sqlx::query(alter_alternative_domain).execute(&pool).await;
+        let _ = sqlx::query(alter_rule_type).execute(&pool).await;
 
         let active_conns = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let unhealthy_targets = Arc::new(RwLock::new(HashSet::new()));
@@ -155,7 +158,7 @@ impl ProxyManager {
     }
 
     pub async fn load_from_db(&self) -> Result<(), String> {
-        let rows = sqlx::query("SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id FROM proxy_rules")
+        let rows = sqlx::query("SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type FROM proxy_rules")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -175,6 +178,7 @@ impl ProxyManager {
             let ssl_enabled_int: i32 = row.get("ssl_enabled");
             let ssl_status: String = row.get("ssl_status");
             let managed_process_id: Option<String> = row.try_get("managed_process_id").ok();
+            let rule_type: String = row.try_get("rule_type").unwrap_or_else(|_| "proxy".to_string());
 
             rules.insert(
                 id.clone(),
@@ -190,6 +194,7 @@ impl ProxyManager {
                     ssl_enabled: ssl_enabled_int != 0,
                     ssl_status,
                     managed_process_id,
+                    rule_type,
                 },
             );
         }
@@ -207,6 +212,7 @@ impl ProxyManager {
         enabled: bool,
         ssl_enabled: bool,
         managed_process_id: Option<String>,
+        rule_type: String,
     ) -> Result<String, String> {
         let id = format!("{:x}", rand::random::<u32>());
         let strip_path_int = if strip_path { 1 } else { 0 };
@@ -222,7 +228,7 @@ impl ProxyManager {
             clean_path = format!("/{}", clean_path);
         }
 
-        sqlx::query("INSERT INTO proxy_rules (id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO proxy_rules (id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&name)
             .bind(&clean_domain)
@@ -234,6 +240,7 @@ impl ProxyManager {
             .bind(ssl_enabled_int)
             .bind(&ssl_status)
             .bind(&managed_process_id)
+            .bind(&rule_type)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -250,6 +257,7 @@ impl ProxyManager {
             ssl_enabled,
             ssl_status,
             managed_process_id,
+            rule_type,
         };
 
         self.rules.write().await.insert(id.clone(), rule);
@@ -268,6 +276,7 @@ impl ProxyManager {
         enabled: bool,
         ssl_enabled: bool,
         managed_process_id: Option<String>,
+        rule_type: String,
     ) -> Result<(), String> {
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
@@ -294,7 +303,7 @@ impl ProxyManager {
             None => if ssl_enabled { "pending".to_string() } else { "none".to_string() }
         };
 
-        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, alternative_domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ? WHERE id = ?")
+        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, alternative_domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ?, rule_type = ? WHERE id = ?")
             .bind(&name)
             .bind(&clean_domain)
             .bind(&clean_alt_domain)
@@ -305,6 +314,7 @@ impl ProxyManager {
             .bind(ssl_enabled_int)
             .bind(&new_status)
             .bind(&managed_process_id)
+            .bind(&rule_type)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -321,6 +331,7 @@ impl ProxyManager {
             rule.ssl_enabled = ssl_enabled;
             rule.ssl_status = new_status;
             rule.managed_process_id = managed_process_id;
+            rule.rule_type = rule_type;
         }
 
         Ok(())

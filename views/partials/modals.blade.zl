@@ -123,6 +123,13 @@
         <div class="modal-body" style="flex-grow: 1; overflow-y: auto; padding-right: 5px;">
             <input type="hidden" id="proxy-id-val" value="">
             <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Routing Type</label>
+                <select id="proxy-rule-type" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="proxy">Reverse Proxy (Forward to local port/URL)</option>
+                    <option value="static">Static HTML Directory (Serve folder directly)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Rule Name</label>
                 <input type="text" id="proxy-name" placeholder="e.g. My Node App" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
             </div>
@@ -138,17 +145,17 @@
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Source Path Prefix</label>
                 <input type="text" id="proxy-path" placeholder="e.g. /api or /" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
             </div>
-            <div class="form-group" style="margin-bottom:15px;">
+            <div class="form-group" id="proxy-group-managed-process" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Linked Managed Process (Optional)</label>
                 <select id="proxy-managed-process-id" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
                     <option value="">None</option>
                 </select>
             </div>
             <div class="form-group" style="margin-bottom:15px;">
-                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Destination URL</label>
+                <label id="proxy-target-label" style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Destination URL</label>
                 <input type="text" id="proxy-target" placeholder="e.g. http://127.0.0.1:8000" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
             </div>
-            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+            <div class="form-group" id="proxy-group-strip-path" style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
                 <input type="checkbox" id="proxy-strip-path" style="cursor:pointer; width:16px; height:16px;">
                 <label for="proxy-strip-path" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Strip path prefix before forwarding</label>
             </div>
