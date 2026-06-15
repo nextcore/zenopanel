@@ -4,6 +4,7 @@ pub mod procman;
 pub mod proxyman;
 pub mod sslman;
 mod auth;
+pub mod waf;
 
 
 use axum::{
@@ -93,6 +94,8 @@ pub(crate) struct AppState {
     pub(crate) jwt_secret: String,
     pub(crate) entrance_path: Mutex<String>,
     pub(crate) login_limiter: Arc<LoginLimiter>,
+    pub(crate) rate_limiter: Arc<crate::waf::RateLimiter>,
+    pub(crate) waf_enabled: bool,
 }
 
 #[tokio::main]
@@ -313,6 +316,13 @@ async fn main() {
 
     let reqwest_client = reqwest::Client::new();
     let login_limiter = Arc::new(LoginLimiter::new());
+
+    let waf_enabled = std::env::var("WAF_ENABLED").map(|v| v == "true").unwrap_or(true);
+    let rate_limit_enabled = std::env::var("RATE_LIMIT_ENABLED").map(|v| v == "true").unwrap_or(true);
+    let rate_limit_max = std::env::var("RATE_LIMIT_MAX_REQUESTS").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(100);
+    let rate_limit_window = std::env::var("RATE_LIMIT_WINDOW_SECS").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(60);
+    let rate_limiter = Arc::new(waf::RateLimiter::new(rate_limit_enabled, rate_limit_max, rate_limit_window));
+
     let state = Arc::new(AppState {
         engine,
         router,
@@ -326,6 +336,8 @@ async fn main() {
         jwt_secret,
         entrance_path: Mutex::new(entrance_path),
         login_limiter,
+        rate_limiter,
+        waf_enabled,
     });
 
     let static_service = ServeDir::new("public");
@@ -333,6 +345,7 @@ async fn main() {
     let app = Router::new()
         .nest_service("/public", static_service)
         .fallback(any(wildcard_handler))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), waf::waf_middleware))
         .with_state(state.clone())
         .layer(axum::extract::DefaultBodyLimit::disable())
         .layer(CorsLayer::permissive());
@@ -560,8 +573,12 @@ async fn wildcard_handler(
 
         // Get the next target for load balancing
         let selected_target = state.proxy_manager.get_next_target(&rule.id, &rule.target).await;
+        state.proxy_manager.increment_conn(&selected_target);
 
-        match forward_request(&state.reqwest_client, &selected_target, &rule, method.clone(), uri.clone(), headers.clone(), req_body).await {
+        let res = forward_request(&state.reqwest_client, &selected_target, &rule, method.clone(), uri.clone(), headers.clone(), req_body).await;
+        state.proxy_manager.decrement_conn(&selected_target);
+
+        match res {
             Ok(response) => return response,
             Err(e) => {
                 eprintln!("Reverse proxy error for {} {}: {}", method, uri, e);
