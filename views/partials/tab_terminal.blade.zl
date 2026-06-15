@@ -9,7 +9,7 @@
         </div>
         <div class="terminal-body" id="terminal-viewport" onclick="focusTerminalInput()">
             <div class="terminal-line">Welcome to ZenoPanel Web Terminal. Type command to interact.</div>
-            <div class="terminal-line">Tip: You are logged in as Go environment worker.</div>
+            <div class="terminal-line">Tip: You are logged in as Zenopanel environment worker.</div>
             <br>
             <!-- Shell prompt input -->
             <div class="terminal-input-container">
