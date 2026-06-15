@@ -44,6 +44,11 @@
 - Role gating di sisi server: Viewer tidak bisa melakukan mutasi apapun
 - Admin-only access untuk Terminal dan Database console
 
+### 🛡️ Security (WAF & Rate Limiting)
+- **Web Application Firewall (WAF)**: Melindungi server dari serangan SQL Injection, XSS, Path Traversal, dan RCE.
+- **Rate Limiting**: Membatasi jumlah request maksimum per IP dalam jangka waktu tertentu untuk mencegah abuse/DDoS.
+- **Dedicated Security Menu**: Menu khusus (Admin-only) untuk memantau audit trail log dari request yang diblokir, mengaktifkan/menonaktifkan WAF, dan menyesuaikan konfigurasi Rate Limiter secara real-time.
+
 ### 🗃️ Database Console
 - Eksekusi raw SQL query langsung dari UI (khusus Admin)
 - Mendukung SQLite (default) — arsitektur DB manager bisa diperluas
@@ -166,6 +171,7 @@ zenopanel/
 - Role-based access control di **sisi server** (bukan hanya UI)
 - Environment variable ZenoPanel **diisolasi** agar tidak bocor ke proses yang dikelola
 - Entrance path (URL login) dapat dikustomisasi untuk security-by-obscurity
+- Menu keamanan terpisah untuk kontrol granular terhadap WAF & Rate Limiting serta log audit trail blocked requests
 
 > 💡 **Catatan keamanan:** Interactive Terminal memberikan akses shell penuh — pastikan hanya Admin terpercaya yang memiliki akses. ACME flow untuk Let's Encrypt menggunakan self-signed certificate sebagai fallback instan.
 
