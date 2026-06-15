@@ -52,7 +52,7 @@ pub struct ProxyRule {
 pub struct ProxyManager {
     pool: SqlitePool,
     rules: Arc<RwLock<HashMap<String, ProxyRule>>>,
-    rr_indices: Arc<tokio::sync::Mutex<HashMap<String, usize>>>,
+    _rr_indices: Arc<tokio::sync::Mutex<HashMap<String, usize>>>,
     active_conns: Arc<std::sync::Mutex<HashMap<String, usize>>>,
     unhealthy_targets: Arc<RwLock<HashSet<String>>>,
 }
@@ -151,7 +151,7 @@ impl ProxyManager {
         Self {
             pool,
             rules: Arc::new(RwLock::new(HashMap::new())),
-            rr_indices: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            _rr_indices: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             active_conns,
             unhealthy_targets,
         }

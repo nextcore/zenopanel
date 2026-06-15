@@ -695,7 +695,7 @@ async fn wildcard_handler(
                 .body(axum::body::Body::empty())
                 .unwrap();
 
-            use axum::tower::ServiceExt;
+            use tower::ServiceExt;
             let serve_dir = ServeDir::new(&rule.target)
                 .precompressed_gzip()
                 .precompressed_br()
