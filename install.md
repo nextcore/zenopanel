@@ -1,8 +1,8 @@
 1. Download binary zenopanel
-wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.0.9.tar.gz
+wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.1.0.tar.gz
 
 2. Unzip
-tar -xzvf zenopanel-v0.0.9.tar.gz
+tar -xzvf zenopanel-v0.1.0.tar.gz
 
 3. Jalankan 
 ./zeno
