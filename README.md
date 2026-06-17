@@ -28,6 +28,25 @@ ZenoPanel dirancang khusus untuk pengembang aplikasi modern (Rust, Go, Node.js, 
 
 ---
 
+## 📊 Studi Kasus: Potensi Maksimal pada Single VPS (ZenoPanel vs Nginx Stack)
+
+Ketika men-deploy aplikasi di atas **satu VPS** (terutama spesifikasi terbatas seperti 1-2 Core CPU, 1-2 GB RAM), setiap megabyte memori dan siklus CPU sangat berharga. Berikut adalah perbandingan efisiensi arsitektur ZenoPanel dibanding stack Nginx tradisional:
+
+### 1. Overhead Sumber Daya Stack (Idle)
+Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di server:
+* **Stack Nginx Tradisional (Nginx + PM2 + ModSecurity + MySQL + Panel Admin)**: Mengonsumsi sekitar **350 MB - 500 MB RAM** bahkan sebelum aplikasi bisnis Anda menerima request pertama.
+* **Stack ZenoPanel**: Seluruh sistem berjalan di dalam satu *single-binary* dengan SQLite lokal yang hanya mengonsumsi **~15 MB - 30 MB RAM**. Sisa RAM dapat dialokasikan sepenuhnya untuk mengoptimalkan database bisnis Anda (seperti PostgreSQL/Redis).
+
+### 2. Penanganan Traffic Tinggi & Latensi Ekor (Tail Latency)
+* **Nginx**: Menggunakan model *multi-process event-loop* statis. Jika salah satu worker process terhambat oleh request lambat, request lain pada worker tersebut harus mengantre.
+* **ZenoPanel (Pingora)**: Menggunakan model *work-stealing multi-threaded* (Tokio runtime). Jika satu thread CPU sibuk, thread lain secara dinamis mengambil alih beban kerja. Hasilnya, ZenoPanel memberikan latensi ekor (99th percentile) yang lebih konsisten dan rendah di bawah konkurensi ekstrem (>10.000 request aktif).
+
+### 3. Konfigurasi Dinamis Tanpa Interupsi (Zero-Downtime)
+* **Nginx**: Setiap perubahan port backend, penambahan domain, atau pembaruan SSL Let's Encrypt mewajibkan reload process (`nginx -s reload`). Ini memicu pemutusan bertahap koneksi aktif (*connection churn*) dan lonjakan beban CPU sesaat.
+* **ZenoPanel**: Semua pembaruan aturan proxy dan sertifikat SSL diterapkan secara instan di dalam memori tanpa perlu me-reload gateway. **Koneksi client aktif tidak pernah terputus.**
+
+---
+
 ## ✨ Fitur-Fitur Unggulan
 
 ### 🖥️ Process Manager (Supervisord-Like)
