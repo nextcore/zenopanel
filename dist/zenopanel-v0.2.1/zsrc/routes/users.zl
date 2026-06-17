@@ -1,0 +1,139 @@
+# User Management REST APIs - ADMIN only
+
+# 1. GET /api/users/list
+http.get: '/api/users/list' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            db.select: "SELECT id, username, role, strftime('%Y-%m-%d %H:%M:%S', created_at) as created_at FROM users" {
+                as: $users
+            }
+            http.response: 200 {
+                data: $users
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 2. POST /api/users/create
+http.post: '/api/users/create' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            
+            if: "$body.username == '' || $body.password_plain == '' || $body.role == ''" {
+                then: {
+                    http.bad_request: { message: "Invalid inputs" }
+                }
+                else: {
+                    # Check if username already exists
+                    db.select: "SELECT id FROM users WHERE username = ?" {
+                        bind: {
+                            u: $body.username
+                        }
+                        first: true
+                        as: $exists
+                    }
+                    
+                    if: $exists {
+                        then: {
+                            http.bad_request: { message: "Username sudah digunakan" }
+                        }
+                        else: {
+                            crypto.bcrypt: $body.password_plain { as: $hashed }
+                            db.execute: "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)" {
+                                bind: {
+                                    u: $body.username
+                                    p: $hashed
+                                    r: $body.role
+                                }
+                            }
+                            http.ok: { message: "User created successfully" }
+                        }
+                    }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 3. POST /api/users/update
+http.post: '/api/users/update' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            
+            if: "$body.username == ''" {
+                then: {
+                    http.bad_request: { message: "Invalid inputs" }
+                }
+                else: {
+                    if: "$body.password_plain != '' && $body.password_plain != null" {
+                        then: {
+                            crypto.bcrypt: $body.password_plain { as: $hashed }
+                            db.execute: "UPDATE users SET role = ?, password_hash = ? WHERE username = ?" {
+                                bind: {
+                                    r: $body.role
+                                    p: $hashed
+                                    u: $body.username
+                                }
+                            }
+                        }
+                        else: {
+                            db.execute: "UPDATE users SET role = ? WHERE username = ?" {
+                                bind: {
+                                    r: $body.role
+                                    u: $body.username
+                                }
+                            }
+                        }
+                    }
+                    http.ok: { message: "User updated successfully" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 4. POST /api/users/delete
+http.post: '/api/users/delete' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            auth.claims: { as: $claims }
+            
+            if: "$body.username == $claims.username" {
+                then: {
+                    http.bad_request: { message: "Tidak dapat menghapus user Anda sendiri yang sedang aktif" }
+                }
+                else: {
+                    db.execute: "DELETE FROM users WHERE username = ?" {
+                        bind: {
+                            u: $body.username
+                        }
+                    }
+                    http.ok: { message: "User deleted successfully" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}

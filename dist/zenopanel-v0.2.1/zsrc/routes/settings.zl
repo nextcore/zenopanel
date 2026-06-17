@@ -1,0 +1,195 @@
+# Settings REST APIs - ADMIN only
+# 1. GET /api/settings
+http.get: '/api/settings' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            db.select: "SELECT value FROM settings WHERE key = 'entrance_path'" {
+                first: true
+                as: $setting
+            }
+            coalesce: $setting.value {
+                default: '/login'
+                as: $current_path
+            }
+            http.ok: {
+                entrance_path: $current_path
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 2. POST /api/settings
+http.post: '/api/settings' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            var: $new_path { val: $body.entrance_path }
+            
+            if: "$new_path == ''" {
+                then: {
+                    http.bad_request: { message: "Entrance path tidak boleh kosong" }
+                }
+                else: {
+                    system.update_entrance_path: $new_path { as: $update_success }
+                    if: $update_success {
+                        then: {
+                            db.execute: "INSERT INTO settings (key, value) VALUES ('entrance_path', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value" {
+                                bind: {
+                                    val: $normalized_path
+                                }
+                            }
+                            http.ok: {
+                                message: "Pengaturan berhasil disimpan"
+                                entrance_path: $normalized_path
+                            }
+                        }
+                        else: {
+                            http.bad_request: { message: "Gagal menyimpan pengaturan" }
+                        }
+                    }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 3. GET /api/settings/service-status
+http.get: '/api/settings/service-status' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.service_info: { as: $info }
+            http.ok: {
+                data: $info
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 4. POST /api/settings/service-install
+http.post: '/api/settings/service-install' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.service_install: { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Service berhasil diinstall dan dijalankan" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal menginstall service secara otomatis. Silakan gunakan metode manual." }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 5. POST /api/settings/service-uninstall
+http.post: '/api/settings/service-uninstall' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.service_uninstall: { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Service berhasil dicopot" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal mencopot service secara otomatis. Silakan gunakan metode manual." }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 6. GET /api/settings/security
+http.get: '/api/settings/security' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.get_security_settings: { as: $sec }
+            db.select: "SELECT * FROM waf_logs ORDER BY id DESC LIMIT 50" {
+                as: $logs
+            }
+            http.ok: {
+                success: true
+                settings: $sec
+                logs: $logs
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 7. POST /api/settings/security
+http.post: '/api/settings/security' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            system.update_security_settings: {
+                waf_enabled: $body.waf_enabled
+                rate_limit_enabled: $body.rate_limit_enabled
+                rate_limit_max: $body.rate_limit_max
+                rate_limit_window: $body.rate_limit_window
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Pengaturan keamanan berhasil diperbarui" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal memperbarui pengaturan keamanan" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 8. GET /api/settings/analytics
+http.get: '/api/settings/analytics' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.get_traffic_history: { as: $history }
+            http.ok: {
+                success: true
+                history: $history
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
