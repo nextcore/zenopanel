@@ -83,46 +83,101 @@ pub fn register(engine: &mut Engine) {
                 }
             }
 
-            let file = std::fs::File::create(&dst_path).map_err(|e| {
-                Diagnostic {
-                    r#type: "error".to_string(),
-                    message: format!("io.file.archive failed to create destination file: {}", e),
-                    filename: node.filename.clone(),
-                    line: node.line,
-                    col: node.col,
-                    slot: Some("io.file.archive".to_string()),
-                }
-            })?;
+            let is_tar_gz = dest.ends_with(".tar.gz") || dest.ends_with(".tgz");
 
-            let mut zip = zip::ZipWriter::new(file);
+            if is_tar_gz {
+                let file = std::fs::File::create(&dst_path).map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.archive failed to create destination file: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.archive".to_string()),
+                    }
+                })?;
 
-            let res = if src_path.is_dir() {
-                zip_dir_recursive(src_path, src_path, &mut zip)
+                let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+                let mut tar = tar::Builder::new(enc);
+
+                let res = if src_path.is_dir() {
+                    tar.append_dir_all(
+                        src_path.file_name().ok_or("Invalid directory name").unwrap_or(std::ffi::OsStr::new("")),
+                        src_path,
+                    )
+                } else {
+                    match std::fs::File::open(src_path) {
+                        Ok(mut f) => {
+                            let name = src_path.file_name().ok_or("Invalid file name").unwrap_or(std::ffi::OsStr::new(""));
+                            tar.append_file(name, &mut f)
+                        }
+                        Err(e) => Err(e)
+                    }
+                };
+
+                res.map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.archive failed: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.archive".to_string()),
+                    }
+                })?;
+
+                tar.finish().map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.archive failed to finalize tar.gz: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.archive".to_string()),
+                    }
+                })?;
             } else {
-                zip_file(src_path, &mut zip)
-            };
+                let file = std::fs::File::create(&dst_path).map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.archive failed to create destination file: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.archive".to_string()),
+                    }
+                })?;
 
-            res.map_err(|e| {
-                Diagnostic {
-                    r#type: "error".to_string(),
-                    message: format!("io.file.archive failed: {}", e),
-                    filename: node.filename.clone(),
-                    line: node.line,
-                    col: node.col,
-                    slot: Some("io.file.archive".to_string()),
-                }
-            })?;
+                let mut zip = zip::ZipWriter::new(file);
 
-            zip.finish().map_err(|e| {
-                Diagnostic {
-                    r#type: "error".to_string(),
-                    message: format!("io.file.archive failed to finalize zip: {}", e),
-                    filename: node.filename.clone(),
-                    line: node.line,
-                    col: node.col,
-                    slot: Some("io.file.archive".to_string()),
-                }
-            })?;
+                let res = if src_path.is_dir() {
+                    zip_dir_recursive(src_path, src_path, &mut zip)
+                } else {
+                    zip_file(src_path, &mut zip)
+                };
+
+                res.map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.archive failed: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.archive".to_string()),
+                    }
+                })?;
+
+                zip.finish().map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.archive failed to finalize zip: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.archive".to_string()),
+                    }
+                })?;
+            }
 
             scope.set(&target, Value::Bool(true));
             Ok(())
@@ -174,17 +229,6 @@ pub fn register(engine: &mut Engine) {
                 }
             })?;
 
-            let mut archive = zip::ZipArchive::new(file).map_err(|e| {
-                Diagnostic {
-                    r#type: "error".to_string(),
-                    message: format!("io.file.extract failed to read zip archive: {}", e),
-                    filename: node.filename.clone(),
-                    line: node.line,
-                    col: node.col,
-                    slot: Some("io.file.extract".to_string()),
-                }
-            })?;
-
             let target_dir = std::path::Path::new(&dest);
             if !target_dir.exists() {
                 std::fs::create_dir_all(target_dir).map_err(|e| {
@@ -199,11 +243,27 @@ pub fn register(engine: &mut Engine) {
                 })?;
             }
 
-            for i in 0..archive.len() {
-                let mut file = archive.by_index(i).map_err(|e| {
+            let is_tar_gz = source.ends_with(".tar.gz") || source.ends_with(".tgz");
+
+            if is_tar_gz {
+                let tar_file = flate2::read::GzDecoder::new(file);
+                let mut archive = tar::Archive::new(tar_file);
+
+                archive.unpack(target_dir).map_err(|e| {
                     Diagnostic {
                         r#type: "error".to_string(),
-                        message: format!("io.file.extract failed to read zip entry: {}", e),
+                        message: format!("io.file.extract failed to unpack tar.gz: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.extract".to_string()),
+                    }
+                })?;
+            } else {
+                let mut archive = zip::ZipArchive::new(file).map_err(|e| {
+                    Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.extract failed to read zip archive: {}", e),
                         filename: node.filename.clone(),
                         line: node.line,
                         col: node.col,
@@ -211,64 +271,77 @@ pub fn register(engine: &mut Engine) {
                     }
                 })?;
 
-                let outpath = match file.enclosed_name() {
-                    Some(path) => target_dir.join(path),
-                    None => continue,
-                };
-
-                if (*file.name()).ends_with('/') {
-                    std::fs::create_dir_all(&outpath).map_err(|e| {
+                for i in 0..archive.len() {
+                    let mut file = archive.by_index(i).map_err(|e| {
                         Diagnostic {
                             r#type: "error".to_string(),
-                            message: format!("io.file.extract failed to create entry directory: {}", e),
+                            message: format!("io.file.extract failed to read zip entry: {}", e),
                             filename: node.filename.clone(),
                             line: node.line,
                             col: node.col,
                             slot: Some("io.file.extract".to_string()),
                         }
                     })?;
-                } else {
-                    if let Some(p) = outpath.parent() {
-                        if !p.exists() {
-                            std::fs::create_dir_all(&p).map_err(|e| {
-                                Diagnostic {
-                                    r#type: "error".to_string(),
-                                    message: format!("io.file.extract failed to create entry parent directory: {}", e),
-                                    filename: node.filename.clone(),
-                                    line: node.line,
-                                    col: node.col,
-                                    slot: Some("io.file.extract".to_string()),
-                                }
-                            })?;
+
+                    let outpath = match file.enclosed_name() {
+                        Some(path) => target_dir.join(path),
+                        None => continue,
+                    };
+
+                    if (*file.name()).ends_with('/') {
+                        std::fs::create_dir_all(&outpath).map_err(|e| {
+                            Diagnostic {
+                                r#type: "error".to_string(),
+                                message: format!("io.file.extract failed to create entry directory: {}", e),
+                                filename: node.filename.clone(),
+                                line: node.line,
+                                col: node.col,
+                                slot: Some("io.file.extract".to_string()),
+                            }
+                        })?;
+                    } else {
+                        if let Some(p) = outpath.parent() {
+                            if !p.exists() {
+                                std::fs::create_dir_all(&p).map_err(|e| {
+                                    Diagnostic {
+                                        r#type: "error".to_string(),
+                                        message: format!("io.file.extract failed to create entry parent directory: {}", e),
+                                        filename: node.filename.clone(),
+                                        line: node.line,
+                                        col: node.col,
+                                        slot: Some("io.file.extract".to_string()),
+                                    }
+                                })?;
+                            }
                         }
+                        let mut outfile = std::fs::File::create(&outpath).map_err(|e| {
+                            Diagnostic {
+                                r#type: "error".to_string(),
+                                message: format!("io.file.extract failed to create entry file: {}", e),
+                                filename: node.filename.clone(),
+                                line: node.line,
+                                col: node.col,
+                                slot: Some("io.file.extract".to_string()),
+                            }
+                        })?;
+                        std::io::copy(&mut file, &mut outfile).map_err(|e| {
+                            Diagnostic {
+                                r#type: "error".to_string(),
+                                message: format!("io.file.extract failed to copy file contents: {}", e),
+                                filename: node.filename.clone(),
+                                line: node.line,
+                                col: node.col,
+                                slot: Some("io.file.extract".to_string()),
+                            }
+                        })?;
                     }
-                    let mut outfile = std::fs::File::create(&outpath).map_err(|e| {
-                        Diagnostic {
-                            r#type: "error".to_string(),
-                            message: format!("io.file.extract failed to create entry file: {}", e),
-                            filename: node.filename.clone(),
-                            line: node.line,
-                            col: node.col,
-                            slot: Some("io.file.extract".to_string()),
-                        }
-                    })?;
-                    std::io::copy(&mut file, &mut outfile).map_err(|e| {
-                        Diagnostic {
-                            r#type: "error".to_string(),
-                            message: format!("io.file.extract failed to copy file contents: {}", e),
-                            filename: node.filename.clone(),
-                            line: node.line,
-                            col: node.col,
-                            slot: Some("io.file.extract".to_string()),
-                        }
-                    })?;
-                }
 
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if let Some(mode) = file.unix_mode() {
-                        std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(mode)).ok();
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        if let Some(mode) = file.unix_mode() {
+                            std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(mode)).ok();
+                        }
                     }
                 }
             }

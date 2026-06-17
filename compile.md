@@ -93,15 +93,15 @@ chmod +x target/zig-wrapper.sh target/zig-cc.sh target/zig-cxx.sh target/zig-ar.
 Eksekusi kompilasi release dengan menyuntikkan wrapper script ke environment compiler Cargo:
 
 ```bash
-CC="./target/zig-cc.sh" \
-CXX="./target/zig-cxx.sh" \
-AR="./target/zig-ar.sh" \
-CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="./target/zig-linker-wrapper.sh" \
-cargo build --release
+CC="$PWD/target/zig-cc.sh" \
+CXX="$PWD/target/zig-cxx.sh" \
+AR="$PWD/target/zig-ar.sh" \
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$PWD/target/zig-linker-wrapper.sh" \
+cargo build --release --target x86_64-unknown-linux-gnu
 ```
 
 Binary hasil kompilasi akan berada di:
-`target/release/zeno`
+`target/x86_64-unknown-linux-gnu/release/zeno`
 
 ---
 
@@ -109,7 +109,7 @@ Binary hasil kompilasi akan berada di:
 Untuk memastikan binary yang dihasilkan benar-benar hanya menggunakan simbol GLIBC versi lama, jalankan perintah berikut pada terminal:
 
 ```bash
-objdump -p target/release/zeno | grep -E 'GLIBC_' | sort -u
+objdump -p target/x86_64-unknown-linux-gnu/release/zeno | grep -E 'GLIBC_' | sort -u
 ```
 
 **Hasil yang Benar:**

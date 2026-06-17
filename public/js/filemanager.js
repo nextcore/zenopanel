@@ -80,7 +80,7 @@ export function renderFileRows(data) {
         const itemPath = currentFilePath === '.' ? item.name :
                          currentFilePath === '/' ? '/' + item.name :
                          currentFilePath + '/' + item.name;
-        const isZip = item.name.endsWith('.zip') || item.name.endsWith('.tar.gz') || item.name.endsWith('.7z');
+        const isZip = item.name.endsWith('.zip') || item.name.endsWith('.tar.gz') || item.name.endsWith('.tgz') || item.name.endsWith('.7z');
         const typeText = item.is_dir ? 'Directory' : (item.name.includes('.') ? item.name.split('.').pop().toUpperCase() : 'File');
         const permText = formatPermissions(item.mode);
 
@@ -179,8 +179,8 @@ export function bulkDelete() {
 export function bulkArchive() {
     const paths = getSelectedPaths();
     if (paths.length === 0) return;
-    let defaultName = paths.length === 1 ? paths[0].split('/').pop() + '.zip' : 'archive.zip';
-    let zipName = prompt('Masukkan nama file ZIP untuk item yang dipilih:', defaultName);
+    let defaultName = paths.length === 1 ? (paths[0].split('/').pop().includes('.') ? paths[0].split('/').pop().split('.').slice(0, -1).join('.') : paths[0].split('/').pop()) + '.zip' : 'archive.zip';
+    let zipName = prompt('Masukkan nama file untuk item yang dipilih (mendukung .zip, .tar.gz):', defaultName);
     if (!zipName) return;
     const dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
     const promises = paths.length === 1
@@ -363,8 +363,9 @@ export function deleteFile(path) {
 
 // Compress file
 export function archiveFile(path) {
-    let defaultZipName = path.split('/').pop() + '.zip';
-    let zipName = prompt("Masukkan nama file ZIP tujuan kompresi:", defaultZipName);
+    let baseName = path.split('/').pop();
+    let defaultZipName = (baseName.includes('.') ? baseName.split('.').slice(0, -1).join('.') : baseName) + '.zip';
+    let zipName = prompt("Masukkan nama file tujuan kompresi (mendukung .zip, .tar.gz):", defaultZipName);
     if (zipName) {
         let dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
         
