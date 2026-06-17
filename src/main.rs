@@ -5,6 +5,7 @@ pub mod proxyman;
 pub mod sslman;
 mod auth;
 pub mod waf;
+pub mod gateway;
 
 
 use axum::{
@@ -97,10 +98,81 @@ pub(crate) struct AppState {
     pub(crate) rate_limiter: Arc<crate::waf::RateLimiter>,
     pub(crate) waf_enabled: std::sync::atomic::AtomicBool,
     pub(crate) traffic_stats: Arc<crate::waf::TrafficStatsManager>,
+    pub(crate) mgmt_port: u16,
 }
 
-#[tokio::main]
-async fn main() {
+fn kill_process_on_port(port: u16) {
+    let self_pid = std::process::id() as i32;
+
+    // Method 1: lsof
+    if let Ok(output) = std::process::Command::new("lsof")
+        .args(&["-t", &format!("-i:{}", port)])
+        .output()
+    {
+        let pid_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !pid_str.is_empty() {
+            for pid_line in pid_str.lines() {
+                if let Ok(pid) = pid_line.parse::<i32>() {
+                    if pid != self_pid {
+                        println!("⚠️ Port {} is in use by process {}. Attempting to kill it...", port, pid);
+                        let _ = std::process::Command::new("kill").args(&["-15", &pid.to_string()]).status();
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        let _ = std::process::Command::new("kill").args(&["-9", &pid.to_string()]).status();
+                    }
+                }
+            }
+            return;
+        }
+    }
+
+    // Method 2: fuser (fallback)
+    if let Ok(output) = std::process::Command::new("fuser")
+        .args(&[&format!("{}/tcp", port)])
+        .output()
+    {
+        let merged_output = format!(
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        for word in merged_output.split_whitespace() {
+            if let Ok(pid) = word.parse::<i32>() {
+                if pid != self_pid {
+                    println!("⚠️ Port {} is in use by process {}. Attempting to kill it...", port, pid);
+                    let _ = std::process::Command::new("kill").args(&["-15", &pid.to_string()]).status();
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = std::process::Command::new("kill").args(&["-9", &pid.to_string()]).status();
+                }
+            }
+        }
+    }
+}
+
+fn kill_preexisting_processes() {
+    let port = std::env::var("APP_PORT")
+        .unwrap_or_else(|_| ":3000".to_string())
+        .trim_start_matches(':')
+        .parse::<u16>()
+        .unwrap_or(3000);
+
+    let tls_port = std::env::var("APP_TLS_PORT")
+        .unwrap_or_else(|_| ":8443".to_string())
+        .trim_start_matches(':')
+        .parse::<u16>()
+        .unwrap_or(8443);
+
+    let mgmt_port = std::env::var("MGMT_PORT")
+        .unwrap_or_else(|_| "3002".to_string())
+        .trim_start_matches(':')
+        .parse::<u16>()
+        .unwrap_or(3002);
+
+    kill_process_on_port(port);
+    kill_process_on_port(tls_port);
+    kill_process_on_port(mgmt_port);
+}
+
+fn main() {
     // --- CLI Command Handling ---
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 2 && args[1] == "key:generate" {
@@ -110,6 +182,12 @@ async fn main() {
 
     let _ = rustls::crypto::ring::default_provider().install_default();
     let _ = dotenvy::dotenv();
+
+    kill_preexisting_processes();
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let (state, port, tls_port, cert_resolver) = rt.block_on(async {
 
     let csrf_enabled = std::env::var("CSRF_ENABLED").map(|v| v == "true").unwrap_or(true);
     let csrf_except_str = std::env::var("CSRF_EXCEPT").unwrap_or_else(|_| "/api,/health".to_string());
@@ -383,7 +461,7 @@ async fn main() {
         .await
     {
         if let Ok(val) = db_val.parse::<u64>() {
-            db_rate_limit_window = val;
+        db_rate_limit_window = val;
         }
     } else {
         let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_window', ?)")
@@ -403,6 +481,12 @@ async fn main() {
         }
     });
 
+    let mgmt_port = std::env::var("MGMT_PORT")
+        .unwrap_or_else(|_| "3002".to_string())
+        .trim_start_matches(':')
+        .parse::<u16>()
+        .unwrap_or(3002);
+
     let state = Arc::new(AppState {
         engine,
         router,
@@ -419,6 +503,7 @@ async fn main() {
         rate_limiter,
         waf_enabled: std::sync::atomic::AtomicBool::new(db_waf_enabled),
         traffic_stats,
+        mgmt_port,
     });
 
     let static_service = ServeDir::new("public");
@@ -437,18 +522,18 @@ async fn main() {
         .parse::<u16>()
         .unwrap_or(3000);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
-    println!("Server running on http://localhost:{}", port);
+    let tls_port = std::env::var("APP_TLS_PORT")
+        .unwrap_or_else(|_| ":8443".to_string())
+        .trim_start_matches(':')
+        .parse::<u16>()
+        .unwrap_or(8443);
+
+    // Bind internal Axum server to localhost dynamic management port
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", mgmt_port)).await.unwrap();
+    println!("Internal Axum server running on http://127.0.0.1:{}", mgmt_port);
 
     // Initialize shared certificate resolver
     let cert_resolver = Arc::new(sslman::ZenoCertResolver::new(proxy_manager.clone(), "./certs"));
-
-    // Spawn HTTPS/TLS server in the background
-    let cert_resolver_server_clone = cert_resolver.clone();
-    let app_clone = app.clone();
-    tokio::spawn(async move {
-        sslman::run_tls_server(cert_resolver_server_clone, app_clone).await;
-    });
 
     // Spawn SSL Auto-Renewal worker in the background
     let pm_renew_clone = proxy_manager.clone();
@@ -464,7 +549,69 @@ async fn main() {
         start_dynamic_proxy_listeners(state_dynamic_clone, app_dynamic_clone, port).await;
     });
 
-    axum::serve(listener, app).await.unwrap();
+    // Spawn the internal Axum server in the background
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app_clone).await {
+            eprintln!("Internal Axum server error: {}", e);
+        }
+    });
+
+        (state, port, tls_port, cert_resolver)
+    });
+
+    // Start Pingora Reverse Proxy Gateway
+    let mut pingora_server = pingora::server::Server::new(None).unwrap();
+    pingora_server.bootstrap();
+
+    let gateway = gateway::ZenoGateway::new(state.clone());
+    let mut proxy_service = pingora::proxy::http_proxy_service(&pingora_server.configuration, gateway);
+
+    // Configure HTTP listener
+    proxy_service.add_tcp(&format!("0.0.0.0:{}", port));
+    println!("Pingora Reverse Proxy Gateway listening on http://0.0.0.0:{}", port);
+
+    // Configure HTTPS/TLS listener
+    let default_cert_path = "./certs/default.crt";
+    let default_key_path = "./certs/default.key";
+    if !std::path::Path::new(default_cert_path).exists() || !std::path::Path::new(default_key_path).exists() {
+        println!("[SSL] Creating default bootstrap self-signed certificate...");
+        if let Ok(rcgen_key) = rcgen::generate_simple_self_signed(vec!["localhost".to_string(), "zenopanel.local".to_string()]) {
+            let _ = std::fs::create_dir_all("./certs");
+            let _ = std::fs::write(default_cert_path, rcgen_key.cert.pem());
+            let _ = std::fs::write(default_key_path, rcgen_key.key_pair.serialize_pem());
+        }
+    }
+
+    if let Ok(mut tls_settings) = pingora::listeners::tls::TlsSettings::intermediate(default_cert_path, default_key_path) {
+        tls_settings.enable_h2();
+
+        let cert_resolver_clone = cert_resolver.clone();
+        tls_settings.set_servername_callback(move |ssl, _alert| {
+            if let Some(domain) = ssl.servername(openssl::ssl::NameType::HOST_NAME) {
+                let cert_exists = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        cert_resolver_clone.get_or_create_cert(domain).await.is_some()
+                    })
+                });
+
+                if cert_exists {
+                    if let Some(ctx) = create_ssl_context_for_domain(domain) {
+                        let _ = ssl.set_ssl_context(&ctx);
+                    }
+                }
+            }
+            Ok(())
+        });
+
+        proxy_service.add_tls_with_settings(&format!("0.0.0.0:{}", tls_port), None, tls_settings);
+        println!("Pingora Reverse Proxy Gateway listening on https://0.0.0.0:{}", tls_port);
+    } else {
+        eprintln!("[SSL] Failed to initialize dynamic TLS settings for Pingora");
+    }
+
+    pingora_server.add_service(proxy_service);
+    pingora_server.run_forever();
 }
 
 fn convert_path_to_matchit(path: &str) -> String {
@@ -1080,7 +1227,7 @@ async fn forward_request(
     Ok(response)
 }
 
-fn render_error_page(engine: &zenocore::Engine, status: &str, app_name: &str, details: &str) -> String {
+pub(crate) fn render_error_page(engine: &zenocore::Engine, status: &str, app_name: &str, details: &str) -> String {
     let status_color = match status {
         "starting" => "#eab308", // Yellow
         "stopped" => "#6b7280", // Gray
@@ -1225,6 +1372,50 @@ pub(crate) async fn start_dynamic_proxy_listeners(
             }
         }
     }
+}
+
+fn create_ssl_context_for_domain(domain: &str) -> Option<openssl::ssl::SslContext> {
+    let cert_path = format!("./certs/{}.crt", domain);
+    let key_path = format!("./certs/{}.key", domain);
+
+    if !std::path::Path::new(&cert_path).exists() || !std::path::Path::new(&key_path).exists() {
+        return None;
+    }
+
+    let cert_bytes = std::fs::read(&cert_path).ok()?;
+    let key_bytes = std::fs::read(&key_path).ok()?;
+
+    let mut builder = openssl::ssl::SslContext::builder(openssl::ssl::SslMethod::tls()).ok()?;
+
+    // Parse certificates (handling PEM stack/chain or single DER/PEM)
+    if let Ok(certs) = openssl::x509::X509::stack_from_pem(&cert_bytes) {
+        if !certs.is_empty() {
+            builder.set_certificate(&certs[0]).ok()?;
+            for intermediate in certs.iter().skip(1) {
+                builder.add_extra_chain_cert(intermediate.clone()).ok()?;
+            }
+        } else {
+            let cert = openssl::x509::X509::from_der(&cert_bytes).ok()?;
+            builder.set_certificate(&cert).ok()?;
+        }
+    } else {
+        // Fallback to DER or single PEM
+        if let Ok(cert) = openssl::x509::X509::from_pem(&cert_bytes) {
+            builder.set_certificate(&cert).ok()?;
+        } else if let Ok(cert) = openssl::x509::X509::from_der(&cert_bytes) {
+            builder.set_certificate(&cert).ok()?;
+        } else {
+            return None;
+        }
+    }
+
+    // Parse private key (DER)
+    let pkey = openssl::pkey::PKey::private_key_from_der(&key_bytes).ok()?;
+    builder.set_private_key(&pkey).ok()?;
+
+    builder.check_private_key().ok()?;
+
+    Some(builder.build())
 }
 
 

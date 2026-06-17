@@ -25,6 +25,9 @@ zenocore = "0.1.0"
 zeno-blade = "0.1.0"
 zeno-std = "0.1.0"
 zenoengine = "0.1.0"
+pingora = { version = "0.8.1", features = ["openssl", "proxy"] }
+openssl = "0.10"
+async-trait = "0.1"
 zip = "0.6"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 url = "2.5"

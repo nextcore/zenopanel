@@ -1,5 +1,6 @@
 import urllib.request
 import urllib.parse
+import urllib.error
 import json
 import time
 import sys
@@ -50,12 +51,27 @@ def get_json(url):
 def main():
     print("=== STARTING ZENOPANEL VERIFICATION ===")
     base_url = 'http://127.0.0.1:3000'
+
+    import sqlite3
+    try:
+        conn = sqlite3.connect('zeno.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = 'entrance_path'")
+        row = cursor.fetchone()
+        entrance_path = row[0] if row else '/login'
+        conn.close()
+    except Exception:
+        entrance_path = '/login'
+    if not entrance_path.startswith('/'):
+        entrance_path = '/' + entrance_path
+
+    print(f"Using entrance path: {entrance_path}")
     
     # Authenticate first
     print("Authenticating admin...")
     try:
         # Get CSRF token
-        req = urllib.request.Request(base_url + '/login')
+        req = urllib.request.Request(base_url + entrance_path)
         with urllib.request.urlopen(req) as res:
             cookie_hdr = res.info().get('Set-Cookie')
             csrf_token = get_cookie_value(cookie_hdr, '_csrf')
@@ -63,7 +79,7 @@ def main():
         # Login
         login_data = json.dumps({"username": "admin", "password": "admin"}).encode('utf-8')
         req = urllib.request.Request(
-            base_url + '/login',
+            base_url + entrance_path,
             data=login_data,
             headers={
                 'Content-Type': 'application/json',
@@ -81,6 +97,13 @@ def main():
             'X-CSRF-Token': csrf_token or ''
         }
         print("Authenticated successfully!")
+    except urllib.error.HTTPError as e:
+        print(f"Failed to authenticate: {e}")
+        try:
+            print("Response body:", e.read().decode('utf-8'))
+        except Exception:
+            pass
+        sys.exit(1)
     except Exception as e:
         print(f"Failed to authenticate: {e}")
         sys.exit(1)
