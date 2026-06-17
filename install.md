@@ -1,9 +1,9 @@
-1. Download binary zenopanel
-wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.1.0.tar.gz
+1. Download binary zenopanel:
+wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.2.0.tar.gz
 
-2. Unzip & Masuk Folder
-tar -xzvf zenopanel-v0.1.0.tar.gz
-cd zenopanel-v0.1.0
+2. Unzip & Masuk Folder:
+tar -xzvf zenopanel-v0.2.0.tar.gz
+cd zenopanel-v0.2.0
 
 3. Salin Konfigurasi Environment
 cp .env.example .env
