@@ -328,7 +328,10 @@ async fn main() {
         }
     }
 
-    let reqwest_client = reqwest::Client::new();
+    let reqwest_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
     let login_limiter = Arc::new(LoginLimiter::new());
 
     let pool = &default_pool;
@@ -1122,6 +1125,11 @@ fn render_error_page(engine: &zenocore::Engine, status: &str, app_name: &str, de
             ctx.set("httpWriter", html_buffer);
 
             let scope = std::sync::Arc::new(zenocore::Scope::new(None));
+            scope.set("status_color", zenocore::Value::String(status_color.to_string()));
+            scope.set("status_label", zenocore::Value::String(status_label.to_string()));
+            scope.set("app_name", zenocore::Value::String(app_name.to_string()));
+            scope.set("status_desc", zenocore::Value::String(status_desc.to_string()));
+            scope.set("details", zenocore::Value::String(details.to_string()));
             if let Err(e) = engine.execute(&mut ctx, &node, &scope) {
                 eprintln!("Failed to execute proxy_error render node: {}", e);
                 return format!("<html><body><h1>Service {} Unavailable</h1><p>{}</p><pre>{}</pre></body></html>", app_name, status_desc, details);
