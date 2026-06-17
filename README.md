@@ -14,16 +14,17 @@ Tidak seperti aaPanel atau 1Panel yang menginstal ratusan megabyte dependensi pi
 
 ## 🚀 Kenapa ZenoPanel Berbeda? (Developer-First Philosophy)
 
-aaPanel dan 1Panel dirancang untuk sysadmin tradisional yang mengelola web hosting LAMP/LEMP klasik. ZenoPanel dirancang untuk pengembang aplikasi modern (Rust, Go, Node.js, Python, .NET) yang membutuhkan kecepatan, efisiensi tinggi, dan integrasi mulus.
+ZenoPanel dirancang khusus untuk pengembang aplikasi modern (Rust, Go, Node.js, Python, .NET) yang membutuhkan kecepatan, efisiensi tinggi, dan manajemen serba otomatis dalam satu atap—berbeda dengan sysadmin tradisional yang mengelola LAMP/LEMP klasik lewat panel berat atau menulis konfigurasi server manual secara berulang.
 
-| Dimensi | aaPanel / 1Panel | ⚡ ZenoPanel |
-| :--- | :--- | :--- |
-| **Konsumsi RAM (Idle)** | 1.2 GB - 2 GB RAM | **~15 MB RAM** (Hemat 99%) |
-| **Instalasi & Setup** | Butuh bash script kompleks, mengunduh Nginx, PHP, MySQL, dll. | **Langsung Jalankan** (Single binary + SQLite). |
-| **Deployment App** | Harus membuat config vhost manual, unit systemd manual. | **Satu Klik Form**: Masukkan command, env, cwd. Otomatis jalan dengan monitoring. |
-| **Isolasi Lingkungan** | Variabel lingkungan global bercampur dengan proses sistem. | **Isolasi Penuh**: Env vars dienkapsulasi aman per proses. |
-| **Reverse Proxy** | Edit file konfigurasi Nginx, reload manual, resiko syntax error. | **Cloudflare Pingora Gateway**: Integrasi native ultra-cepat, konfigurasi dinamis instan via UI tanpa menyentuh file config. |
-| **Kustomisasi Panel** | Harus membongkar ribuan baris PHP/Go dan compile ulang. | **ZenoLang Scripting**: Ubah logika panel secara dinamis tanpa compile ulang Rust. |
+| Dimensi | Nginx / Caddy | aaPanel / 1Panel | ⚡ ZenoPanel (Pingora-based) |
+| :--- | :--- | :--- | :--- |
+| **Konsumsi RAM (Idle)** | ~50 MB - 150 MB | 1.2 GB - 2 GB | **~15 MB** (Sangat hemat resource) |
+| **Fokus Utama** | Web Server / Reverse Proxy saja | Web Hosting Tradisional (LAMP/LEMP) | **Unified Developer Panel** (Web Server + Process Manager + File Manager + WAF) |
+| **Instalasi & Setup** | Konfigurasi manual per server / Caddyfile | Script instalasi berat, download PHP/MySQL/Nginx global | **Single Binary + SQLite** (Langsung jalankan, zero system pollution) |
+| **Manajemen Proses App** | ❌ Tidak ada (Butuh PM2, Systemd, Supervisord) | ⚠️ Terbatas pada systemd/cron script manual | **✅ Native & Terintegrasi** (Auto-restart, logs streaming, telemetry CPU/RAM per proses) |
+| **Dynamic Routing** | Reload config manual (potensi downtime/syntax error) | Rewrite rule manual via Nginx config | **✅ Real-Time & Dinamis** (Ubah rule di UI langsung aktif tanpa reload server Pingora) |
+| **Keamanan & WAF** | Butuh plugin luar (ModSecurity / Coraza) | Basic security plugin (kebanyakan berbayar) | **✅ WAF & Rate Limiting Bawaan** (Terintegrasi langsung di filter request Pingora) |
+| **Ekspansibilitas Logika** | Menulis modul C/Go dan compile ulang server | Membongkar ribuan baris PHP/Go panel | **✅ ZenoLang Scripting**: Ubah logika panel dinamis tanpa compile ulang Rust |
 
 ---
 
