@@ -308,6 +308,19 @@ impl ProxyHttp for ZenoGateway {
         let path = req_header.uri.path();
 
         if let Some(rule) = self.state.proxy_manager.match_rule(&host, request_port, path).await {
+            if rule.rule_type == "static" {
+                // Forward static site requests to local Axum instance
+                ctx.is_proxy_rule = false;
+                ctx.target_host = "127.0.0.1".to_string();
+
+                let peer = Box::new(HttpPeer::new(
+                    format!("127.0.0.1:{}", self.state.mgmt_port),
+                    false,
+                    String::new(),
+                ));
+                return Ok(peer);
+            }
+
             let target = self.state.proxy_manager.get_next_target(&rule.id, &rule.target).await;
             
             let is_https = target.starts_with("https://");
@@ -320,8 +333,28 @@ impl ProxyHttp for ZenoGateway {
             ctx.strip_path = rule.strip_path;
             ctx.rule_path = rule.path.clone();
 
+            let addr_str = format!("{}:{}", t_host, t_port);
+            let socket_addr = match tokio::net::lookup_host(&addr_str).await {
+                Ok(mut addrs) => {
+                    if let Some(addr) = addrs.next() {
+                        addr
+                    } else {
+                        return Err(pingora::Error::explain(
+                            pingora::prelude::ErrorType::ConnectError,
+                            format!("DNS lookup returned no addresses for {}", addr_str),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return Err(pingora::Error::explain(
+                        pingora::prelude::ErrorType::ConnectError,
+                        format!("DNS lookup failed for {}: {}", addr_str, e),
+                    ));
+                }
+            };
+
             let peer = Box::new(HttpPeer::new(
-                format!("{}:{}", t_host, t_port),
+                socket_addr,
                 is_https,
                 t_host.clone(),
             ));
