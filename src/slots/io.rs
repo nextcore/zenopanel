@@ -1,7 +1,7 @@
-use zenocore::{Engine, SlotMeta, Value, Diagnostic};
 use super::resolve_node_value;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
+use zenocore::{Diagnostic, Engine, SlotMeta, Value};
 
 fn zip_dir_recursive(
     src_dir: &std::path::Path,
@@ -23,7 +23,10 @@ fn zip_dir_recursive(
     Ok(())
 }
 
-fn zip_file(src_file: &std::path::Path, zip: &mut zip::ZipWriter<std::fs::File>) -> Result<(), Box<dyn std::error::Error>> {
+fn zip_file(
+    src_file: &std::path::Path,
+    zip: &mut zip::ZipWriter<std::fs::File>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let name = src_file.file_name().ok_or("Invalid file name")?;
     zip.start_file(name.to_string_lossy(), zip::write::FileOptions::default())?;
     let mut f = std::fs::File::open(src_file)?;
@@ -50,14 +53,20 @@ pub fn register(engine: &mut Engine) {
                 } else if child.name == "dest" || child.name == "dst" {
                     dest = val.to_string_coerce();
                 } else if child.name == "as" {
-                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                    target = child
+                        .value
+                        .clone()
+                        .unwrap_or_default()
+                        .trim_start_matches('$')
+                        .to_string();
                 }
             }
 
             if source.is_empty() || dest.is_empty() {
                 return Err(Diagnostic {
                     r#type: "error".to_string(),
-                    message: "io.file.archive: both source (path) and dest paths are required".to_string(),
+                    message: "io.file.archive: both source (path) and dest paths are required"
+                        .to_string(),
                     filename: node.filename.clone(),
                     line: node.line,
                     col: node.col,
@@ -70,15 +79,16 @@ pub fn register(engine: &mut Engine) {
 
             if let Some(parent) = dst_path.parent() {
                 if !parent.exists() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        Diagnostic {
-                            r#type: "error".to_string(),
-                            message: format!("io.file.archive failed to create target parent dir: {}", e),
-                            filename: node.filename.clone(),
-                            line: node.line,
-                            col: node.col,
-                            slot: Some("io.file.archive".to_string()),
-                        }
+                    std::fs::create_dir_all(parent).map_err(|e| Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!(
+                            "io.file.archive failed to create target parent dir: {}",
+                            e
+                        ),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.archive".to_string()),
                     })?;
                 }
             }
@@ -86,15 +96,13 @@ pub fn register(engine: &mut Engine) {
             let is_tar_gz = dest.ends_with(".tar.gz") || dest.ends_with(".tgz");
 
             if is_tar_gz {
-                let file = std::fs::File::create(&dst_path).map_err(|e| {
-                    Diagnostic {
-                        r#type: "error".to_string(),
-                        message: format!("io.file.archive failed to create destination file: {}", e),
-                        filename: node.filename.clone(),
-                        line: node.line,
-                        col: node.col,
-                        slot: Some("io.file.archive".to_string()),
-                    }
+                let file = std::fs::File::create(&dst_path).map_err(|e| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("io.file.archive failed to create destination file: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.archive".to_string()),
                 })?;
 
                 let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
@@ -102,50 +110,50 @@ pub fn register(engine: &mut Engine) {
 
                 let res = if src_path.is_dir() {
                     tar.append_dir_all(
-                        src_path.file_name().ok_or("Invalid directory name").unwrap_or(std::ffi::OsStr::new("")),
+                        src_path
+                            .file_name()
+                            .ok_or("Invalid directory name")
+                            .unwrap_or(std::ffi::OsStr::new("")),
                         src_path,
                     )
                 } else {
                     match std::fs::File::open(src_path) {
                         Ok(mut f) => {
-                            let name = src_path.file_name().ok_or("Invalid file name").unwrap_or(std::ffi::OsStr::new(""));
+                            let name = src_path
+                                .file_name()
+                                .ok_or("Invalid file name")
+                                .unwrap_or(std::ffi::OsStr::new(""));
                             tar.append_file(name, &mut f)
                         }
-                        Err(e) => Err(e)
+                        Err(e) => Err(e),
                     }
                 };
 
-                res.map_err(|e| {
-                    Diagnostic {
-                        r#type: "error".to_string(),
-                        message: format!("io.file.archive failed: {}", e),
-                        filename: node.filename.clone(),
-                        line: node.line,
-                        col: node.col,
-                        slot: Some("io.file.archive".to_string()),
-                    }
+                res.map_err(|e| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("io.file.archive failed: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.archive".to_string()),
                 })?;
 
-                tar.finish().map_err(|e| {
-                    Diagnostic {
-                        r#type: "error".to_string(),
-                        message: format!("io.file.archive failed to finalize tar.gz: {}", e),
-                        filename: node.filename.clone(),
-                        line: node.line,
-                        col: node.col,
-                        slot: Some("io.file.archive".to_string()),
-                    }
+                tar.finish().map_err(|e| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("io.file.archive failed to finalize tar.gz: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.archive".to_string()),
                 })?;
             } else {
-                let file = std::fs::File::create(&dst_path).map_err(|e| {
-                    Diagnostic {
-                        r#type: "error".to_string(),
-                        message: format!("io.file.archive failed to create destination file: {}", e),
-                        filename: node.filename.clone(),
-                        line: node.line,
-                        col: node.col,
-                        slot: Some("io.file.archive".to_string()),
-                    }
+                let file = std::fs::File::create(&dst_path).map_err(|e| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("io.file.archive failed to create destination file: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.archive".to_string()),
                 })?;
 
                 let mut zip = zip::ZipWriter::new(file);
@@ -156,33 +164,35 @@ pub fn register(engine: &mut Engine) {
                     zip_file(src_path, &mut zip)
                 };
 
-                res.map_err(|e| {
-                    Diagnostic {
-                        r#type: "error".to_string(),
-                        message: format!("io.file.archive failed: {}", e),
-                        filename: node.filename.clone(),
-                        line: node.line,
-                        col: node.col,
-                        slot: Some("io.file.archive".to_string()),
-                    }
+                res.map_err(|e| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("io.file.archive failed: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.archive".to_string()),
                 })?;
 
-                zip.finish().map_err(|e| {
-                    Diagnostic {
-                        r#type: "error".to_string(),
-                        message: format!("io.file.archive failed to finalize zip: {}", e),
-                        filename: node.filename.clone(),
-                        line: node.line,
-                        col: node.col,
-                        slot: Some("io.file.archive".to_string()),
-                    }
+                zip.finish().map_err(|e| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("io.file.archive failed to finalize zip: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.archive".to_string()),
                 })?;
             }
 
             scope.set(&target, Value::Bool(true));
             Ok(())
         }),
-        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+        SlotMeta {
+            description: "".to_string(),
+            example: "".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
     );
 
     engine.register(
@@ -367,25 +377,34 @@ pub fn register(engine: &mut Engine) {
                 if child.name == "path" {
                     path = val.to_string_coerce();
                 } else if child.name == "as" {
-                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                    target = child
+                        .value
+                        .clone()
+                        .unwrap_or_default()
+                        .trim_start_matches('$')
+                        .to_string();
                 }
             }
 
-            let content = std::fs::read_to_string(&path).map_err(|e| {
-                Diagnostic {
-                    r#type: "error".to_string(),
-                    message: format!("io.file.read failed: {}", e),
-                    filename: node.filename.clone(),
-                    line: node.line,
-                    col: node.col,
-                    slot: Some("io.file.read".to_string()),
-                }
+            let content = std::fs::read_to_string(&path).map_err(|e| Diagnostic {
+                r#type: "error".to_string(),
+                message: format!("io.file.read failed: {}", e),
+                filename: node.filename.clone(),
+                line: node.line,
+                col: node.col,
+                slot: Some("io.file.read".to_string()),
             })?;
 
             scope.set(&target, Value::String(content));
             Ok(())
         }),
-        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+        SlotMeta {
+            description: "".to_string(),
+            example: "".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
     );
 
     engine.register(
@@ -453,7 +472,9 @@ pub fn register(engine: &mut Engine) {
             if path.is_empty() {
                 for child in &node.children {
                     if child.name == "path" {
-                        path = engine.resolve_shorthand_value(child, scope).to_string_coerce();
+                        path = engine
+                            .resolve_shorthand_value(child, scope)
+                            .to_string_coerce();
                     }
                 }
             }
@@ -469,19 +490,23 @@ pub fn register(engine: &mut Engine) {
                 });
             }
 
-            std::fs::create_dir_all(&path).map_err(|e| {
-                Diagnostic {
-                    r#type: "error".to_string(),
-                    message: format!("io.dir.create failed: {}", e),
-                    filename: node.filename.clone(),
-                    line: node.line,
-                    col: node.col,
-                    slot: Some("io.dir.create".to_string()),
-                }
+            std::fs::create_dir_all(&path).map_err(|e| Diagnostic {
+                r#type: "error".to_string(),
+                message: format!("io.dir.create failed: {}", e),
+                filename: node.filename.clone(),
+                line: node.line,
+                col: node.col,
+                slot: Some("io.dir.create".to_string()),
             })?;
             Ok(())
         }),
-        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+        SlotMeta {
+            description: "".to_string(),
+            example: "".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
     );
 
     engine.register(
@@ -491,7 +516,9 @@ pub fn register(engine: &mut Engine) {
             if path.is_empty() {
                 for child in &node.children {
                     if child.name == "path" {
-                        path = engine.resolve_shorthand_value(child, scope).to_string_coerce();
+                        path = engine
+                            .resolve_shorthand_value(child, scope)
+                            .to_string_coerce();
                     }
                 }
             }
@@ -510,32 +537,34 @@ pub fn register(engine: &mut Engine) {
             let p = std::path::Path::new(&path);
             if p.exists() {
                 if p.is_dir() {
-                    std::fs::remove_dir_all(p).map_err(|e| {
-                        Diagnostic {
-                            r#type: "error".to_string(),
-                            message: format!("io.file.delete failed: {}", e),
-                            filename: node.filename.clone(),
-                            line: node.line,
-                            col: node.col,
-                            slot: Some("io.file.delete".to_string()),
-                        }
+                    std::fs::remove_dir_all(p).map_err(|e| Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.delete failed: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.delete".to_string()),
                     })?;
                 } else {
-                    std::fs::remove_file(p).map_err(|e| {
-                        Diagnostic {
-                            r#type: "error".to_string(),
-                            message: format!("io.file.delete failed: {}", e),
-                            filename: node.filename.clone(),
-                            line: node.line,
-                            col: node.col,
-                            slot: Some("io.file.delete".to_string()),
-                        }
+                    std::fs::remove_file(p).map_err(|e| Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.delete failed: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.delete".to_string()),
                     })?;
                 }
             }
             Ok(())
         }),
-        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+        SlotMeta {
+            description: "".to_string(),
+            example: "".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
     );
 
     engine.register(
@@ -576,15 +605,13 @@ pub fn register(engine: &mut Engine) {
                 u32::from_str_radix(&mi.to_string(), 8).unwrap_or(mi as u32)
             } else {
                 let clean_mode = mode_str.trim().trim_start_matches("0o");
-                u32::from_str_radix(clean_mode, 8).map_err(|e| {
-                    Diagnostic {
-                        r#type: "error".to_string(),
-                        message: format!("io.file.chmod: invalid mode '{}': {}", mode_str, e),
-                        filename: node.filename.clone(),
-                        line: node.line,
-                        col: node.col,
-                        slot: Some("io.file.chmod".to_string()),
-                    }
+                u32::from_str_radix(clean_mode, 8).map_err(|e| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("io.file.chmod: invalid mode '{}': {}", mode_str, e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.chmod".to_string()),
                 })?
             };
 
@@ -595,7 +622,10 @@ pub fn register(engine: &mut Engine) {
                 let path_obj = std::path::Path::new(&path);
 
                 if recursive && path_obj.is_dir() {
-                    fn set_perm_recursive(dir: &std::path::Path, perm: &std::fs::Permissions) -> std::io::Result<()> {
+                    fn set_perm_recursive(
+                        dir: &std::path::Path,
+                        perm: &std::fs::Permissions,
+                    ) -> std::io::Result<()> {
                         std::fs::set_permissions(dir, perm.clone())?;
                         for entry in std::fs::read_dir(dir)? {
                             let entry = entry?;
@@ -608,32 +638,89 @@ pub fn register(engine: &mut Engine) {
                         }
                         Ok(())
                     }
-                    set_perm_recursive(path_obj, &permissions).map_err(|e| {
-                        Diagnostic {
-                            r#type: "error".to_string(),
-                            message: format!("io.file.chmod recursive failed: {}", e),
-                            filename: node.filename.clone(),
-                            line: node.line,
-                            col: node.col,
-                            slot: Some("io.file.chmod".to_string()),
-                        }
+                    set_perm_recursive(path_obj, &permissions).map_err(|e| Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.chmod recursive failed: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.chmod".to_string()),
                     })?;
                 } else {
-                    std::fs::set_permissions(&path, permissions).map_err(|e| {
-                        Diagnostic {
-                            r#type: "error".to_string(),
-                            message: format!("io.file.chmod failed: {}", e),
-                            filename: node.filename.clone(),
-                            line: node.line,
-                            col: node.col,
-                            slot: Some("io.file.chmod".to_string()),
-                        }
+                    std::fs::set_permissions(&path, permissions).map_err(|e| Diagnostic {
+                        r#type: "error".to_string(),
+                        message: format!("io.file.chmod failed: {}", e),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("io.file.chmod".to_string()),
                     })?;
                 }
             }
 
             Ok(())
         }),
-        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+        SlotMeta {
+            description: "".to_string(),
+            example: "".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+
+    engine.register(
+        "io.file.write",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut path = String::new();
+            let mut content = String::new();
+
+            if let Some(ref val) = node.value {
+                path = val.clone();
+            }
+
+            for child in &node.children {
+                let name = &child.name;
+                let val = engine.resolve_shorthand_value(child, scope);
+                if name == "path" {
+                    path = val.to_string_coerce();
+                } else if name == "content" {
+                    content = val.to_string_coerce();
+                }
+            }
+
+            if path.is_empty() {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "io.file.write: path is required".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.write".to_string()),
+                });
+            }
+
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            std::fs::write(&path, &content).map_err(|e| Diagnostic {
+                r#type: "error".to_string(),
+                message: format!("io.file.write failed: {}", e),
+                filename: node.filename.clone(),
+                line: node.line,
+                col: node.col,
+                slot: Some("io.file.write".to_string()),
+            })?;
+
+            Ok(())
+        }),
+        SlotMeta {
+            description: "".to_string(),
+            example: "".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
     );
 }

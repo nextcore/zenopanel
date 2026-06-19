@@ -22,8 +22,11 @@ ZenoPanel dirancang khusus untuk pengembang aplikasi modern (Rust, Go, Node.js, 
 | **Fokus Utama** | Web Server / Reverse Proxy saja | Web Hosting Tradisional (LAMP/LEMP) | **Unified Developer Panel** (Web Server + Process Manager + File Manager + WAF) |
 | **Instalasi & Setup** | Konfigurasi manual per server / Caddyfile | Script instalasi berat, download PHP/MySQL/Nginx global | **Single Binary + SQLite** (Langsung jalankan, zero system pollution) |
 | **Manajemen Proses App** | ❌ Tidak ada (Butuh PM2, Systemd, Supervisord) | ⚠️ Terbatas pada systemd/cron script manual | **✅ Native & Terintegrasi** (Auto-restart, logs streaming, telemetry CPU/RAM per proses) |
-| **Dynamic Routing** | Reload config manual (potensi downtime/syntax error) | Rewrite rule manual via Nginx config | **✅ Real-Time & Dinamis** (Ubah rule di UI langsung aktif tanpa reload server Pingora) |
-| **Keamanan & WAF** | Butuh plugin luar (ModSecurity / Coraza) | Basic security plugin (kebanyakan berbayar) | **✅ WAF & Rate Limiting Bawaan** (Terintegrasi langsung di filter request Pingora) |
+| **Proses Manager** | ❌ Tidak ada (Butuh PM2, Systemd) | ⚠️ Terbatas | **✅ Auto-restart + Telemetry** |
+| **Container Runtime** | ❌ Tidak ada | ❌ Tidak ada | **✅ Built-in (runc-based)** |
+| **Docker Compose** | ❌ Tidak ada | ❌ Tidak ada | **✅ YAML parser bawaan** |
+| **Dynamic Routing** | Reload config manual | Rewrite rule manual | **✅ Real-Time & Dinamis** |
+| **Keamanan & WAF** | Butuh plugin luar (ModSecurity) | Basic security plugin | **✅ WAF & Rate Limiting Bawaan** |
 | **Ekspansibilitas Logika** | Menulis modul C/Go dan compile ulang server | Membongkar ribuan baris PHP/Go panel | **✅ ZenoLang Scripting**: Ubah logika panel dinamis tanpa compile ulang Rust |
 
 ---
@@ -54,6 +57,23 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 - **Auto-Restart Cerdas**: Pemulihan otomatis jika proses crash dengan algoritma *exponential backoff*.
 - **Telemetry Real-Time**: Pantau beban CPU, RAM, dan status port aktif secara visual.
 - **Logs Streaming**: Streaming log stdout dan stderr secara real-time langsung ke browser Anda.
+
+### 🐳 Container Manager (Lightweight Runtime)
+- **Container Runtime Bawaan**: Jalankan container tanpa Docker daemon — menggunakan `runc` (OCI-compliant) yang di-embedded langsung di binary.
+- **Pull Image dari Registry**: Dukung Docker Hub, OCI registry — pull image langsung via Registry API V2.
+- **Manajemen Lengkap**: Create, start, stop, delete container — semuanya dari UI panel.
+- **Volume Mount & Port Mapping**: Bind mount folder host, mapping port container.
+- **Environment Variables**: Dukung env vars saat create container.
+- **Browse Files Container**: Navigasi filesystem container langsung dari File Manager.
+- **Real-Time Status**: Status container update otomatis tiap 2 detik.
+- **Rootless Mode**: Container bisa jalan tanpa root (menggunakan user namespace).
+
+### 📦 Docker Compose Support
+- **YAML Parser Bawaan**: Parse `docker-compose.yml` langsung — tanpa dependency eksternal.
+- **Service Discovery**: Container bisa saling panggil via nama service (inject `/etc/hosts`).
+- **Depends On**: Startup order sesuai dependency.
+- **Networks**: Dukung definisi network dengan service discovery.
+- **Command Lengkap**: `compose up`, `compose down`, `compose ps` dari CLI & UI.
 
 ### 🔀 Reverse Proxy & Load Balancing Modern (Cloudflare Pingora)
 - **Engine Pingora Terintegrasi**: Menggunakan Cloudflare Pingora Core yang ultra-cepat, hemat memori, dan tahan terhadap serangan buffer overflow.
@@ -90,17 +110,28 @@ ZenoPanel dibangun di atas fondasi teknologi Rust yang kokoh untuk menjamin efis
 
 - **Proxy Engine**: [Cloudflare Pingora](https://github.com/cloudflare/pingora) (`pingora-core` & `pingora-proxy`) sebagai reverse proxy gateway utama.
 - **Web Engine**: [Axum](https://github.com/tokio-rs/axum) & [Tokio](https://tokio.rs/) Async Runtime (internal management control plane).
+- **Container Runtime**: [runc](https://github.com/opencontainers/runc) (OCI-compliant) — di-embedded langsung di binary ZenoPanel.
+- **Container Build**: Go (untuk `zeno-container` CLI — pull image, OCI bundle, container lifecycle).
 - **TLS & Crypto Engine**: OpenSSL (terintegrasi erat dengan Pingora untuk handshake ultra-cepat) & [Rustls](https://github.com/rustls/rustls).
 - **Security & ACME**: [instant-acme](https://github.com/jsha/instant-acme), [rcgen](https://github.com/rustls/rcgen), & [x509-parser](https://github.com/rusticata/x509-parser).
 
 ---
 
-## 🗺️ Roadmap Masa Depan (Zeno Container & Runtimes)
+## 🗺️ Roadmap Masa Depan
 
-Kami sedang aktif mengembangkan dukungan orkestrasi kontainer langsung dari panel:
+### ✅ Sudah Tersedia
+- **Zeno Container**: Container runtime berbasis `runc` (embedded), pull image dari Docker Hub, manajemen penuh dari UI.
+- **Docker Compose**: Parse YAML, multi-service deployment, service discovery.
+- **Dukungan Rootless**: Container berjalan tanpa hak root.
+- **TCP Port Proxy**: Forward port container ke host.
+- **Integrasi File Manager**: Browse filesystem container langsung dari panel.
 
-- **Zeno Container (Fase 1)**: Integrasi dengan Docker Daemon (`/var/run/docker.sock`) menggunakan `bollard` untuk manajemen kontainer standar industri dari UI.
-- **Language Runtime Manager (Fase 2)**: Deployment aplikasi multi-bahasa satu-klik menggunakan container runtime (Node.js, Python, PHP, Go, .NET) dengan versi bahasa yang dapat dipilih oleh pengguna tanpa menulis Dockerfile secara manual.
+### 🚧 Sedang Dikembangkan
+- **Resource Limits**: Batasi CPU/RAM per container.
+- **Container Build**: Build image dari Dockerfile.
+- **Health Checks**: Deteksi otomatis container yang hang.
+- **Network Bridge**: Isolasi jaringan antar container (veth pair).
+- **Container Registry Private**: Dukung login ke registry privat.
 
 ---
 

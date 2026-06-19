@@ -1,0 +1,271 @@
+# Container Management API
+# Menggunakan zeno-container CLI untuk mengelola container via runc
+
+# ─── List Containers ──────────────────────────────────────────────
+http.get: '/api/containers/list' {
+    auth.guard
+    container.list: { as: $containers }
+    http.ok: { data: $containers }
+}
+
+# ─── List Cached Images ──────────────────────────────────────────
+http.get: '/api/containers/images' {
+    auth.guard
+    container.images: { as: $images }
+    http.ok: { data: $images }
+}
+
+# ─── Pull Image ─────────────────────────────────────────────────
+http.post: '/api/containers/pull' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.pull: $body.image { as: $result }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Image pulled successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to pull image"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Create Container ──────────────────────────────────────────
+# Expects JSON body with:
+#   cli_args: full command string for zeno-container create
+#   proxy_domain: optional domain for auto-proxy
+http.post: '/api/containers/create' {
+    auth.guard
+    http.json_body: { as: $body }
+
+    container.exec: $body.cli_args { as: $result }
+    if: $result.success {
+        then: {
+            coalesce: $body.proxy_domain {
+                default: ''
+                as: $proxy_domain
+            }
+            if: $proxy_domain != '' {
+                then: {
+                    proxy.add: $body.name {
+                        domain: $proxy_domain
+                        path: '/'
+                        target: $body.target
+                        strip_path: false
+                        enabled: true
+                        ssl_enabled: false
+                        rule_type: 'proxy'
+                        managed_process_id: $body.name
+                        as: $proxy_result
+                    }
+                    http.created: {
+                        message: "Container created with proxy rule"
+                        id: $body.name
+                        proxy_created: true
+                    }
+                }
+                else: {
+                    http.created: {
+                        message: "Container created successfully"
+                        id: $body.name
+                    }
+                }
+            }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to create container"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Add Proxy Rule for Container ───────────────────────────────
+http.post: '/api/containers/add-proxy' {
+    auth.guard
+    http.json_body: { as: $body }
+
+    proxy.add: $body.name {
+        domain: $body.domain
+        alternative_domain: ''
+        path: '/'
+        target: $body.target
+        strip_path: false
+        enabled: true
+        ssl_enabled: false
+        rule_type: 'proxy'
+        managed_process_id: $body.container_id
+        as: $proxy_result
+    }
+
+    if: $proxy_result {
+        then: {
+            http.created: {
+                message: "Proxy rule created for container"
+                target: $body.target
+            }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to create proxy rule"
+            }
+        }
+    }
+}
+
+# ─── Start Container ───────────────────────────────────────────
+http.post: '/api/containers/start' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.exec: {
+        start: $body.id
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Container started" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to start container"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Stop Container ────────────────────────────────────────────
+http.post: '/api/containers/stop' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.exec: {
+        stop: $body.id
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Container stopped" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to stop container"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Delete Container ──────────────────────────────────────────
+http.post: '/api/containers/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.exec: {
+        rm: $body.id
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Container removed" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to remove container"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Inspect Container ─────────────────────────────────────────
+http.get: '/api/containers/inspect' {
+    auth.guard
+    http.query: 'id' { as: $container_id }
+    container.exec: {
+        inspect: $container_id
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { data: $result.stdout }
+        }
+        else: {
+            http.bad_request: {
+                message: "Container not found"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Container Logs ────────────────────────────────────────────
+http.get: '/api/containers/logs' {
+    auth.guard
+    http.query: 'id' { as: $container_id }
+    container.exec: {
+        logs: $container_id
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { data: $result.stdout }
+        }
+        else: {
+            http.ok: { data: 'No logs available' }
+        }
+    }
+}
+
+# ─── Remove Image ─────────────────────────────────────────────
+http.post: '/api/containers/rmi' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.rmi: $body.image { as: $result }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Image removed" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to remove image"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Compose ────────────────────────────────────────────────--
+http.post: '/api/containers/compose' {
+    auth.guard
+    http.json_body: { as: $body }
+
+    # Write YAML to temp file
+    io.file.write: '/tmp/zeno-compose.yml' {
+        content: $body.yaml
+    }
+
+    # Run compose command — cli_args built in JS
+    container.exec: $body.cli_args { as: $result }
+    if: $result.success {
+        then: {
+            http.ok: { output: $result.stdout }
+        }
+        else: {
+            http.bad_request: {
+                message: "Compose failed"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Get RootFS Path ─────────────────────────────────────────--
+http.get: '/api/containers/rootfs-path' {
+    auth.guard
+    http.query: 'id' { as: $container_id }
+    container.rootfs_path: $container_id { as: $path }
+    http.ok: { path: $path }
+}

@@ -1,16 +1,17 @@
-use zenocore::{Engine, Node, Scope, Value, Diagnostic};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use zenocore::{Diagnostic, Engine, Node, Scope, Value};
 
 pub mod auth;
+pub mod container;
 pub mod db;
 pub mod http;
 pub mod io;
 pub mod proc;
 pub mod proxy;
+pub mod service;
 pub mod system;
 pub mod util;
-pub mod service;
 
 static FUNCTION_REGISTRY: Mutex<Option<HashMap<String, Node>>> = Mutex::new(None);
 
@@ -55,24 +56,37 @@ pub(crate) fn value_to_serde_json(val: &Value) -> serde_json::Value {
         Value::Nil => serde_json::Value::Null,
         Value::String(s) => serde_json::Value::String(s.clone()),
         Value::Int(i) => serde_json::Value::Number((*i).into()),
-        Value::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or_else(|| 0.into())),
+        Value::Float(f) => {
+            serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or_else(|| 0.into()))
+        }
         Value::Bool(b) => serde_json::Value::Bool(*b),
         Value::List(l) => serde_json::Value::Array(l.iter().map(value_to_serde_json).collect()),
-        Value::Map(m) => serde_json::Value::Object(m.iter().map(|(k, v)| (k.clone(), value_to_serde_json(v))).collect()),
+        Value::Map(m) => serde_json::Value::Object(
+            m.iter()
+                .map(|(k, v)| (k.clone(), value_to_serde_json(v)))
+                .collect(),
+        ),
     }
 }
 
-pub(crate) fn send_json_response(engine: &Engine, ctx: &mut zenocore::Context, status: u16, node: &Node, scope: &Arc<Scope>, success: bool) -> Result<(), Diagnostic> {
-    let response_builder = ctx.get::<HttpResponseBuilder>("response_builder").ok_or_else(|| {
-        Diagnostic {
+pub(crate) fn send_json_response(
+    engine: &Engine,
+    ctx: &mut zenocore::Context,
+    status: u16,
+    node: &Node,
+    scope: &Arc<Scope>,
+    success: bool,
+) -> Result<(), Diagnostic> {
+    let response_builder = ctx
+        .get::<HttpResponseBuilder>("response_builder")
+        .ok_or_else(|| Diagnostic {
             r#type: "error".to_string(),
             message: "http response helper: not in HTTP context".to_string(),
             filename: node.filename.clone(),
             line: node.line,
             col: node.col,
             slot: Some("http_response".to_string()),
-        }
-    })?;
+        })?;
 
     let mut map = HashMap::new();
     map.insert("success".to_string(), Value::Bool(success));
@@ -85,7 +99,11 @@ pub(crate) fn send_json_response(engine: &Engine, ctx: &mut zenocore::Context, s
     let body_str = serde_json::to_string(&json_val).unwrap_or_default();
 
     *response_builder.status.lock().unwrap() = status;
-    response_builder.headers.lock().unwrap().insert("Content-Type".to_string(), "application/json".to_string());
+    response_builder
+        .headers
+        .lock()
+        .unwrap()
+        .insert("Content-Type".to_string(), "application/json".to_string());
     *response_builder.body.lock().unwrap() = Some(body_str.into_bytes());
 
     Ok(())
@@ -93,6 +111,7 @@ pub(crate) fn send_json_response(engine: &Engine, ctx: &mut zenocore::Context, s
 
 pub fn register_custom_slots(engine: &mut Engine) {
     auth::register(engine);
+    container::register(engine);
     db::register(engine);
     http::register(engine);
     io::register(engine);
