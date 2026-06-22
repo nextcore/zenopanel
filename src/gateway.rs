@@ -4,6 +4,7 @@ use pingora::prelude::*;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::http::ResponseHeader;
 use axum::http::StatusCode;
+use serde_json::json;
 use crate::AppState;
 
 pub struct GatewayCtx {
@@ -81,6 +82,29 @@ impl ProxyHttp for ZenoGateway {
 
         let req_header = session.req_header();
         let path = req_header.uri.path();
+
+        // 1.5 Health Check Endpoint for Load Balancer
+        if path == "/health" {
+            let _rules = self.state.proxy_manager.list_rules().await;
+            let db_healthy = true;
+            
+            let status = if db_healthy { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+            let status_str = if db_healthy { "healthy" } else { "unhealthy" };
+            let body_json = json!({
+                "status": status_str,
+                "node": "zenopanel-gateway",
+                "db_connected": db_healthy,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            });
+            let body_str = body_json.to_string();
+
+            let mut resp = ResponseHeader::build(status, Some(1))?;
+            resp.insert_header("Content-Type", "application/json")?;
+            session.write_response_header(Box::new(resp), false).await?;
+            session.write_response_body(Some(body_str.into()), true).await?;
+
+            return Ok(true);
+        }
 
         // 2. Rate Limiting Check
         if !self.state.rate_limiter.check_limit(ctx.client_ip) {
