@@ -426,29 +426,25 @@ export function submitAddContainer() {
     if (host && container) volumes.push(`${host}:${container}`);
   });
 
-  // Collect env vars
+  // Collect env vars as a structured object
   const envRows = document.querySelectorAll("#container-env-list .env-row");
-  const envVars = [];
+  const env = {};
   envRows.forEach((row) => {
     const key = row.querySelector(".env-key").value.trim();
     const val = row.querySelector(".env-val").value.trim();
-    if (key) envVars.push(`${key}=${val}`);
+    if (key) env[key] = val;
   });
 
-  // Build CLI args
-  let cliArgs = `create ${name} --image ${image}`;
-  if (cmd) cliArgs += ` --cmd "${cmd}"`;
-  if (ports.length > 0) {
-    cliArgs += ports.map((p) => ` --port ${p}`).join("");
-  }
-  if (volumes.length > 0) {
-    cliArgs += volumes.map((v) => ` --volume ${v}`).join("");
-  }
-  if (envVars.length > 0) {
-    cliArgs += envVars.map((e) => ` --env ${e}`).join("");
-  }
-
-  const body = { cli_args: cliArgs, name };
+  // Send structured payload
+  const body = {
+    name,
+    image,
+    cmd,
+    ports,
+    volumes,
+    env,
+    host_net: false
+  };
 
   closeAddContainerModal();
   showToast("info", "Creating container...", 0);

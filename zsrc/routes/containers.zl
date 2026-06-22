@@ -34,14 +34,23 @@ http.post: '/api/containers/pull' {
 }
 
 # ─── Create Container ──────────────────────────────────────────
-# Expects JSON body with:
-#   cli_args: full command string for zeno-container create
-#   proxy_domain: optional domain for auto-proxy
+# Expects JSON body with structured parameters:
+#   name, image, cmd, ports, volumes, env, host_net, proxy_domain, target
 http.post: '/api/containers/create' {
     auth.guard
     http.json_body: { as: $body }
 
-    container.exec: $body.cli_args { as: $result }
+    container.create: {
+        name: $body.name
+        image: $body.image
+        cmd: $body.cmd
+        ports: $body.ports
+        volumes: $body.volumes
+        env: $body.env
+        host_net: $body.host_net
+        as: $result
+    }
+
     if: $result.success {
         then: {
             coalesce: $body.proxy_domain {
@@ -121,8 +130,7 @@ http.post: '/api/containers/add-proxy' {
 http.post: '/api/containers/start' {
     auth.guard
     http.json_body: { as: $body }
-    container.exec: {
-        start: $body.id
+    container.start: $body.id {
         as: $result
     }
     if: $result.success {
@@ -142,8 +150,7 @@ http.post: '/api/containers/start' {
 http.post: '/api/containers/stop' {
     auth.guard
     http.json_body: { as: $body }
-    container.exec: {
-        stop: $body.id
+    container.stop: $body.id {
         as: $result
     }
     if: $result.success {
@@ -163,8 +170,7 @@ http.post: '/api/containers/stop' {
 http.post: '/api/containers/delete' {
     auth.guard
     http.json_body: { as: $body }
-    container.exec: {
-        rm: $body.id
+    container.delete: $body.id {
         as: $result
     }
     if: $result.success {
@@ -184,8 +190,7 @@ http.post: '/api/containers/delete' {
 http.get: '/api/containers/inspect' {
     auth.guard
     http.query: 'id' { as: $container_id }
-    container.exec: {
-        inspect: $container_id
+    container.inspect: $container_id {
         as: $result
     }
     if: $result.success {
@@ -205,8 +210,7 @@ http.get: '/api/containers/inspect' {
 http.get: '/api/containers/logs' {
     auth.guard
     http.query: 'id' { as: $container_id }
-    container.exec: {
-        logs: $container_id
+    container.logs: $container_id {
         as: $result
     }
     if: $result.success {
@@ -242,13 +246,11 @@ http.post: '/api/containers/compose' {
     auth.guard
     http.json_body: { as: $body }
 
-    # Write YAML to temp file
-    io.file.write: '/tmp/zeno-compose.yml' {
-        content: $body.yaml
+    # Call structured compose slot securely
+    container.compose: $body.action {
+        yaml: $body.yaml
+        as: $result
     }
-
-    # Run compose command — cli_args built in JS
-    container.exec: $body.cli_args { as: $result }
     if: $result.success {
         then: {
             http.ok: { output: $result.stdout }

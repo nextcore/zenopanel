@@ -14,7 +14,6 @@ function composeExec(action) {
   resultDiv.style.display = "block";
   resultDiv.textContent = `Running compose ${action}...\n`;
 
-  const cliArgs = `compose ${action} /tmp/zeno-compose.yml`;
   const csrf = getCSRFToken();
 
   fetch("/api/containers/compose", {
@@ -23,7 +22,7 @@ function composeExec(action) {
       "Content-Type": "application/json",
       "X-CSRF-Token": csrf,
     },
-    body: JSON.stringify({ cli_args: cliArgs, yaml }),
+    body: JSON.stringify({ action, yaml }),
   })
     .then((res) => res.json())
     .then((res) => {
