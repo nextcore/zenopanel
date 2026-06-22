@@ -11,6 +11,7 @@ export function initDatabaseTab() {
     loadUserDatabases();
     updateConnectionSelector();
     loadDatabaseTables();
+    loadDatabaseBackups();
 }
 
 export function switchDatabaseSubTab(tabName) {
@@ -28,7 +29,7 @@ export function switchDatabaseSubTab(tabName) {
         activeBtn.style.color = 'var(--accent-primary)';
     }
 
-    const sections = ['databases', 'servers', 'console'];
+    const sections = ['databases', 'servers', 'console', 'backups'];
     sections.forEach(sec => {
         const el = document.getElementById(`subtab-db-${sec}`);
         if (el) {
@@ -39,6 +40,8 @@ export function switchDatabaseSubTab(tabName) {
     if (tabName === 'console') {
         updateConnectionSelector();
         loadDatabaseTables();
+    } else if (tabName === 'backups') {
+        loadDatabaseBackups();
     }
 }
 
@@ -909,6 +912,263 @@ function updateConnectionSelector() {
     }
 }
 
+// ==========================================
+// 7. Database Backup & Restore
+// ==========================================
+
+export function loadDatabaseBackups() {
+    const tbody = document.getElementById('db-backups-table-body');
+    if (!tbody) return;
+
+    fetch('/api/database/backups')
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data) {
+                // Update stats
+                const stats = res.stats || { count: 0, total_size: 0, last_backup: '-' };
+                
+                const statCount = document.getElementById('backup-stat-count');
+                const statSize = document.getElementById('backup-stat-size');
+                const statLast = document.getElementById('backup-stat-last');
+                
+                if (statCount) statCount.innerText = stats.count;
+                if (statSize) statSize.innerText = formatBytes(stats.total_size);
+                if (statLast) {
+                    if (stats.last_backup && stats.last_backup !== '-') {
+                        statLast.innerText = new Date(stats.last_backup).toLocaleString();
+                    } else {
+                        statLast.innerText = '-';
+                    }
+                }
+
+                if (res.data.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align:center; padding:32px; color:var(--text-muted);">
+                                Belum ada file backup database.
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                tbody.innerHTML = res.data.map(item => {
+                    let sizeStr = formatBytes(item.size);
+                    let statusBadge = '';
+                    if (item.status === 'success') {
+                        statusBadge = '<span class="badge badge-running">Success</span>';
+                    } else {
+                        statusBadge = `<span class="badge badge-failed" title="${escapeHtml(item.status)}">Failed</span>`;
+                    }
+
+                    const dateStr = new Date(item.created_at).toLocaleString();
+
+                    return `
+                        <tr>
+                            <td style="font-weight:600; color:var(--text-main);">${escapeHtml(item.database_name)}</td>
+                            <td>${escapeHtml(item.server_name)}</td>
+                            <td style="font-family:var(--font-code); font-size:0.8rem;">${escapeHtml(item.filename)}</td>
+                            <td>${sizeStr}</td>
+                            <td>${statusBadge}</td>
+                            <td>${dateStr}</td>
+                            <td style="text-align:right;">
+                                <div style="display:flex; justify-content:flex-end; gap:6px;">
+                                    ${item.status === 'success' ? `
+                                        <button class="btn-action" onclick="triggerRestoreDatabaseBackup(${item.id}, '${escapeHtml(item.database_name)}', '${escapeHtml(item.filename)}', '${item.created_at}', ${item.size || 0})" style="color:#10b981; border-color:rgba(16,185,129,0.2);">
+                                            <i class="fa-solid fa-rotate-left"></i> Restore
+                                        </button>
+                                    ` : ''}
+                                    <button class="btn-action" onclick="deleteDatabaseBackup(${item.id}, '${escapeHtml(item.filename)}')" style="color:#ef4444; border-color:rgba(239,68,68,0.2);">
+                                        <i class="fa-solid fa-trash"></i> Hapus
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        })
+        .catch(err => {
+            console.error('Failed to load database backups:', err);
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--danger); padding:32px;">Gagal memuat daftar backup: ${escapeHtml(err.toString())}</td></tr>`;
+        });
+}
+
+function formatBytes(bytes, decimals = 2) {
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+export function openCreateBackupModal() {
+    const select = document.getElementById('db-backup-select');
+    if (!select) return;
+
+    let optionsHtml = '<option value="default">Default Panel DB (SQLite)</option>';
+    userDatabases.forEach(db => {
+        optionsHtml += `<option value="${escapeHtml(db.db_name)}">${escapeHtml(db.db_name)} (${escapeHtml(db.server_name)} - ${db.server_driver.toUpperCase()})</option>`;
+    });
+    select.innerHTML = optionsHtml;
+
+    document.getElementById('create-db-backup-modal').classList.add('show');
+}
+
+export function closeCreateBackupModal() {
+    document.getElementById('create-db-backup-modal').classList.remove('show');
+}
+
+export function submitCreateBackup() {
+    const database_name = document.getElementById('db-backup-select').value;
+    if (!database_name) return;
+
+    const btn = document.getElementById('create-db-backup-submit-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Backing up...';
+    }
+
+    showToast('info', 'Sedang memproses backup database...');
+
+    fetch('/api/database/backups/create', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCSRFToken()
+        },
+        body: JSON.stringify({ database_name })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-save"></i> Jalankan Backup';
+        }
+        if (res.success) {
+            showToast('success', res.message || 'Backup berhasil dibuat');
+            closeCreateBackupModal();
+            loadDatabaseBackups();
+        } else {
+            showToast('error', res.message || 'Gagal membuat backup');
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-save"></i> Jalankan Backup';
+        }
+        showToast('error', 'API Error: ' + err.toString());
+    });
+}
+
+export function triggerRestoreDatabaseBackup(id, dbName, filename, createdAt, sizeBytes) {
+    // Populate modal detail fields
+    document.getElementById('restore-backup-id-val').value = id;
+    document.getElementById('restore-detail-db').textContent = dbName;
+    document.getElementById('restore-detail-label').textContent = filename || '-';
+    document.getElementById('restore-detail-date').textContent = createdAt ? new Date(createdAt).toLocaleString() : '-';
+    document.getElementById('restore-detail-size').textContent = sizeBytes ? formatBytes(sizeBytes) : '-';
+
+    // Hide progress banner
+    const prog = document.getElementById('restore-progress-banner');
+    if (prog) prog.style.display = 'none';
+
+    // Re-enable restore button
+    const btn = document.getElementById('btn-restore-submit');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Yes, Restore Now';
+    }
+
+    document.getElementById('confirm-restore-db-backup-modal').classList.add('show');
+}
+
+export function closeConfirmRestoreModal() {
+    document.getElementById('confirm-restore-db-backup-modal').classList.remove('show');
+}
+
+export function confirmRestoreDatabaseBackup() {
+    const id = document.getElementById('restore-backup-id-val').value;
+    const dbName = document.getElementById('restore-detail-db').textContent;
+    if (!id) return;
+
+    const btn = document.getElementById('btn-restore-submit');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Restoring...';
+    }
+
+    const prog = document.getElementById('restore-progress-banner');
+    if (prog) prog.style.display = 'block';
+
+    fetch('/api/database/backups/restore', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCSRFToken()
+        },
+        body: JSON.stringify({ id: parseInt(id, 10) })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Yes, Restore Now';
+        }
+        if (prog) prog.style.display = 'none';
+
+        if (res.success) {
+            closeConfirmRestoreModal();
+            showToast('success', res.message || 'Database berhasil di-restore');
+            if (dbName === 'default') {
+                showToast('info', 'Memuat ulang halaman dalam 2 detik...');
+                setTimeout(() => { window.location.reload(); }, 2000);
+            } else {
+                loadDatabaseBackups();
+            }
+        } else {
+            showToast('error', res.message || 'Gagal merestore database');
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Yes, Restore Now';
+        }
+        if (prog) prog.style.display = 'none';
+        showToast('error', 'API Error: ' + err.toString());
+    });
+}
+
+export function deleteDatabaseBackup(id, filename) {
+    if (!confirm(`Apakah Anda yakin ingin menghapus file backup "${filename}"? File akan dihapus permanen dari disk.`)) {
+        return;
+    }
+
+    fetch('/api/database/backups/delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCSRFToken()
+        },
+        body: JSON.stringify({ id })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast('success', res.message || 'File backup berhasil dihapus');
+            loadDatabaseBackups();
+        } else {
+            showToast('error', res.message || 'Gagal menghapus backup');
+        }
+    })
+    .catch(err => {
+        showToast('error', 'API Error: ' + err.toString());
+    });
+}
+
 function generateSecurePassword() {
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~";
     let pass = "";
@@ -957,4 +1217,14 @@ window.closeInstallDbEngineModal = closeInstallDbEngineModal;
 window.onInstallDbEngineChange = onInstallDbEngineChange;
 window.generateInstallDbRootPassword = generateInstallDbRootPassword;
 window.submitInstallDbEngine = submitInstallDbEngine;
+
+// Database Backup & Restore
+window.loadDatabaseBackups = loadDatabaseBackups;
+window.openCreateBackupModal = openCreateBackupModal;
+window.closeCreateBackupModal = closeCreateBackupModal;
+window.submitCreateBackup = submitCreateBackup;
+window.triggerRestoreDatabaseBackup = triggerRestoreDatabaseBackup;
+window.closeConfirmRestoreModal = closeConfirmRestoreModal;
+window.confirmRestoreDatabaseBackup = confirmRestoreDatabaseBackup;
+window.deleteDatabaseBackup = deleteDatabaseBackup;
 

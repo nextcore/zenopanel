@@ -605,4 +605,229 @@ http.post: '/api/database/install-server' {
             }
         }
     }
+    }
 }
+
+# ==========================================
+# 6. Database Backups & Restore Management
+# ==========================================
+
+# List Database Backups & Stats
+http.get: '/api/database/backups' {
+    auth.guard
+    db.select: "SELECT id, database_name, server_name, filename, size, status, created_at FROM db_backups ORDER BY id DESC" { as: $backups }
+    db.select: "SELECT COUNT(*) as count, SUM(size) as total_size FROM db_backups WHERE status = 'success'" { first: true, as: $stats_ok }
+    db.select: "SELECT created_at FROM db_backups WHERE status = 'success' ORDER BY id DESC LIMIT 1" { first: true, as: $last_backup }
+    
+    coalesce: $stats_ok.count { default: 0, as: $total_count }
+    coalesce: $stats_ok.total_size { default: 0, as: $total_size }
+    coalesce: $last_backup.created_at { default: '-', as: $last_date }
+
+    http.ok: {
+        success: true
+        data: $backups
+        stats: {
+            count: $total_count
+            total_size: $total_size
+            last_backup: $last_date
+        }
+    }
+}
+
+# Create a Database Backup
+http.post: '/api/database/backups/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $db_name { val: $body.database_name }
+
+    # Fetch settings for backup destination dir
+    db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" { first: true, as: $dest_setting }
+    coalesce: $dest_setting.value { default: '/var/lib/zenopanel/backups', as: $dest_dir }
+    var: $db_backup_dir { val: "${dest_dir}/db" }
+
+    # Generate filename and path
+    util.datetime: { as: $timestamp }
+
+    if: "$db_name == 'default'" {
+        then: {
+            var: $driver { val: 'sqlite' }
+            var: $server_name { val: 'Default Panel DB (SQLite)' }
+            var: $filename { val: "backup_default_${timestamp}.db" }
+            var: $backup_path { val: "${db_backup_dir}/${filename}" }
+
+            db.backup: {
+                driver: $driver
+                database: $db_name
+                backup_path: $backup_path
+                as: $res
+            }
+
+            if: $res.success {
+                then: {
+                    db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, ?, 'success')" {
+                        bind: [$db_name, $server_name, $filename, $res.size]
+                    }
+                    http.created: { success: true, message: "Backup database SQLite berhasil dibuat" }
+                }
+                else: {
+                    db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, 0, ?)" {
+                        bind: [$db_name, $server_name, $filename, $res.error]
+                    }
+                    http.bad_request: { success: false, message: "Gagal mem-backup SQLite", error: $res.error }
+                }
+            }
+        }
+        else: {
+            # Find DB info and Server credentials
+            db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" { bind: [$db_name], first: true, as: $db_info }
+
+            if: $db_info {
+                then: {
+                    var: $driver { val: $db_info.driver }
+                    var: $server_name { val: $db_info.server_name }
+                    var: $host { val: $db_info.host }
+                    var: $port { val: $db_info.port }
+                    var: $user { val: $db_info.admin_user }
+                    var: $password { val: $db_info.admin_password }
+                    var: $filename { val: "backup_${db_name}_${timestamp}.sql" }
+                    var: $backup_path { val: "${db_backup_dir}/${filename}" }
+
+                    db.backup: {
+                        driver: $driver
+                        host: $host
+                        port: $port
+                        user: $user
+                        password: $password
+                        database: $db_name
+                        backup_path: $backup_path
+                        as: $res
+                    }
+
+                    if: $res.success {
+                        then: {
+                            db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, ?, 'success')" {
+                                bind: [$db_name, $server_name, $filename, $res.size]
+                            }
+                            http.created: { success: true, message: "Backup database berhasil dibuat" }
+                        }
+                        else: {
+                            db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, 0, ?)" {
+                                bind: [$db_name, $server_name, $filename, $res.error]
+                            }
+                            http.bad_request: { success: false, message: "Gagal mem-backup database", error: $res.error }
+                        }
+                    }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Database tidak ditemukan" }
+                }
+            }
+        }
+    }
+}
+
+# Restore a Database from Backup
+http.post: '/api/database/backups/restore' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT database_name, filename FROM db_backups WHERE id = ?" { bind: [$id], first: true, as: $backup_info }
+
+    if: $backup_info {
+        then: {
+            var: $db_name { val: $backup_info.database_name }
+            var: $filename { val: $backup_info.filename }
+
+            # Fetch backup destination dir
+            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" { first: true, as: $dest_setting }
+            coalesce: $dest_setting.value { default: '/var/lib/zenopanel/backups', as: $dest_dir }
+            var: $backup_path { val: "${dest_dir}/db/${filename}" }
+
+            if: "$db_name == 'default'" {
+                then: {
+                    db.restore: {
+                        driver: 'sqlite'
+                        database: $db_name
+                        backup_path: $backup_path
+                        as: $res
+                    }
+
+                    if: $res.success {
+                        then: {
+                            http.ok: { success: true, message: "Database default berhasil di-restore" }
+                        }
+                        else: {
+                            http.bad_request: { success: false, message: "Gagal merestore SQLite", error: $res.error }
+                        }
+                    }
+                }
+                else: {
+                    db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" { bind: [$db_name], first: true, as: $db_info }
+
+                    if: $db_info {
+                        then: {
+                            db.restore: {
+                                driver: $db_info.driver
+                                host: $db_info.host
+                                port: $db_info.port
+                                user: $db_info.admin_user
+                                password: $db_info.admin_password
+                                database: $db_name
+                                backup_path: $backup_path
+                                as: $res
+                            }
+
+                            if: $res.success {
+                                then: {
+                                    http.ok: { success: true, message: "Database berhasil di-restore" }
+                                }
+                                else: {
+                                    http.bad_request: { success: false, message: "Gagal merestore database", error: $res.error }
+                                }
+                            }
+                        }
+                        else: {
+                            http.bad_request: { success: false, message: "Informasi server database tujuan tidak ditemukan" }
+                        }
+                    }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Record backup tidak ditemukan" }
+        }
+    }
+}
+
+# Delete a Database Backup
+http.post: '/api/database/backups/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT filename FROM db_backups WHERE id = ?" { bind: [$id], first: true, as: $backup_info }
+
+    if: $backup_info {
+        then: {
+            var: $filename { val: $backup_info.filename }
+
+            # Fetch backup destination dir
+            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" { first: true, as: $dest_setting }
+            coalesce: $dest_setting.value { default: '/var/lib/zenopanel/backups', as: $dest_dir }
+            var: $backup_path { val: "${dest_dir}/db/${filename}" }
+
+            # Delete physical file
+            io.file.delete: $backup_path
+
+            # Delete record
+            db.execute: "DELETE FROM db_backups WHERE id = ?" { bind: [$id] }
+
+            http.ok: { success: true, message: "File backup berhasil dihapus" }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Record backup tidak ditemukan" }
+        }
+    }
+}
+

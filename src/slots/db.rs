@@ -473,5 +473,344 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "db.backup",
+        Arc::new(|engine, ctx, node, scope| {
+            let db_mgr = ctx.get::<DBManager>("db_manager").ok_or_else(|| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "db.backup: DBManager not found in context".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("db.backup".to_string()),
+                }
+            })?;
+
+            let mut driver = String::new();
+            let mut host = String::new();
+            let mut port = 0;
+            let mut user = String::new();
+            let mut password = String::new();
+            let mut database = String::new();
+            let mut backup_path = String::new();
+            let mut target = "backup_result".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "driver" => driver = val.to_string_coerce(),
+                    "host" => host = val.to_string_coerce(),
+                    "port" => port = val.to_int() as u16,
+                    "user" => user = val.to_string_coerce(),
+                    "password" => password = val.to_string_coerce(),
+                    "database" => database = val.to_string_coerce(),
+                    "backup_path" => backup_path = val.to_string_coerce(),
+                    "as" => {
+                        if let Some(ref v) = child.value {
+                            target = v.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if backup_path.is_empty() {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "db.backup: backup_path is required".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("db.backup".to_string()),
+                });
+            }
+
+            // Create parent directories if they don't exist
+            if let Some(parent) = std::path::Path::new(&backup_path).parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            let result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if driver == "sqlite" {
+                        // Vacuum SQLite
+                        let pool_name = if database.is_empty() || database == "default" {
+                            "default".to_string()
+                        } else {
+                            database.clone()
+                        };
+                        let pool_opt = db_mgr.get_pool(&pool_name).await;
+                        match pool_opt {
+                            Some(crate::db::DbPool::Sqlite(pool)) => {
+                                sqlx::query(&format!("VACUUM INTO '{}'", backup_path.replace('\'', "''")))
+                                    .execute(&pool)
+                                    .await
+                                    .map(|_| ())
+                                    .map_err(|e| e.to_string())
+                            }
+                            _ => Err(format!("SQLite pool '{}' not found", pool_name)),
+                        }
+                    } else if driver == "mysql" {
+                        // Execute mysqldump
+                        let file = std::fs::File::create(&backup_path)
+                            .map_err(|e| format!("Failed to create backup file: {}", e))?;
+                        let mut cmd = std::process::Command::new("mysqldump");
+                        cmd.arg("-h").arg(&host)
+                           .arg("-P").arg(&port.to_string())
+                           .arg("-u").arg(&user);
+                        if !password.is_empty() {
+                            cmd.arg(format!("-p{}", password));
+                        }
+                        let output = cmd.arg(&database)
+                           .stdout(std::process::Stdio::from(file))
+                           .output();
+                        match output {
+                            Ok(out) => {
+                                if out.status.success() {
+                                    Ok(())
+                                } else {
+                                    let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
+                                    let _ = std::fs::remove_file(&backup_path);
+                                    Err(format!("mysqldump failed: {}", err_msg))
+                                }
+                            }
+                            Err(e) => {
+                                let _ = std::fs::remove_file(&backup_path);
+                                Err(format!("Failed to start mysqldump: {}", e))
+                            }
+                        }
+                    } else if driver == "postgres" {
+                        // Execute pg_dump
+                        let file = std::fs::File::create(&backup_path)
+                            .map_err(|e| format!("Failed to create backup file: {}", e))?;
+                        let mut cmd = std::process::Command::new("pg_dump");
+                        if !password.is_empty() {
+                            cmd.env("PGPASSWORD", &password);
+                        }
+                        cmd.arg("-h").arg(&host)
+                           .arg("-p").arg(&port.to_string())
+                           .arg("-U").arg(&user)
+                           .arg(&database)
+                           .stdout(std::process::Stdio::from(file));
+                        let output = cmd.output();
+                        match output {
+                            Ok(out) => {
+                                if out.status.success() {
+                                    Ok(())
+                                } else {
+                                    let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
+                                    let _ = std::fs::remove_file(&backup_path);
+                                    Err(format!("pg_dump failed: {}", err_msg))
+                                }
+                            }
+                            Err(e) => {
+                                let _ = std::fs::remove_file(&backup_path);
+                                Err(format!("Failed to start pg_dump: {}", e))
+                            }
+                        }
+                    } else {
+                        Err(format!("Unsupported database driver: {}", driver))
+                    }
+                })
+            });
+
+            match result {
+                Ok(_) => {
+                    let size = std::fs::metadata(&backup_path)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    scope.set(&target, Value::Map({
+                        let mut m = HashMap::new();
+                        m.insert("success".to_string(), Value::Bool(true));
+                        m.insert("size".to_string(), Value::Int(size as i64));
+                        m
+                    }));
+                }
+                Err(e) => {
+                    scope.set(&target, Value::Map({
+                        let mut m = HashMap::new();
+                        m.insert("success".to_string(), Value::Bool(false));
+                        m.insert("error".to_string(), Value::String(e));
+                        m
+                    }));
+                }
+            }
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "db.restore",
+        Arc::new(|engine, ctx, node, scope| {
+            let db_mgr = ctx.get::<DBManager>("db_manager").ok_or_else(|| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "db.restore: DBManager not found in context".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("db.restore".to_string()),
+                }
+            })?;
+
+            let mut driver = String::new();
+            let mut host = String::new();
+            let mut port = 0;
+            let mut user = String::new();
+            let mut password = String::new();
+            let mut database = String::new();
+            let mut backup_path = String::new();
+            let mut target = "restore_result".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "driver" => driver = val.to_string_coerce(),
+                    "host" => host = val.to_string_coerce(),
+                    "port" => port = val.to_int() as u16,
+                    "user" => user = val.to_string_coerce(),
+                    "password" => password = val.to_string_coerce(),
+                    "database" => database = val.to_string_coerce(),
+                    "backup_path" => backup_path = val.to_string_coerce(),
+                    "as" => {
+                        if let Some(ref v) = child.value {
+                            target = v.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if backup_path.is_empty() {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "db.restore: backup_path is required".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("db.restore".to_string()),
+                });
+            }
+
+            if !std::path::Path::new(&backup_path).exists() {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("db.restore: backup file not found at {}", backup_path),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("db.restore".to_string()),
+                });
+            }
+
+            let result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if driver == "sqlite" {
+                        let pool_name = if database.is_empty() || database == "default" {
+                            "default".to_string()
+                        } else {
+                            database.clone()
+                        };
+
+                        let db_file_path = if pool_name == "default" {
+                            std::env::var("DB_NAME").unwrap_or_else(|_| "./zeno.db".to_string())
+                        } else {
+                            pool_name.clone()
+                        };
+
+                        // Disconnect/remove active pool to avoid locks
+                        db_mgr.pools.write().await.remove(&pool_name);
+
+                        // Copy backup file over active file
+                        let copy_res = std::fs::copy(&backup_path, &db_file_path)
+                            .map(|_| ())
+                            .map_err(|e| format!("Failed to overwrite SQLite file: {}", e));
+
+                        // Re-open/reconnect connection pool
+                        if let Err(e) = db_mgr.add_sqlite_connection(&pool_name, &db_file_path).await {
+                            eprintln!("Failed to re-initialize sqlite pool '{}': {}", pool_name, e);
+                        }
+
+                        copy_res
+                    } else if driver == "mysql" {
+                        // Execute mysql import
+                        let file = std::fs::File::open(&backup_path)
+                            .map_err(|e| format!("Failed to open backup file: {}", e))?;
+                        let mut cmd = std::process::Command::new("mysql");
+                        cmd.arg("-h").arg(&host)
+                           .arg("-P").arg(&port.to_string())
+                           .arg("-u").arg(&user);
+                        if !password.is_empty() {
+                            cmd.arg(format!("-p{}", password));
+                        }
+                        let output = cmd.arg(&database)
+                           .stdin(std::process::Stdio::from(file))
+                           .output();
+                        match output {
+                            Ok(out) => {
+                                if out.status.success() {
+                                    Ok(())
+                                } else {
+                                    let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
+                                    Err(format!("mysql restore failed: {}", err_msg))
+                                }
+                            }
+                            Err(e) => Err(format!("Failed to start mysql client: {}", e)),
+                        }
+                    } else if driver == "postgres" {
+                        // Execute psql import
+                        let file = std::fs::File::open(&backup_path)
+                            .map_err(|e| format!("Failed to open backup file: {}", e))?;
+                        let mut cmd = std::process::Command::new("psql");
+                        if !password.is_empty() {
+                            cmd.env("PGPASSWORD", &password);
+                        }
+                        cmd.arg("-h").arg(&host)
+                           .arg("-p").arg(&port.to_string())
+                           .arg("-U").arg(&user)
+                           .arg(&database)
+                           .stdin(std::process::Stdio::from(file));
+                        let output = cmd.output();
+                        match output {
+                            Ok(out) => {
+                                if out.status.success() {
+                                    Ok(())
+                                } else {
+                                    let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
+                                    Err(format!("psql restore failed: {}", err_msg))
+                                }
+                            }
+                            Err(e) => Err(format!("Failed to start psql client: {}", e)),
+                        }
+                    } else {
+                        Err(format!("Unsupported database driver: {}", driver))
+                    }
+                })
+            });
+
+            match result {
+                Ok(_) => {
+                    scope.set(&target, Value::Map({
+                        let mut m = HashMap::new();
+                        m.insert("success".to_string(), Value::Bool(true));
+                        m
+                    }));
+                }
+                Err(e) => {
+                    scope.set(&target, Value::Map({
+                        let mut m = HashMap::new();
+                        m.insert("success".to_string(), Value::Bool(false));
+                        m.insert("error".to_string(), Value::String(e));
+                        m
+                    }));
+                }
+            }
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 

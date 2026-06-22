@@ -619,6 +619,90 @@
     </div>
 </div>
 
+<!-- Create DB Backup Modal -->
+<div class="modal-overlay" id="create-db-backup-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-database" style="color:var(--accent-primary); margin-right:8px;"></i>Create Database Backup</div>
+            <div class="modal-close" onclick="closeCreateBackupModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <!-- Info banner -->
+            <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px 14px; margin-bottom:16px; font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
+                <i class="fa-solid fa-circle-info" style="color:var(--accent-primary); margin-right:6px;"></i>
+                File backup akan disimpan di <strong style="color:var(--text-main);">/var/lib/zenopanel/backups/db/</strong>
+            </div>
+
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Database</label>
+                <select id="db-backup-select" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                    <!-- Populated dynamically -->
+                </select>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">SQLite (Panel DB) menggunakan <code>VACUUM INTO</code>. MySQL/PostgreSQL menggunakan <code>mysqldump</code> / <code>pg_dump</code>.</div>
+            </div>
+
+            <!-- Progress indicator (hidden until submitted) -->
+            <div id="backup-progress-banner" style="display:none; background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:12px 14px; font-size:0.82rem; color:#34d399; line-height:1.5;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="margin-right:6px;"></i>
+                <span>Creating backup, please wait…</span>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeCreateBackupModal()">Cancel</button>
+            <button class="btn-primary-action" id="create-db-backup-submit-btn" onclick="submitCreateBackup()">
+                <i class="fa-solid fa-floppy-disk"></i> Create Backup
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Restore DB Backup Modal -->
+<div class="modal-overlay" id="confirm-restore-db-backup-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-rotate-left" style="color:#f59e0b; margin-right:8px;"></i>Confirm Restore</div>
+            <div class="modal-close" onclick="closeConfirmRestoreModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="restore-backup-id-val" value="">
+
+            <!-- Warning -->
+            <div style="background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+                <div style="display:flex; align-items:center; gap:8px; font-weight:600; color:#f87171; margin-bottom:6px;">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Destructive Operation
+                </div>
+                <p style="margin:0; font-size:0.85rem; color:var(--text-muted); line-height:1.6;">
+                    This will <strong style="color:#f87171;">overwrite the current database</strong> with the selected backup.
+                    All data created after the backup timestamp will be lost. This action cannot be undone.
+                </p>
+            </div>
+
+            <!-- Backup details summary -->
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:14px 16px; margin-bottom:6px;">
+                <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">Backup Details</div>
+                <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:0.85rem;">
+                    <span style="color:var(--text-muted);">Database</span> <span id="restore-detail-db" style="color:var(--text-main); font-weight:500; font-family:var(--font-code);"></span>
+                    <span style="color:var(--text-muted);">Filename</span> <span id="restore-detail-label" style="color:var(--text-main); font-weight:500; font-family:var(--font-code); word-break:break-all;"></span>
+                    <span style="color:var(--text-muted);">Created</span>  <span id="restore-detail-date" style="color:var(--text-main);"></span>
+                    <span style="color:var(--text-muted);">Size</span>     <span id="restore-detail-size" style="color:var(--text-main);"></span>
+                </div>
+            </div>
+
+            <!-- Progress indicator (hidden until submitted) -->
+            <div id="restore-progress-banner" style="display:none; background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:12px 14px; margin-top:14px; font-size:0.82rem; color:#fbbf24; line-height:1.5;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="margin-right:6px;"></i>
+                <span>Restoring database, please wait…</span>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeConfirmRestoreModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-restore-submit" onclick="confirmRestoreDatabaseBackup()" style="background:linear-gradient(135deg,#b45309,#92400e); border-color:#b45309;">
+                <i class="fa-solid fa-rotate-left"></i> Yes, Restore Now
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Notification Toasts -->
 <div class="toast-container" id="toast-bin"></div>
 

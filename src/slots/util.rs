@@ -211,6 +211,24 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "util.datetime",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "datetime_result".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+            let now = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+            scope.set(&target, Value::String(now));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 
 fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>) -> bool {

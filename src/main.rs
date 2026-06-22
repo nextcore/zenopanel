@@ -357,6 +357,21 @@ fn main() {
     .await
     .expect("Failed to create db_users table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS db_backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            database_name TEXT NOT NULL,
+            server_name TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create db_backups table");
+
     // Load registered database servers at startup
     if let Ok(servers) = sqlx::query_as::<_, (String, String, String, i32, String, String)>("SELECT name, driver, host, port, admin_user, admin_password FROM db_servers")
         .fetch_all(&default_pool)
