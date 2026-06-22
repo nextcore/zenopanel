@@ -1,28 +1,28 @@
-# Roadmap: ZenoPanel Platform Hosting (Enterprise & ERP Grade)
+# Roadmap: ZenoPanel Platform Hosting (Single-VPS Production Grade)
 
-Dokumen ini memuat rencana jangka panjang untuk memposisikan **ZenoPanel** sebagai platform/control panel hosting yang tangguh, aman, dan siap untuk menjalankan aplikasi enterprise seperti **ERP (Enterprise Resource Planning)** yang berdiri sendiri (*standalone*) dalam model deployment *stateless* dan *high-concurrency*.
+Dokumen ini memuat rencana jangka panjang untuk memposisikan **ZenoPanel** sebagai platform hosting tunggal (*Single-VPS*) yang handal, aman, dan efisien untuk menjalankan aplikasi ERP mandiri (*standalone*) beserta database-nya di dalam satu server fisik/virtual.
 
 ---
 
-## Peta Jalan (Roadmap) Hosting Platform
+## Peta Jalan (Roadmap) Single-VPS Hosting
 
 ```mermaid
 graph TD
-    A[ZenoPanel Single-Node] --> B[Fase 1: Container Hardening & Limits]
-    B --> C[Fase 2: Pingora Gateway & Multi-Tenant Routing]
-    C --> D[Fase 3: Stateless Architecture & Multi-Node HA]
-    D --> E[Fase 4: Hosting Metrics & Infrastructure Monitoring]
+    A[ZenoPanel Single-Node] --> B[Fase 1: Container Hardening & Resource Limits]
+    B --> C[Fase 2: Pingora Gateway & Optimization]
+    C --> D[Fase 3: Keandalan Node & Backup Otomatis]
+    D --> E[Fase 4: Monitoring Server & Logging Lokal]
 ```
 
 ### Fase 1: Container Hardening & Resource Limits (SELESAI)
-Isolasi ketat kontainer untuk menjamin keandalan pemrosesan transaksi ERP yang intensif dan mencegah satu kontainer mengganggu kontainer lainnya.
+Isolasi ketat kontainer untuk menjamin keandalan transaksi ERP dan mencegah kontainer aplikasi mengganggu kontainer database pada server VPS yang sama.
 *   **Penyetelan Resource Dinamis via UI & CLI**: Mendukung limit memori, CPU, dan pengaturan prioritas `oom_score_adj`.
 *   **Sandboxing**: Dukungan Read-Only root filesystem dengan otomatisasi mount `tmpfs` untuk folder temporary (`/tmp` dan `/run`).
 
 ---
 
 ### Fase 2: Optimalisasi Pingora Gateway & Jaringan (SELESAI)
-Mengoptimalkan proxy layer Pingora (Rust) untuk meniadakan bottleneck jaringan dan mendukung deployment multi-tenant/multi-cabang.
+Mengoptimalkan proxy layer Pingora (Rust) untuk meniadakan bottleneck jaringan dan menyederhanakan keamanan enkripsi.
 *   **Upstream Connection Pooling (Keep-Alive)**: Mengaktifkan reuse socket TCP ke kontainer aplikasi guna memotong latensi handshake.
 *   **Dynamic Timeouts (WebSockets/SSE)**: Penyetelan timeout panjang secara dinamis (1 jam) untuk WebSockets/SSE real-time, dan timeout ketat (15 detik) untuk HTTP biasa.
 *   **Dynamic CORS Header Injection**: Injeksi header CORS otomatis berbasis `Origin` request client untuk memudahkan komunikasi API lintas domain antar tenant.
@@ -30,24 +30,22 @@ Mengoptimalkan proxy layer Pingora (Rust) untuk meniadakan bottleneck jaringan d
 
 ---
 
-### Fase 3: Arsitektur Stateless & Multi-Node HA (Langkah Berikutnya)
-Menyediakan fitur di panel untuk mendukung deployment ERP stateless yang terdistribusi agar terhindar dari *Single Point of Failure*.
+### Fase 3: Keandalan Node & Backup Otomatis (Langkah Berikutnya)
+Menyediakan mekanisme perlindungan data dan pemulihan cepat untuk mengantisipasi kegagalan server pada VPS tunggal.
 
-*   **Integrasi Volume Shared Storage (Penyimpanan Bersama)**:
-    *   Sediakan opsi volume khusus di UI/CLI untuk melakukan bind mount direktori penyimpanan terdistribusi (seperti NFS, GlusterFS, atau folder FUSE S3-compatible yang ter-mount di host) ke direktori upload media ERP.
-*   **Health Check Endpoint untuk External Load Balancer (SELESAI)**:
-    *   Endpoint `/health` asinkron pada gateway Pingora untuk mendeteksi status keaktifan node ZenoPanel.
-*   **Panduan Pemisahan Layer Stateful (Database Terkluster)**:
-    *   Panduan deployment kontainer ERP stateless yang terhubung secara eksternal ke managed database terkluster (seperti AWS RDS / PostgreSQL Cluster).
-*   **ZenoPanel Cluster Sync (Rencana Depan)**:
-    *   Mekanisme sinkronisasi otomatis konfigurasi aturan proxy dan berkas deployment kontainer ke beberapa node ZenoPanel yang terdaftar dalam satu cluster.
+*   **Pencadangan Otomatis Terjadwal (Auto-Backup & Disaster Recovery)**:
+    *   Fitur terjadwal untuk mengompresi volume kontainer (data unggahan ERP) dan melakukan *dump* database, lalu mengunggah hasilnya ke penyimpanan eksternal aman (seperti S3-compatible Object Storage atau server cadangan via SFTP) setiap malam.
+*   **Penyetelan Swap & Cgroups Memory Limits**:
+    *   Konfigurasi cgroups yang ketat pada kontainer database (misal PostgreSQL) untuk mengamankan minimal sisa RAM server agar kernel host tidak membunuh proses database secara tiba-tiba saat aplikasi web memakan banyak memori.
+*   **Local Auto-Healing & Health Check Monitor**:
+    *   Daemon ZenoPanel secara berkala mengecek kesehatan kontainer secara lokal. Jika kontainer ERP gantung (misal mengembalikan status HTTP 5xx) atau mati, daemon akan me-restart kontainer tersebut secara otomatis.
 
 ---
 
-### Fase 4: Infrastruktur Monitoring & Hosting Logs
-Menyediakan visibilitas performa infrastruktur server hosting untuk mendeteksi anomali sebelum memengaruhi aplikasi ERP tenant.
+### Fase 4: Monitoring Server & Logging Lokal
+Menyediakan visibilitas performa infrastruktur server tunggal agar sysadmin dapat memantau kesehatan server secara proaktif.
 
-*   **Log Akses & WAF Terpusat**:
-    *   Salurkan log deteksi serangan SQL Injection/XSS dari WAF ZenoPanel ke platform eksternal (Loki/Elasticsearch) agar sysadmin hosting dapat menganalisis ancaman.
-*   **Prometheus Metrics Endpoint**:
-    *   Menyediakan metrik utilisasi CPU/RAM per kontainer ERP, throughput request per detik di Pingora, serta latency response API untuk dipantau secara real-time melalui Grafana Dashboard.
+*   **Visualisasi Metrik Resource Lokal**:
+    *   Dashboard grafik di UI ZenoPanel untuk memantau penggunaan CPU, RAM, Disk, dan Swap dari server host serta masing-masing kontainer yang aktif.
+*   **Rotasi & Analisis Log Lokal**:
+    *   Rotasi otomatis untuk file access log Pingora, WAF logs, dan log kontainer untuk mencegah disk VPS penuh secara tiba-tiba.
