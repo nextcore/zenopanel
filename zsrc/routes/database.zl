@@ -91,6 +91,12 @@ http.post: '/api/database/create' {
     var: $db_password { val: $body.db_password }
     var: $access_type { val: $body.access_type }
     var: $description { val: $body.description }
+    var: $charset { val: $body.charset }
+    var: $collation { val: $body.collation }
+
+    # Default charset/collation fallback
+    coalesce: $charset { default: 'utf8mb4', as: $charset }
+    coalesce: $collation { default: 'utf8mb4_unicode_ci', as: $collation }
 
     # Fetch Server details
     db.select: "SELECT name, driver FROM db_servers WHERE id = ?" { bind: [$server_id], first: true, as: $server }
@@ -99,13 +105,11 @@ http.post: '/api/database/create' {
         then: {
             var: $driver { val: $server.driver }
             var: $server_name { val: $server.name }
-            var: $success_ops { val: true }
 
             if: "$driver == 'mysql'" {
                 then: {
-                    # 1. Create Schema
-                    # ZenoLang strings can contain variables:
-                    var: $q_create_db { val: "CREATE DATABASE IF NOT EXISTS `${db_name}`" }
+                    # 1. Create Schema with charset/collation
+                    var: $q_create_db { val: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET ${charset} COLLATE ${collation}" }
                     db.execute: $q_create_db { db: $server_name }
 
                     # 2. Create User and Grant Privileges
@@ -129,12 +133,10 @@ http.post: '/api/database/create' {
 
             if: "$driver == 'postgres'" {
                 then: {
-                    # Postgres does not support CREATE DATABASE inside a transaction or dynamic parameters easily, 
-                    # but simple unparameterized statements work.
-                    var: $q_create_db { val: "CREATE DATABASE \"${db_name}\"" }
+                    var: $q_create_db { val: "CREATE DATABASE \"${db_name}\" ENCODING '${charset}'" }
                     var: $q_create_user { val: "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}'" }
                     var: $q_grant { val: "GRANT ALL PRIVILEGES ON DATABASE \"${db_name}\" TO \"${db_user}\"" }
-                    
+
                     db.execute: $q_create_db { db: $server_name }
                     db.execute: $q_create_user { db: $server_name }
                     db.execute: $q_grant { db: $server_name }
@@ -142,12 +144,18 @@ http.post: '/api/database/create' {
             }
 
             # Save info to ZenoPanel local DB
-            db.execute: "INSERT INTO db_databases (server_id, db_name, db_user, db_password, access_type, description) VALUES (?, ?, ?, ?, ?, ?)" {
-                bind: [$server_id, $db_name, $db_user, $db_password, $access_type, $description]
+            db.execute: "INSERT INTO db_databases (server_id, db_name, db_user, db_password, access_type, charset, collation, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)" {
+                bind: [$server_id, $db_name, $db_user, $db_password, $access_type, $charset, $collation, $description]
+            }
+
+            # Record the primary user into db_users table too
+            db.select: "SELECT last_insert_rowid() as last_id" { as: $last_rows }
+            var: $new_db_id { val: $db_last_id }
+            db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, ?, 'ALL')" {
+                bind: [$new_db_id, $db_user, $db_password, $access_type]
             }
 
             # Add dynamic connection pool specifically for this user database
-            # This allows running direct queries on it via SQL console
             db.connect: {
                 name: $db_name
                 driver: $driver
@@ -333,6 +341,267 @@ http.post: '/api/database/query' {
                 affected: $db_affected
                 last_id: $db_last_id
                 type: 'execute'
+            }
+        }
+    }
+}
+
+
+# ==========================================
+# 4. DB Users Management (Multi-user per DB)
+# ==========================================
+
+# List users for a specific database
+http.get: '/api/database/users' {
+    auth.guard
+    http.query: 'database_id' { as: $database_id }
+    db.select: "SELECT u.id, u.db_username, u.access_type, u.privileges, u.created_at FROM db_users u WHERE u.database_id = ? ORDER BY u.id ASC" {
+        bind: [$database_id]
+        as: $users
+    }
+    http.ok: { data: $users }
+}
+
+# Add a new user to an existing database
+http.post: '/api/database/users/add' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $database_id { val: $body.database_id }
+    var: $db_username { val: $body.db_username }
+    var: $db_password { val: $body.db_password }
+    var: $access_type { val: $body.access_type }
+    var: $privileges { val: $body.privileges }
+
+    # Fetch the database & server info
+    db.select: "SELECT d.db_name, s.name as server_name, s.driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
+        bind: [$database_id]
+        first: true
+        as: $db_info
+    }
+
+    if: $db_info {
+        then: {
+            var: $driver { val: $db_info.driver }
+            var: $server_name { val: $db_info.server_name }
+            var: $db_name { val: $db_info.db_name }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$access_type == 'local'" {
+                        then: {
+                            var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'localhost'" }
+                            db.execute: $q_create { db: $server_name }
+                            db.execute: $q_grant  { db: $server_name }
+                        }
+                        else: {
+                            var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'%' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'%'" }
+                            db.execute: $q_create { db: $server_name }
+                            db.execute: $q_grant  { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_create { val: "CREATE USER \"${db_username}\" WITH PASSWORD '${db_password}'" }
+                    var: $q_grant  { val: "GRANT ${privileges} ON DATABASE \"${db_name}\" TO \"${db_username}\"" }
+                    db.execute: $q_create { db: $server_name }
+                    db.execute: $q_grant  { db: $server_name }
+                }
+            }
+
+            db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, ?, ?)" {
+                bind: [$database_id, $db_username, $db_password, $access_type, $privileges]
+            }
+            http.created: { message: "Database user added successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Database not found" }
+        }
+    }
+}
+
+# Delete a DB user
+http.post: '/api/database/users/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $user_id { val: $body.user_id }
+
+    db.select: "SELECT u.db_username, u.access_type, d.db_name, s.name as server_name, s.driver FROM db_users u JOIN db_databases d ON u.database_id = d.id JOIN db_servers s ON d.server_id = s.id WHERE u.id = ?" {
+        bind: [$user_id]
+        first: true
+        as: $user_info
+    }
+
+    if: $user_info {
+        then: {
+            var: $driver { val: $user_info.driver }
+            var: $server_name { val: $user_info.server_name }
+            var: $db_username { val: $user_info.db_username }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$user_info.access_type == 'local'" {
+                        then: {
+                            var: $q_drop { val: "DROP USER IF EXISTS '${db_username}'@'localhost'" }
+                            db.execute: $q_drop { db: $server_name }
+                        }
+                        else: {
+                            var: $q_drop { val: "DROP USER IF EXISTS '${db_username}'@'%'" }
+                            db.execute: $q_drop { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_drop { val: "DROP USER IF EXISTS \"${db_username}\"" }
+                    db.execute: $q_drop { db: $server_name }
+                }
+            }
+
+            db.execute: "DELETE FROM db_users WHERE id = ?" { bind: [$user_id] }
+            http.ok: { message: "Database user removed" }
+        }
+        else: {
+            http.bad_request: { message: "User not found" }
+        }
+    }
+}
+
+# Change password for a specific DB user
+http.post: '/api/database/users/change-password' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $user_id { val: $body.user_id }
+    var: $new_password { val: $body.password }
+
+    db.select: "SELECT u.db_username, u.access_type, s.name as server_name, s.driver FROM db_users u JOIN db_databases d ON u.database_id = d.id JOIN db_servers s ON d.server_id = s.id WHERE u.id = ?" {
+        bind: [$user_id]
+        first: true
+        as: $user_info
+    }
+
+    if: $user_info {
+        then: {
+            var: $driver { val: $user_info.driver }
+            var: $server_name { val: $user_info.server_name }
+            var: $db_username { val: $user_info.db_username }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$user_info.access_type == 'local'" {
+                        then: {
+                            var: $q_alter { val: "ALTER USER '${db_username}'@'localhost' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                        else: {
+                            var: $q_alter { val: "ALTER USER '${db_username}'@'%' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_alter { val: "ALTER USER \"${db_username}\" WITH PASSWORD '${new_password}'" }
+                    db.execute: $q_alter { db: $server_name }
+                }
+            }
+
+            db.execute: "UPDATE db_users SET db_password = ? WHERE id = ?" { bind: [$new_password, $user_id] }
+            http.ok: { message: "User password updated" }
+        }
+        else: {
+            http.bad_request: { message: "User not found" }
+        }
+    }
+}
+
+
+# ==========================================
+# 5. Install DB Engine via Container
+# ==========================================
+
+http.post: '/api/database/install-server' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $engine { val: $body.engine }
+    var: $name   { val: $body.name }
+    var: $port   { val: $body.port }
+    var: $root_password { val: $body.root_password }
+    var: $data_dir { val: $body.data_dir }
+
+    # Determine driver from engine string (mysql:8.0 -> mysql, postgres:16 -> postgres)
+    var: $driver { val: 'mysql' }
+    if: "$engine == 'postgres:16'" { then: { var: $driver { val: 'postgres' } } }
+    if: "$engine == 'postgres:15'" { then: { var: $driver { val: 'postgres' } } }
+
+    # Build the env vars for MySQL/MariaDB vs PostgreSQL
+    var: $env_block { val: "MYSQL_ROOT_PASSWORD=${root_password}" }
+    var: $admin_user { val: 'root' }
+    var: $db_port_internal { val: 3306 }
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $env_block { val: "POSTGRES_PASSWORD=${root_password}" }
+            var: $admin_user { val: 'postgres' }
+            var: $db_port_internal { val: 5432 }
+        }
+    }
+
+    # Build Docker Compose YAML
+    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      ${env_block}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n    restart: unless-stopped\n" }
+
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      ${env_block}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n" }
+        }
+    }
+
+    # Deploy container via compose
+    container.compose: 'up' {
+        yaml: $compose_yaml
+        project_name: $name
+        as: $compose_result
+    }
+
+    if: $compose_result.success {
+        then: {
+            # Wait a moment for DB to initialize, then test connection
+            db.connect: {
+                name: $name
+                driver: $driver
+                host: '127.0.0.1'
+                port: $port
+                user: $admin_user
+                password: $root_password
+                as: $test_conn
+            }
+
+            # Register the server regardless (it may need a few seconds; user can verify)
+            db.execute: "INSERT OR IGNORE INTO db_servers (name, driver, host, port, admin_user, admin_password) VALUES (?, ?, '127.0.0.1', ?, ?, ?)" {
+                bind: [$name, $driver, $port, $admin_user, $root_password]
+            }
+
+            http.created: {
+                message: "Database engine deployed and registered successfully"
+                server_name: $name
+                driver: $driver
+                connected: $test_conn
+            }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to deploy database container"
+                error: $compose_result.stderr
             }
         }
     }

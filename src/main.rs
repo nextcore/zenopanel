@@ -324,6 +324,8 @@ fn main() {
             db_user TEXT NOT NULL,
             db_password TEXT NOT NULL,
             access_type TEXT NOT NULL,
+            charset TEXT NOT NULL DEFAULT 'utf8mb4',
+            collation TEXT NOT NULL DEFAULT 'utf8mb4_unicode_ci',
             description TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (server_id) REFERENCES db_servers(id) ON DELETE CASCADE
@@ -332,6 +334,28 @@ fn main() {
     .execute(&default_pool)
     .await
     .expect("Failed to create db_databases table");
+
+    // Migration: add charset/collation if upgrading from old schema
+    let _ = sqlx::query("ALTER TABLE db_databases ADD COLUMN charset TEXT NOT NULL DEFAULT 'utf8mb4'")
+        .execute(&default_pool).await;
+    let _ = sqlx::query("ALTER TABLE db_databases ADD COLUMN collation TEXT NOT NULL DEFAULT 'utf8mb4_unicode_ci'")
+        .execute(&default_pool).await;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS db_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            database_id INTEGER NOT NULL,
+            db_username TEXT NOT NULL,
+            db_password TEXT NOT NULL,
+            access_type TEXT NOT NULL DEFAULT 'local',
+            privileges TEXT NOT NULL DEFAULT 'ALL',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (database_id) REFERENCES db_databases(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create db_users table");
 
     // Load registered database servers at startup
     if let Ok(servers) = sqlx::query_as::<_, (String, String, String, i32, String, String)>("SELECT name, driver, host, port, admin_user, admin_password FROM db_servers")
