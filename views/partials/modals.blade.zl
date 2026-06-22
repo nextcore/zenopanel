@@ -563,12 +563,29 @@
                 <div class="form-group">
                     <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Engine</label>
                     <select id="install-db-engine" onchange="onInstallDbEngineChange()" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
-                        <option value="mysql:8.0">MySQL 8.0</option>
-                        <option value="mysql:8.4">MySQL 8.4 (LTS)</option>
-                        <option value="mariadb:11">MariaDB 11</option>
-                        <option value="mariadb:10.11">MariaDB 10.11 (LTS)</option>
-                        <option value="postgres:16">PostgreSQL 16</option>
-                        <option value="postgres:15">PostgreSQL 15</option>
+                        <optgroup label="── MySQL">
+                            <option value="mysql:8.4">MySQL 8.4 (LTS)</option>
+                            <option value="mysql:8.0">MySQL 8.0</option>
+                            <option value="mysql:5.7">MySQL 5.7 (Legacy)</option>
+                            <option value="mysql:5.6">MySQL 5.6 (Legacy)</option>
+                        </optgroup>
+                        <optgroup label="── MariaDB">
+                            <option value="mariadb:11.4">MariaDB 11.4 (LTS)</option>
+                            <option value="mariadb:11">MariaDB 11.1</option>
+                            <option value="mariadb:10.11">MariaDB 10.11 (LTS)</option>
+                            <option value="mariadb:10.6">MariaDB 10.6</option>
+                            <option value="mariadb:10.5">MariaDB 10.5</option>
+                            <option value="mariadb:10.4">MariaDB 10.4 (Legacy)</option>
+                            <option value="mariadb:10.3">MariaDB 10.3 (Legacy)</option>
+                        </optgroup>
+                        <optgroup label="── PostgreSQL">
+                            <option value="postgres:17">PostgreSQL 17</option>
+                            <option value="postgres:16">PostgreSQL 16 (LTS)</option>
+                            <option value="postgres:15">PostgreSQL 15</option>
+                            <option value="postgres:14">PostgreSQL 14</option>
+                            <option value="postgres:13">PostgreSQL 13</option>
+                            <option value="postgres:12">PostgreSQL 12 (Legacy)</option>
+                        </optgroup>
                     </select>
                 </div>
                 <div class="form-group">

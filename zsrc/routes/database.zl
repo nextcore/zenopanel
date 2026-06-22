@@ -540,31 +540,31 @@ http.post: '/api/database/install-server' {
     var: $root_password { val: $body.root_password }
     var: $data_dir { val: $body.data_dir }
 
-    # Determine driver from engine string (mysql:8.0 -> mysql, postgres:16 -> postgres)
+    # Determine driver from engine string
+    # mariadb:* and mysql:* → driver 'mysql' (protocol-compatible)
+    # postgres:* → driver 'postgres'
     var: $driver { val: 'mysql' }
-    if: "$engine == 'postgres:16'" { then: { var: $driver { val: 'postgres' } } }
-    if: "$engine == 'postgres:15'" { then: { var: $driver { val: 'postgres' } } }
+    if: { contains: $engine, value: 'postgres' } {
+        then: { var: $driver { val: 'postgres' } }
+    }
 
-    # Build the env vars for MySQL/MariaDB vs PostgreSQL
-    var: $env_block { val: "MYSQL_ROOT_PASSWORD=${root_password}" }
+    # Admin user and internal port differ per engine family
     var: $admin_user { val: 'root' }
     var: $db_port_internal { val: 3306 }
+    var: $env_block { val: "MYSQL_ROOT_PASSWORD=${root_password}" }
+    var: $data_volume { val: '/var/lib/mysql' }
+
     if: "$driver == 'postgres'" {
         then: {
             var: $env_block { val: "POSTGRES_PASSWORD=${root_password}" }
             var: $admin_user { val: 'postgres' }
             var: $db_port_internal { val: 5432 }
+            var: $data_volume { val: '/var/lib/postgresql/data' }
         }
     }
 
-    # Build Docker Compose YAML
-    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      ${env_block}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n    restart: unless-stopped\n" }
-
-    if: "$driver == 'postgres'" {
-        then: {
-            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      ${env_block}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n" }
-        }
-    }
+    # Build Docker Compose YAML — $data_volume is already set per driver above
+    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      ${env_block}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
 
     # Deploy container via compose
     container.compose: 'up' {
