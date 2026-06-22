@@ -7,6 +7,7 @@ mod auth;
 pub mod waf;
 pub mod gateway;
 pub mod backupman;
+pub mod logman;
 
 
 use axum::{
@@ -100,6 +101,7 @@ pub(crate) struct AppState {
     pub(crate) waf_enabled: std::sync::atomic::AtomicBool,
     pub(crate) traffic_stats: Arc<crate::waf::TrafficStatsManager>,
     pub(crate) backup_manager: Arc<crate::backupman::BackupManager>,
+    pub(crate) log_manager: Arc<crate::logman::LogManager>,
     pub(crate) mgmt_port: u16,
 }
 
@@ -499,6 +501,14 @@ fn main() {
     let backup_mgr = Arc::new(backupman::BackupManager::new(pool.clone()));
     backup_mgr.clone().start();
 
+    // Seed default settings for log rotation
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('log_rotation_interval_hours', '24')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('log_max_size_mb', '10')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('waf_log_retention_days', '30')").execute(pool).await;
+
+    let log_mgr = Arc::new(logman::LogManager::new(pool.clone()));
+    log_mgr.clone().start();
+
     let state = Arc::new(AppState {
         engine,
         router,
@@ -516,6 +526,7 @@ fn main() {
         waf_enabled: std::sync::atomic::AtomicBool::new(db_waf_enabled),
         traffic_stats,
         backup_manager: backup_mgr,
+        log_manager: log_mgr,
         mgmt_port,
     });
 

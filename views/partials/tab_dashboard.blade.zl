@@ -65,6 +65,22 @@
                 </div>
             </div>
         </div>
+
+        <div class="glass-card gauge-swap">
+            <div class="gauge-container">
+                <div class="gauge-info">
+                    <span class="gauge-label">Swap Usage</span>
+                    <span class="gauge-value" id="swap-val">0%</span>
+                    <span class="gauge-subtext" id="swap-sub">-- / -- GB</span>
+                </div>
+                <div class="gauge-chart-circle">
+                    <svg>
+                        <circle class="bg-ring" cx="35" cy="35" r="32"></circle>
+                        <circle class="progress-ring" id="swap-ring" cx="35" cy="35" r="32" style="stroke: #f59e0b;"></circle>
+                    </svg>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Real-time Chart and Process Monitor -->
@@ -169,8 +185,44 @@
         </div>
     </div>
 
+    <!-- Container Log Viewer -->
+    <div class="glass-card" style="margin-top: 24px;">
+        <div class="panel-title" style="margin-bottom:16px;">
+            <i class="fa-solid fa-file-lines" style="color:var(--accent-secondary);"></i>
+            <span>Container Log Viewer</span>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+            <select id="log-viewer-container-select" style="flex:1; min-width:180px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px 12px; font-size:0.85rem;">
+                <option value="">— Pilih Kontainer —</option>
+            </select>
+            <select id="log-viewer-lines-select" style="background:var(--bg-secondary); color:var(--text-primary); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px 12px; font-size:0.85rem;">
+                <option value="100">100 baris</option>
+                <option value="200" selected>200 baris</option>
+                <option value="500">500 baris</option>
+                <option value="1000">1000 baris</option>
+            </select>
+            <button class="btn btn-sm" id="log-viewer-refresh-btn" onclick="refreshContainerLog()" style="padding:8px 18px; font-size:0.85rem;">
+                <i class="fa-solid fa-rotate-right"></i> Refresh
+            </button>
+        </div>
+        <pre id="log-viewer-output" style="
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            padding: 14px 16px;
+            font-family: var(--font-code);
+            font-size: 0.78rem;
+            line-height: 1.6;
+            color: #94a3b8;
+            height: 320px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        ">Pilih kontainer untuk melihat log...</pre>
+    </div>
+
     <!-- Processes list -->
-    <div class="glass-card">
+    <div class="glass-card" style="margin-top: 24px;">
         <div class="panel-title" style="margin-bottom:12px;">
             <i class="fa-solid fa-list-check"></i>
             <span>Top Running Processes</span>

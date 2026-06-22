@@ -5,6 +5,7 @@ import { showToast } from './toast.js';
 let cpuRing = null;
 let ramRing = null;
 let diskRing = null;
+let swapRing = null;
 
 // Stats history trackers
 export let sysStatsInterval = null;
@@ -20,6 +21,7 @@ function initRingElements() {
     if (!cpuRing) cpuRing = document.getElementById('cpu-ring');
     if (!ramRing) ramRing = document.getElementById('ram-ring');
     if (!diskRing) diskRing = document.getElementById('disk-ring');
+    if (!swapRing) swapRing = document.getElementById('swap-ring');
 }
 
 export function setRingProgress(ring, pct) {
@@ -232,6 +234,19 @@ export function loadSystemStats() {
                 const diskSubEl = document.getElementById('disk-sub');
                 if (diskSubEl) diskSubEl.innerText = (s.disk_used / (1024*1024*1024)).toFixed(1) + ' / ' + (s.disk_total / (1024*1024*1024)).toFixed(1) + ' GB';
 
+                // Update Swap
+                if (s.swap_total !== undefined) {
+                    const swapValEl = document.getElementById('swap-val');
+                    const swapSubEl = document.getElementById('swap-sub');
+                    if (swapValEl) swapValEl.innerText = (s.swap_pct || 0).toFixed(1) + '%';
+                    if (swapSubEl) {
+                        const usedGB = (s.swap_used / (1024*1024*1024)).toFixed(2);
+                        const totalGB = (s.swap_total / (1024*1024*1024)).toFixed(2);
+                        swapSubEl.innerText = usedGB + ' / ' + totalGB + ' GB';
+                    }
+                    setRingProgress(swapRing, s.swap_pct || 0);
+                }
+
                 // Net speed calculations
                 const now = Date.now();
                 if (lastNetCheckTime > 0) {
@@ -412,6 +427,7 @@ export function startStatsPolling() {
         loadSystemStats();
         loadProcesses();
         loadTrafficStats();
+        loadContainerList();
         sysStatsInterval = setInterval(() => {
             loadSystemStats();
             loadProcesses();
@@ -425,4 +441,64 @@ export function stopStatsPolling() {
         clearInterval(sysStatsInterval);
         sysStatsInterval = null;
     }
+}
+
+export function loadContainerList() {
+    fetch('/api/containers/list')
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data) {
+                const sel = document.getElementById('log-viewer-container-select');
+                if (!sel) return;
+                // Preserve current selection
+                const current = sel.value;
+                sel.innerHTML = '<option value="">— Pilih Kontainer —</option>';
+                (res.data || []).forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.name || c.id || '';
+                    opt.textContent = (c.name || c.id || '') + (c.status ? ' [' + c.status + ']' : '');
+                    sel.appendChild(opt);
+                });
+                if (current) sel.value = current;
+            }
+        })
+        .catch(() => {}); // silently ignore if endpoint not ready
+}
+
+export function refreshContainerLog() {
+    const sel = document.getElementById('log-viewer-container-select');
+    const linesSel = document.getElementById('log-viewer-lines-select');
+    const output = document.getElementById('log-viewer-output');
+    if (!sel || !output) return;
+
+    const containerId = sel.value;
+    if (!containerId) {
+        output.textContent = 'Pilih kontainer terlebih dahulu.';
+        return;
+    }
+
+    const lines = linesSel ? linesSel.value : '200';
+    output.textContent = 'Memuat log...';
+
+    fetch(`/api/containers/${encodeURIComponent(containerId)}/logs?lines=${lines}`)
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data) {
+                const d = res.data;
+                if (d.ok && d.lines && d.lines.length > 0) {
+                    output.textContent = d.lines.join('\n');
+                    // Auto scroll to bottom
+                    output.scrollTop = output.scrollHeight;
+                } else if (d.error) {
+                    output.textContent = 'Error: ' + d.error;
+                } else {
+                    output.textContent = '(Log kosong atau tidak ada output)';
+                }
+            } else {
+                output.textContent = 'Gagal memuat log: ' + (res.message || 'unknown error');
+            }
+        })
+        .catch(err => {
+            output.textContent = 'Error: ' + err.toString();
+        });
 }

@@ -66,3 +66,21 @@ http.get: '/api/processes/download_log' {
     http.query: 'id' { as: $proc_id }
     http.download_log: $proc_id
 }
+
+# 8. Container Log API
+http.get: '/api/containers/:id/logs' {
+    auth.guard
+    http.param: 'id' { as: $container_id }
+    http.query: 'lines' { as: $lines_param }
+    coalesce: $lines_param {
+        default: 200
+        as: $lines_raw
+    }
+    cast.to_int: $lines_raw { as: $lines }
+    system.read_container_log: {
+        id: $container_id
+        lines: $lines
+        as: $log_result
+    }
+    http.ok: { data: $log_result }
+}

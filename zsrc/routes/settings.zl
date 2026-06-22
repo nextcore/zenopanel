@@ -263,3 +263,55 @@ http.post: '/api/settings/backup/trigger' {
     }
 }
 
+# 12. GET /api/settings/logs
+http.get: '/api/settings/logs' {
+    auth.guard
+    system.get_log_settings: { as: $log_cfg }
+    http.ok: { data: $log_cfg }
+}
+
+# 13. POST /api/settings/logs
+http.post: '/api/settings/logs' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            cast.to_int: $body.interval_hours { as: $interval }
+            cast.to_int: $body.max_size_mb { as: $max_size }
+            cast.to_int: $body.waf_retention_days { as: $waf_ret }
+            system.update_log_settings: {
+                interval_hours: $interval
+                max_size_mb: $max_size
+                waf_retention_days: $waf_ret
+                as: $res
+            }
+            http.ok: { success: true, message: "Pengaturan log rotation berhasil disimpan" }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 14. POST /api/settings/logs/rotate
+http.post: '/api/settings/logs/rotate' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.trigger_log_rotation: { as: $res }
+            if: $res.ok {
+                then: {
+                    http.ok: { success: true, message: "Log rotation berhasil dijalankan", summary: $res.summary }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal menjalankan log rotation" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}

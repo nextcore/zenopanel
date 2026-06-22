@@ -76,6 +76,11 @@ pub fn register(engine: &mut Engine) {
             let mem_used = sys.used_memory() as f64;
             let mem_pct = if mem_total > 0.0 { (mem_used / mem_total) * 100.0 } else { 0.0 };
 
+            // Swap
+            let swap_total = sys.total_swap() as f64;
+            let swap_used = sys.used_swap() as f64;
+            let swap_pct = if swap_total > 0.0 { (swap_used / swap_total) * 100.0 } else { 0.0 };
+
             let mut disk_total = 0.0;
             let mut disk_free = 0.0;
             let mut disk_used = 0.0;
@@ -106,6 +111,9 @@ pub fn register(engine: &mut Engine) {
             stats.insert("mem_avail".to_string(), Value::Float(mem_free)); // fallback
             stats.insert("mem_used".to_string(), Value::Float(mem_used));
             stats.insert("mem_pct".to_string(), Value::Float(mem_pct));
+            stats.insert("swap_total".to_string(), Value::Float(swap_total));
+            stats.insert("swap_used".to_string(), Value::Float(swap_used));
+            stats.insert("swap_pct".to_string(), Value::Float(swap_pct));
             stats.insert("disk_total".to_string(), Value::Float(disk_total));
             stats.insert("disk_free".to_string(), Value::Float(disk_free));
             stats.insert("disk_used".to_string(), Value::Float(disk_used));
@@ -871,4 +879,242 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    // ── system.read_container_log ────────────────────────────────────────────
+    engine.register(
+        "system.read_container_log",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut target = "container_log".to_string();
+            let mut container_id = String::new();
+            let mut lines: usize = 100;
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "as" => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    "id" => container_id = val.to_string_coerce(),
+                    "lines" => lines = val.to_int() as usize,
+                    _ => {}
+                }
+            }
+            // Also accept bare positional value
+            if container_id.is_empty() {
+                if let Some(v) = &node.value {
+                    container_id = v.trim_start_matches('$').to_string();
+                    if let Some(resolved) = scope.get(&container_id) {
+                        container_id = resolved.to_string_coerce();
+                    } else {
+                        container_id = v.clone();
+                    }
+                }
+            }
+
+            let base = std::env::var("ZENO_CONTAINER_DATA_DIR")
+                .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
+            let log_path = std::path::PathBuf::from(&base)
+                .join("containers")
+                .join(&container_id)
+                .join("console.log");
+
+            let mut result = HashMap::new();
+            if log_path.exists() {
+                match std::fs::read_to_string(&log_path) {
+                    Ok(content) => {
+                        let all_lines: Vec<&str> = content.lines().collect();
+                        let start = if all_lines.len() > lines { all_lines.len() - lines } else { 0 };
+                        let tail: Vec<Value> = all_lines[start..]
+                            .iter()
+                            .map(|l| Value::String(l.to_string()))
+                            .collect();
+                        result.insert("ok".to_string(), Value::Bool(true));
+                        result.insert("lines".to_string(), Value::List(tail));
+                        result.insert("path".to_string(), Value::String(log_path.to_string_lossy().to_string()));
+                    }
+                    Err(e) => {
+                        result.insert("ok".to_string(), Value::Bool(false));
+                        result.insert("error".to_string(), Value::String(e.to_string()));
+                        result.insert("lines".to_string(), Value::List(vec![]));
+                    }
+                }
+            } else {
+                result.insert("ok".to_string(), Value::Bool(false));
+                result.insert("error".to_string(), Value::String("Log file not found".to_string()));
+                result.insert("lines".to_string(), Value::List(vec![]));
+            }
+
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.get_log_settings ──────────────────────────────────────────────
+    engine.register(
+        "system.get_log_settings",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "log_settings".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.get_log_settings".to_string()) })?;
+
+            let db_manager = app_state.db_manager.clone();
+            let target_clone = target.clone();
+            let scope_clone = scope.clone();
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        macro_rules! get_s {
+                            ($k:expr) => {{
+                                let v: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+                                    .bind($k)
+                                    .fetch_optional(&pool)
+                                    .await
+                                    .unwrap_or(None);
+                                v.map(|r| r.0).unwrap_or_default()
+                            }};
+                        }
+
+                        let interval_hours = get_s!("log_rotation_interval_hours").parse::<i64>().unwrap_or(24);
+                        let max_size_mb = get_s!("log_max_size_mb").parse::<i64>().unwrap_or(10);
+                        let waf_retention_days = get_s!("waf_log_retention_days").parse::<i64>().unwrap_or(30);
+                        let last_rotation = get_s!("log_last_rotation");
+                        let last_status = get_s!("log_last_status");
+
+                        let mut map = HashMap::new();
+                        map.insert("interval_hours".to_string(), Value::Int(interval_hours));
+                        map.insert("max_size_mb".to_string(), Value::Int(max_size_mb));
+                        map.insert("waf_retention_days".to_string(), Value::Int(waf_retention_days));
+                        map.insert("last_rotation".to_string(), Value::String(last_rotation));
+                        map.insert("last_status".to_string(), Value::String(last_status));
+
+                        scope_clone.set(&target_clone, Value::Map(map));
+                    }
+                });
+            });
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.update_log_settings ───────────────────────────────────────────
+    engine.register(
+        "system.update_log_settings",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut target = "log_update_result".to_string();
+            let mut interval_hours: i64 = 24;
+            let mut max_size_mb: i64 = 10;
+            let mut waf_retention_days: i64 = 30;
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "as" => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    "interval_hours" => interval_hours = val.to_int(),
+                    "max_size_mb" => max_size_mb = val.to_int(),
+                    "waf_retention_days" => waf_retention_days = val.to_int(),
+                    _ => {}
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.update_log_settings".to_string()) })?;
+
+            let db_manager = app_state.db_manager.clone();
+            let target_clone = target.clone();
+            let scope_clone = scope.clone();
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        macro_rules! upsert {
+                            ($k:expr, $v:expr) => {
+                                let _ = sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                                    .bind($k)
+                                    .bind($v)
+                                    .execute(&pool)
+                                    .await;
+                            };
+                        }
+                        upsert!("log_rotation_interval_hours", interval_hours.to_string());
+                        upsert!("log_max_size_mb", max_size_mb.to_string());
+                        upsert!("waf_log_retention_days", waf_retention_days.to_string());
+
+                        let mut res = HashMap::new();
+                        res.insert("ok".to_string(), Value::Bool(true));
+                        scope_clone.set(&target_clone, Value::Map(res));
+                    }
+                });
+            });
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.trigger_log_rotation ──────────────────────────────────────────
+    engine.register(
+        "system.trigger_log_rotation",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "log_rotation_result".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.trigger_log_rotation".to_string()) })?;
+
+            let db_manager = app_state.db_manager.clone();
+            let log_manager = app_state.log_manager.clone();
+            let target_clone = target.clone();
+            let scope_clone = scope.clone();
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let max_size_mb = if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let v: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'log_max_size_mb'")
+                            .fetch_optional(&pool).await.unwrap_or(None);
+                        v.map(|r| r.0).unwrap_or("10".to_string()).parse::<u64>().unwrap_or(10)
+                    } else { 10 };
+
+                    let waf_retention_days = if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let v: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'waf_log_retention_days'")
+                            .fetch_optional(&pool).await.unwrap_or(None);
+                        v.map(|r| r.0).unwrap_or("30".to_string()).parse::<i64>().unwrap_or(30)
+                    } else { 30 };
+
+                    let summary = log_manager.run_rotation(max_size_mb, waf_retention_days).await;
+                    let ts = chrono::Utc::now().to_rfc3339();
+
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('log_last_rotation', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&ts).execute(&pool).await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('log_last_status', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&summary).execute(&pool).await;
+                    }
+
+                    let mut res = HashMap::new();
+                    res.insert("ok".to_string(), Value::Bool(true));
+                    res.insert("summary".to_string(), Value::String(summary));
+                    res.insert("timestamp".to_string(), Value::String(ts));
+                    scope_clone.set(&target_clone, Value::Map(res));
+                });
+            });
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
+

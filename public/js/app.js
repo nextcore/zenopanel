@@ -28,6 +28,8 @@ import {
   killProcess,
   startStatsPolling,
   stopStatsPolling,
+  loadContainerList,
+  refreshContainerLog,
 } from "./dashboard.js";
 import {
   currentFilePath,
@@ -179,6 +181,9 @@ import {
   loadBackupSettings,
   submitSaveBackupSettings,
   triggerBackupManual,
+  loadLogSettings,
+  submitSaveLogSettings,
+  triggerLogRotation,
 } from "./settings.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
@@ -406,6 +411,11 @@ const functionsToBind = {
   loadBackupSettings,
   submitSaveBackupSettings,
   triggerBackupManual,
+  loadLogSettings,
+  submitSaveLogSettings,
+  triggerLogRotation,
+  refreshContainerLog,
+  loadContainerList,
   loadContainers,
   renderContainers,
   startContainerPolling,

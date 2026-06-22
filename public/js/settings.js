@@ -17,6 +17,7 @@ export async function loadSettings() {
         }
         await loadServiceStatus();
         await loadBackupSettings();
+        await loadLogSettings();
     } catch (err) {
         showToast('error', 'Error loading settings: ' + err.message);
     }
@@ -479,6 +480,108 @@ export async function triggerBackupManual() {
     } catch (err) {
         showToast('error', 'Error triggering backup: ' + err.message);
         await loadBackupSettings();
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// LOG ROTATION SETTINGS
+// ─────────────────────────────────────────────────────────
+
+export async function loadLogSettings() {
+    try {
+        const response = await fetch('/api/settings/logs');
+        const data = await response.json();
+        if (data.success && data.data) {
+            const d = data.data;
+
+            const intervalEl = document.getElementById('log-rotation-interval');
+            const maxSizeEl = document.getElementById('log-max-size-mb');
+            const wafRetEl = document.getElementById('log-waf-retention-days');
+            const lastRotEl = document.getElementById('log-last-rotation-val');
+            const lastStatusEl = document.getElementById('log-last-status-val');
+
+            if (intervalEl) intervalEl.value = d.interval_hours ?? 24;
+            if (maxSizeEl) maxSizeEl.value = d.max_size_mb ?? 10;
+            if (wafRetEl) wafRetEl.value = d.waf_retention_days ?? 30;
+            if (lastRotEl) lastRotEl.textContent = d.last_rotation || '-';
+            if (lastStatusEl) lastStatusEl.textContent = d.last_status || '-';
+        }
+    } catch (err) {
+        console.error('Error loading log settings:', err);
+    }
+}
+
+export async function submitSaveLogSettings() {
+    const btn = document.getElementById('btn-save-log-settings');
+    if (!btn) return;
+    const originalText = btn.innerHTML;
+    const csrfToken = getCSRFToken ? getCSRFToken() : '';
+
+    const payload = {
+        interval_hours: parseInt(document.getElementById('log-rotation-interval')?.value || '24'),
+        max_size_mb: parseInt(document.getElementById('log-max-size-mb')?.value || '10'),
+        waf_retention_days: parseInt(document.getElementById('log-waf-retention-days')?.value || '30'),
+    };
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+        const response = await fetch('/api/settings/logs', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Pengaturan log rotation berhasil disimpan');
+        } else {
+            showToast('error', data.message || 'Gagal menyimpan pengaturan');
+        }
+    } catch (err) {
+        showToast('error', 'Error saving log settings: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+export async function triggerLogRotation() {
+    const btn = document.getElementById('btn-trigger-log-rotation');
+    if (!btn) return;
+    const originalText = btn.innerHTML;
+    const csrfToken = getCSRFToken ? getCSRFToken() : '';
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Rotating...';
+
+        const response = await fetch('/api/settings/logs/rotate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            }
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', `${data.message}. ${data.summary || ''}`);
+            await loadLogSettings();
+        } else {
+            showToast('error', data.message || 'Gagal menjalankan log rotation');
+            await loadLogSettings();
+        }
+    } catch (err) {
+        showToast('error', 'Error triggering log rotation: ' + err.message);
+        await loadLogSettings();
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
