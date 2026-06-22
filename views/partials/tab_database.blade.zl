@@ -12,6 +12,9 @@
             <button class="sub-tab-btn" id="subtab-db-console-btn" onclick="switchDatabaseSubTab('console')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
                 <i class="fa-solid fa-code"></i> SQL Query Console
             </button>
+            <button class="sub-tab-btn" id="subtab-db-backups-btn" onclick="switchDatabaseSubTab('backups')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-box-archive"></i> Backup &amp; Restore
+            </button>
         </div>
 
         <!-- Databases Sub-tab -->
@@ -136,5 +139,54 @@
                 </div>
             </div>
         </div>
+        <!-- Backups Sub-tab -->
+        <div id="subtab-db-backups" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-box-archive" style="color:var(--accent-primary);"></i> Database Backups
+                </h3>
+                <button class="btn-primary-action" onclick="openCreateBackupModal()">
+                    <i class="fa-solid fa-plus"></i> Create Backup
+                </button>
+            </div>
+
+            <!-- Summary stats row -->
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:18px;">
+                <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.15); border-radius:8px; padding:14px;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total Backups</div>
+                    <div id="backup-stat-count" style="font-size:1.6rem; font-weight:700; color:var(--accent-primary);">—</div>
+                </div>
+                <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.15); border-radius:8px; padding:14px;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total Size</div>
+                    <div id="backup-stat-size" style="font-size:1.6rem; font-weight:700; color:#10b981;">—</div>
+                </div>
+                <div style="background:rgba(167,139,250,0.06); border:1px solid rgba(167,139,250,0.15); border-radius:8px; padding:14px;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Last Backup</div>
+                    <div id="backup-stat-last" style="font-size:0.95rem; font-weight:600; color:#a78bfa; margin-top:4px;">—</div>
+                </div>
+            </div>
+
+            <div class="table-container" style="min-height:260px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Database</th>
+                            <th>Server</th>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th>Status</th>
+                            <th>Created At</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="db-backups-table-body">
+                        <tr>
+                            <td colspan="7" style="text-align:center; padding:32px; color:var(--text-muted);">Loading backups...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </div>
 </div>
