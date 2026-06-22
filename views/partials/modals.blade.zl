@@ -298,6 +298,124 @@
     </div>
 </div>
 
+<!-- Register Database Server Modal -->
+<div class="modal-overlay" id="add-db-server-modal">
+    <div class="modal-card" style="max-width:500px;">
+        <div class="modal-header">
+            <div class="modal-title">Register Database Server</div>
+            <div class="modal-close" onclick="closeAddDbServerModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Server Alias Name</label>
+                <input type="text" id="db-server-name" placeholder="e.g. MySQL-Container" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Driver</label>
+                <select id="db-server-driver" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="mysql">MySQL / MariaDB</option>
+                    <option value="postgres">PostgreSQL</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px; display:flex; gap:12px;">
+                <div style="flex:2;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Host Address / IP</label>
+                    <input type="text" id="db-server-host" placeholder="e.g. 127.0.0.1 or mysql-service" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+                <div style="flex:1;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Port</label>
+                    <input type="number" id="db-server-port" placeholder="3306" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Admin Username</label>
+                <input type="text" id="db-server-admin-user" placeholder="root" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Admin Password</label>
+                <input type="password" id="db-server-admin-password" placeholder="••••••••" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddDbServerModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitAddDbServer()">Register Server</button>
+        </div>
+    </div>
+</div>
+
+<!-- Create User Database Modal -->
+<div class="modal-overlay" id="create-db-modal">
+    <div class="modal-card" style="max-width:500px;">
+        <div class="modal-header">
+            <div class="modal-title">Create Database & User</div>
+            <div class="modal-close" onclick="closeAddDatabaseModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target DB Server</label>
+                <select id="db-create-server-select" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <!-- Populated dynamically -->
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Name</label>
+                <input type="text" id="db-create-name" placeholder="e.g. erp_prod" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Username</label>
+                <input type="text" id="db-create-user" placeholder="e.g. erp_user" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Password</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="db-create-password" placeholder="Password" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="generateRandomDbPassword()" style="white-space:nowrap; padding:0 12px;">Generate</button>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Access Type</label>
+                <select id="db-create-access" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="local">Local Host Only (127.0.0.1)</option>
+                    <option value="external">Any Host (%)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Description / Remarks</label>
+                <input type="text" id="db-create-desc" placeholder="e.g. Database for ERP Next tenant 1" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddDatabaseModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitCreateDatabase()">Create Database</button>
+        </div>
+    </div>
+</div>
+
+<!-- Change DB User Password Modal -->
+<div class="modal-overlay" id="change-db-password-modal">
+    <div class="modal-card" style="max-width:450px;">
+        <div class="modal-header">
+            <div class="modal-title">Change Database Password</div>
+            <div class="modal-close" onclick="closeChangeDbPasswordModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="change-db-id" value="">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">New Password</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="change-db-password-field" placeholder="Enter new password" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="generateRandomDbPasswordChange()" style="white-space:nowrap; padding:0 12px;">Generate</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeChangeDbPasswordModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitChangeDbPassword()">Update Password</button>
+        </div>
+    </div>
+</div>
+
 <!-- Notification Toasts -->
 <div class="toast-container" id="toast-bin"></div>
+
 

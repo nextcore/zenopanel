@@ -5,7 +5,7 @@ import {
   stopStatsPolling,
 } from "./dashboard.js";
 import { loadFilesList } from "./filemanager.js";
-import { loadDatabaseTables } from "./database.js";
+import { initDatabaseTab } from "./database.js";
 import { focusTerminalInput } from "./terminal.js";
 import {
   loadManagedProcesses,
@@ -62,7 +62,7 @@ export function switchTab(tab) {
   }
 
   if (tab === "database") {
-    loadDatabaseTables();
+    initDatabaseTab();
   }
 
   if (tab === "terminal") {

@@ -1,53 +1,334 @@
-# 11. Database Explorer - Tables List API
+# ==========================================
+# 1. Database Servers Management
+# ==========================================
+
+# List Database Servers
+http.get: '/api/database/servers' {
+    auth.guard
+    db.select: "SELECT id, name, driver, host, port, admin_user FROM db_servers ORDER BY id DESC" { as: $servers }
+    http.ok: { data: $servers }
+}
+
+# Create / Register Database Server
+http.post: '/api/database/servers' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $name { val: $body.name }
+    var: $driver { val: $body.driver }
+    var: $host { val: $body.host }
+    var: $port { val: $body.port }
+    var: $admin_user { val: $body.admin_user }
+    var: $admin_password { val: $body.admin_password }
+
+    # Test connecting first before saving
+    db.connect: {
+        name: $name
+        driver: $driver
+        host: $host
+        port: $port
+        user: $admin_user
+        password: $admin_password
+        as: $test_conn
+    }
+
+    if: "$test_conn == true" {
+        then: {
+            db.execute: "INSERT INTO db_servers (name, driver, host, port, admin_user, admin_password) VALUES (?, ?, ?, ?, ?, ?)" {
+                bind: [$name, $driver, $host, $port, $admin_user, $admin_password]
+            }
+            http.created: { message: "Database server registered successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to connect to database server. Check your credentials and server status."
+                error: $test_conn
+            }
+        }
+    }
+}
+
+# Delete Database Server Registration
+http.delete: '/api/database/servers' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT name FROM db_servers WHERE id = ?" { bind: [$id], first: true, as: $server }
+    if: $server {
+        then: {
+            # Disconnect active pool
+            db.disconnect: $server.name
+            # Delete from DB (CASCADE will handle db_databases if configured, but let's delete them manually to be safe)
+            db.execute: "DELETE FROM db_databases WHERE server_id = ?" { bind: [$id] }
+            db.execute: "DELETE FROM db_servers WHERE id = ?" { bind: [$id] }
+            http.ok: { message: "Database server registration removed" }
+        }
+        else: {
+            http.bad_request: { message: "Server not found" }
+        }
+    }
+}
+
+
+# ==========================================
+# 2. Database Instances & Lifecycle Management
+# ==========================================
+
+# List User Databases
+http.get: '/api/database/list' {
+    auth.guard
+    db.select: "SELECT d.id, d.server_id, s.name as server_name, s.driver as server_driver, d.db_name, d.db_user, d.db_password, d.access_type, d.description, d.created_at FROM db_databases d JOIN db_servers s ON d.server_id = s.id ORDER BY d.id DESC" { as: $databases }
+    http.ok: { data: $databases }
+}
+
+# Create User Database & Associated User
+http.post: '/api/database/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $server_id { val: $body.server_id }
+    var: $db_name { val: $body.db_name }
+    var: $db_user { val: $body.db_user }
+    var: $db_password { val: $body.db_password }
+    var: $access_type { val: $body.access_type }
+    var: $description { val: $body.description }
+
+    # Fetch Server details
+    db.select: "SELECT name, driver FROM db_servers WHERE id = ?" { bind: [$server_id], first: true, as: $server }
+
+    if: $server {
+        then: {
+            var: $driver { val: $server.driver }
+            var: $server_name { val: $server.name }
+            var: $success_ops { val: true }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    # 1. Create Schema
+                    # ZenoLang strings can contain variables:
+                    var: $q_create_db { val: "CREATE DATABASE IF NOT EXISTS `${db_name}`" }
+                    db.execute: $q_create_db { db: $server_name }
+
+                    # 2. Create User and Grant Privileges
+                    if: "$access_type == 'local'" {
+                        then: {
+                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost'" }
+                            db.execute: $q_create_user { db: $server_name }
+                            db.execute: $q_grant { db: $server_name }
+                        }
+                        else: {
+                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" }
+                            db.execute: $q_create_user { db: $server_name }
+                            db.execute: $q_grant { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    # Postgres does not support CREATE DATABASE inside a transaction or dynamic parameters easily, 
+                    # but simple unparameterized statements work.
+                    var: $q_create_db { val: "CREATE DATABASE \"${db_name}\"" }
+                    var: $q_create_user { val: "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}'" }
+                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON DATABASE \"${db_name}\" TO \"${db_user}\"" }
+                    
+                    db.execute: $q_create_db { db: $server_name }
+                    db.execute: $q_create_user { db: $server_name }
+                    db.execute: $q_grant { db: $server_name }
+                }
+            }
+
+            # Save info to ZenoPanel local DB
+            db.execute: "INSERT INTO db_databases (server_id, db_name, db_user, db_password, access_type, description) VALUES (?, ?, ?, ?, ?, ?)" {
+                bind: [$server_id, $db_name, $db_user, $db_password, $access_type, $description]
+            }
+
+            # Add dynamic connection pool specifically for this user database
+            # This allows running direct queries on it via SQL console
+            db.connect: {
+                name: $db_name
+                driver: $driver
+                host: $body.host_ip
+                port: $body.host_port
+                user: $db_user
+                password: $db_password
+                database: $db_name
+            }
+
+            http.created: { message: "Database and User created successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Target database server not found" }
+        }
+    }
+}
+
+# Change User Database Password
+http.post: '/api/database/change-password' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+    var: $new_password { val: $body.password }
+
+    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" { bind: [$id], first: true, as: $db_info }
+
+    if: $db_info {
+        then: {
+            var: $driver { val: $db_info.server_driver }
+            var: $server_name { val: $db_info.server_name }
+            var: $db_user { val: $db_info.db_user }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$db_info.access_type == 'local'" {
+                        then: {
+                            var: $q_alter { val: "ALTER USER '${db_user}'@'localhost' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                        else: {
+                            var: $q_alter { val: "ALTER USER '${db_user}'@'%' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_alter { val: "ALTER USER \"${db_user}\" WITH PASSWORD '${new_password}'" }
+                    db.execute: $q_alter { db: $server_name }
+                }
+            }
+
+            db.execute: "UPDATE db_databases SET db_password = ? WHERE id = ?" { bind: [$new_password, $id] }
+            http.ok: { message: "Database user password updated successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Database record not found" }
+        }
+    }
+}
+
+# Delete User Database
+http.post: '/api/database/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" { bind: [$id], first: true, as: $db_info }
+
+    if: $db_info {
+        then: {
+            var: $driver { val: $db_info.server_driver }
+            var: $server_name { val: $db_info.server_name }
+            var: $db_name { val: $db_info.db_name }
+            var: $db_user { val: $db_info.db_user }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    var: $q_drop_db { val: "DROP DATABASE IF EXISTS `${db_name}`" }
+                    db.execute: $q_drop_db { db: $server_name }
+
+                    if: "$db_info.access_type == 'local'" {
+                        then: {
+                            var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'localhost'" }
+                            db.execute: $q_drop_user { db: $server_name }
+                        }
+                        else: {
+                            var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'%'" }
+                            db.execute: $q_drop_user { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_drop_db { val: "DROP DATABASE IF EXISTS \"${db_name}\"" }
+                    var: $q_drop_user { val: "DROP USER IF EXISTS \"${db_user}\"" }
+                    db.execute: $q_drop_db { db: $server_name }
+                    db.execute: $q_drop_user { db: $server_name }
+                }
+            }
+
+            db.execute: "DELETE FROM db_databases WHERE id = ?" { bind: [$id] }
+            db.disconnect: $db_name
+            http.ok: { message: "Database and associated user deleted successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Database record not found" }
+        }
+    }
+}
+
+
+# ==========================================
+# 3. Database Tables Explorer & Raw Queries
+# ==========================================
+
+# List Database Tables
 http.get: '/api/database/tables' {
     auth.guard
-    system.env: 'DB_DRIVER' { as: $driver_env }
-    coalesce: $driver_env {
-        default: 'mysql'
-        as: $driver
+    http.query: 'connection' { as: $conn_param }
+    coalesce: $conn_param {
+        default: 'default'
+        as: $connection
     }
-    
+
+    # Fetch connection metadata to determine driver
+    db.select: "SELECT driver FROM db_servers WHERE name = ?" { bind: [$connection], first: true, as: $server_meta }
+    coalesce: $server_meta {
+        default: { driver: 'sqlite' }
+        as: $meta
+    }
+    var: $driver { val: $meta.driver }
+
     var: $query { val: "SHOW TABLES" }
     if: "$driver == 'sqlite'" {
         then: {
             var: $query { val: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'" }
         }
     }
-    if: "$driver == 'postgres' || $driver == 'postgresql'" {
+    if: "$driver == 'postgres'" {
         then: {
             var: $query { val: "SELECT table_name as name FROM information_schema.tables WHERE table_schema='public'" }
         }
     }
-    if: "$driver == 'sqlserver' || $driver == 'mssql'" {
-        then: {
-            var: $query { val: "SELECT table_name as name FROM information_schema.tables WHERE table_type='BASE TABLE'" }
-        }
-    }
-    
-    db.select: $query { as: $tables }
+
+    db.select: $query { db: $connection, as: $tables }
     http.ok: {
         data: $tables
         driver: $driver
     }
 }
 
-# 12. Database Explorer - Execute SQL Query API
+# Execute Raw SQL Query
 http.post: '/api/database/query' {
     auth.guard
     http.json_body: { as: $body }
     var: $sql { val: $body.sql }
     var: $is_select { val: $body.is_select }
-    
+    http.query: 'connection' { as: $conn_param }
+    coalesce: $conn_param {
+        default: 'default'
+        as: $connection
+    }
+
     if: $is_select {
         then: {
-            db.select: $sql { as: $rows }
+            db.select: $sql { db: $connection, as: $rows }
             http.ok: {
                 data: $rows
                 type: 'select'
             }
         }
         else: {
-            db.execute: $sql
+            db.execute: $sql { db: $connection }
             http.ok: {
                 affected: $db_affected
                 last_id: $db_last_id

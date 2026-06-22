@@ -68,7 +68,7 @@ import {
   updateCheckboxesFromOctal,
 } from "./filemanager.js";
 import {
-  loadDatabaseTables,
+  initDatabaseTab,
   runSqlQuery,
   renderDbSelectResult,
 } from "./database.js";
@@ -352,7 +352,7 @@ const functionsToBind = {
   submitChangePermissions,
   updateOctalFromCheckboxes,
   updateCheckboxesFromOctal,
-  loadDatabaseTables,
+  initDatabaseTab,
   runSqlQuery,
   renderDbSelectResult,
   focusTerminalInput,

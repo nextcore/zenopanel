@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, MySqlPool, PgPool};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
@@ -7,6 +7,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub enum DbPool {
     Sqlite(SqlitePool),
+    MySql(MySqlPool),
+    Postgres(PgPool),
 }
 
 #[derive(Clone)]
@@ -43,7 +45,54 @@ impl DBManager {
         Ok(())
     }
 
+    pub async fn add_mysql_connection(
+        &self,
+        name: &str,
+        host: &str,
+        port: u16,
+        user: &str,
+        password: &str,
+        database: &str,
+    ) -> Result<(), sqlx::Error> {
+        use sqlx::mysql::MySqlConnectOptions;
+        let mut options = MySqlConnectOptions::new()
+            .host(host)
+            .port(port)
+            .username(user)
+            .password(password);
+        if !database.is_empty() {
+            options = options.database(database);
+        }
+        let pool = MySqlPool::connect_with(options).await?;
+        self.pools.write().await.insert(name.to_string(), DbPool::MySql(pool));
+        Ok(())
+    }
+
+    pub async fn add_postgres_connection(
+        &self,
+        name: &str,
+        host: &str,
+        port: u16,
+        user: &str,
+        password: &str,
+        database: &str,
+    ) -> Result<(), sqlx::Error> {
+        use sqlx::postgres::PgConnectOptions;
+        let mut options = PgConnectOptions::new()
+            .host(host)
+            .port(port)
+            .username(user)
+            .password(password);
+        if !database.is_empty() {
+            options = options.database(database);
+        }
+        let pool = PgPool::connect_with(options).await?;
+        self.pools.write().await.insert(name.to_string(), DbPool::Postgres(pool));
+        Ok(())
+    }
+
     pub async fn get_pool(&self, name: &str) -> Option<DbPool> {
         self.pools.read().await.get(name).cloned()
     }
 }
+

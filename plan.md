@@ -30,7 +30,7 @@ Mengoptimalkan proxy layer Pingora (Rust) untuk meniadakan bottleneck jaringan d
 
 ---
 
-### Fase 3: Keandalan Node & Backup Otomatis (Langkah Berikutnya)
+### Fase 3: Keandalan Node & Backup Otomatis (SELESAI)
 Menyediakan mekanisme perlindungan data dan pemulihan cepat untuk mengantisipasi kegagalan server pada VPS tunggal.
 
 *   **Pencadangan Otomatis Terjadwal (Auto-Backup & Disaster Recovery)**:
@@ -42,7 +42,7 @@ Menyediakan mekanisme perlindungan data dan pemulihan cepat untuk mengantisipasi
 
 ---
 
-### Fase 4: Monitoring Server & Logging Lokal
+### Fase 4: Monitoring Server & Logging Lokal (SELESAI)
 Menyediakan visibilitas performa infrastruktur server tunggal agar sysadmin dapat memantau kesehatan server secara proaktif.
 
 *   **Visualisasi Metrik Resource Lokal**:

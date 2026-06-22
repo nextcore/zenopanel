@@ -300,6 +300,62 @@ fn main() {
     .await
     .expect("Failed to create waf_logs table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS db_servers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            driver TEXT NOT NULL,
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            admin_user TEXT NOT NULL,
+            admin_password TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create db_servers table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS db_databases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_id INTEGER NOT NULL,
+            db_name TEXT NOT NULL,
+            db_user TEXT NOT NULL,
+            db_password TEXT NOT NULL,
+            access_type TEXT NOT NULL,
+            description TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (server_id) REFERENCES db_servers(id) ON DELETE CASCADE
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create db_databases table");
+
+    // Load registered database servers at startup
+    if let Ok(servers) = sqlx::query_as::<_, (String, String, String, i32, String, String)>("SELECT name, driver, host, port, admin_user, admin_password FROM db_servers")
+        .fetch_all(&default_pool)
+        .await
+    {
+        for (name, driver, host, port, admin_user, admin_password) in servers {
+            if driver == "mysql" {
+                if let Err(e) = db_manager.add_mysql_connection(&name, &host, port as u16, &admin_user, &admin_password, "").await {
+                    eprintln!("Failed to initialize mysql connection pool '{}': {}", name, e);
+                } else {
+                    println!("🔌 Initialized connection pool for MySQL server: {}", name);
+                }
+            } else if driver == "postgres" {
+                if let Err(e) = db_manager.add_postgres_connection(&name, &host, port as u16, &admin_user, &admin_password, "").await {
+                    eprintln!("Failed to initialize postgres connection pool '{}': {}", name, e);
+                } else {
+                    println!("🔌 Initialized connection pool for PostgreSQL server: {}", name);
+                }
+            }
+        }
+    }
+
+
     // Load custom entrance path if configured in DB
     if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'entrance_path'")
         .fetch_optional(&default_pool)
