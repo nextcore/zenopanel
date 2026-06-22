@@ -115,12 +115,97 @@ func parseImageRef(image string) parsedImageRef {
 	return ref
 }
 
-// getAuthToken obtains a bearer token from Docker Hub's auth service.
-func getAuthToken(repository string) (string, error) {
-	url := fmt.Sprintf("%s?service=registry.docker.io&scope=repository:%s:pull", dockerHubAuth, repository)
+// getRegistryHost extracts the hostname from registry URL.
+func getRegistryHost(registryURL string) string {
+	h := registryURL
+	h = strings.TrimPrefix(h, "https://")
+	h = strings.TrimPrefix(h, "http://")
+	return h
+}
+
+// parseWwwAuthenticate parses Www-Authenticate header to extract realm, service, and scope
+func parseWwwAuthenticate(header string) map[string]string {
+	params := make(map[string]string)
+	if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return params
+	}
+	parts := strings.Split(header[7:], ",")
+	for _, p := range parts {
+		kv := strings.SplitN(strings.TrimSpace(p), "=", 2)
+		if len(kv) == 2 {
+			k := kv[0]
+			v := strings.Trim(kv[1], "\"")
+			params[k] = v
+		}
+	}
+	return params
+}
+
+// resolveRegistryToken handles standard Bearer/token authorization by executing a probe request or querying direct auth endpoint.
+func resolveRegistryToken(registryHost, repository string) (string, error) {
+	var authURL string
+	if registryHost == "registry-1.docker.io" {
+		authURL = fmt.Sprintf("%s?service=registry.docker.io&scope=repository:%s:pull", dockerHubAuth, repository)
+	} else {
+		// Attempt a probe request to trigger 401 challenge
+		probeURL := fmt.Sprintf("https://%s/v2/%s/manifests/latest", registryHost, repository)
+		client := &http.Client{Timeout: 10 * time.Second}
+		req, _ := http.NewRequest("GET", probeURL, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			// If https fails, try http (useful for local private registries)
+			probeURL = fmt.Sprintf("http://%s/v2/%s/manifests/latest", registryHost, repository)
+			req, _ = http.NewRequest("GET", probeURL, nil)
+			resp, err = client.Do(req)
+		}
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusUnauthorized {
+				wwwAuth := resp.Header.Get("Www-Authenticate")
+				params := parseWwwAuthenticate(wwwAuth)
+				realm := params["realm"]
+				service := params["service"]
+				scope := params["scope"]
+				if realm != "" {
+					authURL = realm
+					var query []string
+					if service != "" {
+						query = append(query, "service="+service)
+					}
+					if scope != "" {
+						query = append(query, "scope="+scope)
+					} else {
+						query = append(query, fmt.Sprintf("scope=repository:%s:pull", repository))
+					}
+					if len(query) > 0 {
+						if strings.Contains(authURL, "?") {
+							authURL += "&" + strings.Join(query, "&")
+						} else {
+							authURL += "?" + strings.Join(query, "&")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if authURL == "" {
+		// No token auth challenge detected. Returns empty token to fallback to Basic directly on requests.
+		return "", nil
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequest("GET", authURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Attach credentials if we have them
+	if username, password, ok := GetRegistryCredentials(registryHost); ok {
+		req.SetBasicAuth(username, password)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("auth request failed: %w", err)
 	}
@@ -132,18 +217,23 @@ func getAuthToken(repository string) (string, error) {
 	}
 
 	var result struct {
-		Token string `json:"token"`
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("failed to decode auth response: %w", err)
 	}
 
-	return result.Token, nil
+	token := result.Token
+	if token == "" {
+		token = result.AccessToken
+	}
+	return token, nil
 }
 
 // doRegistryRequest performs an authenticated request to a registry.
 // Accepts both manifest V2 and manifest list.
-func doRegistryRequest(url, token string) (*http.Response, error) {
+func doRegistryRequest(url, token, registryHost string) (*http.Response, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -151,6 +241,8 @@ func doRegistryRequest(url, token string) (*http.Response, error) {
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	} else if username, password, ok := GetRegistryCredentials(registryHost); ok {
+		req.SetBasicAuth(username, password)
 	}
 	// Accept both manifest V2 and manifest list
 	req.Header.Set("Accept", fmt.Sprintf("%s,%s", mediaTypeManifestV2, mediaTypeManifestList))
@@ -163,7 +255,7 @@ func doRegistryRequest(url, token string) (*http.Response, error) {
 }
 
 // doRegistryRequestManifest fetches a manifest, accepting only the V2 manifest.
-func doRegistryRequestManifest(url, token string) (*http.Response, error) {
+func doRegistryRequestManifest(url, token, registryHost string) (*http.Response, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -171,6 +263,8 @@ func doRegistryRequestManifest(url, token string) (*http.Response, error) {
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	} else if username, password, ok := GetRegistryCredentials(registryHost); ok {
+		req.SetBasicAuth(username, password)
 	}
 	req.Header.Set("Accept", mediaTypeManifestV2)
 
@@ -183,11 +277,11 @@ func doRegistryRequestManifest(url, token string) (*http.Response, error) {
 
 // resolveManifest fetches the manifest and resolves manifest lists by picking
 // the linux/amd64 platform. Returns a parsed manifestV2.
-func resolveManifest(registryURL, repository, tag, token string) (*manifestV2, error) {
+func resolveManifest(registryURL, repository, tag, token, registryHost string) (*manifestV2, error) {
 	manifestURL := fmt.Sprintf("%s/v2/%s/manifests/%s", registryURL, repository, tag)
 
 	// Accept both and handle whatever the registry returns
-	resp, err := doRegistryRequest(manifestURL, token)
+	resp, err := doRegistryRequest(manifestURL, token, registryHost)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +326,7 @@ func resolveManifest(registryURL, repository, tag, token string) (*manifestV2, e
 
 		// Fetch the actual manifest by digest — request V2 manifest only
 		manifestByDigestURL := fmt.Sprintf("%s/v2/%s/manifests/%s", registryURL, repository, selectedDigest)
-		resp2, err := doRegistryRequestManifest(manifestByDigestURL, token)
+		resp2, err := doRegistryRequestManifest(manifestByDigestURL, token, registryHost)
 		if err != nil {
 			return nil, err
 		}
@@ -279,14 +373,11 @@ func PullImage(image string, dataDir string) ([]string, error) {
 	fmt.Printf("  ▶ Repository: %s\n", ref.Repository)
 	fmt.Printf("  ▶ Tag: %s\n", ref.Tag)
 
-	// 1. Get auth token (only for Docker Hub currently)
-	var token string
-	if ref.Registry == dockerHubRegistry {
-		var err error
-		token, err = getAuthToken(ref.Repository)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get auth token: %w", err)
-		}
+	// 1. Resolve registry host and get auth token
+	registryHost := getRegistryHost(ref.Registry)
+	token, err := resolveRegistryToken(registryHost, ref.Repository)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get auth token: %w", err)
 	}
 
 	cacheDir := ImageCacheDir(dataDir) + "/" + cacheDirName(ref.Repository, ref.Tag)
@@ -294,9 +385,14 @@ func PullImage(image string, dataDir string) ([]string, error) {
 		return nil, fmt.Errorf("failed to create cache dir: %w", err)
 	}
 
+	layersDir := ImageCacheDir(dataDir) + "/layers"
+	if err := os.MkdirAll(layersDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create layers cache dir: %w", err)
+	}
+
 	// 2. Resolve manifest (handles manifest lists for multi-arch images)
 	fmt.Printf("  ▶ Fetching manifest...\n")
-	manifest, err := resolveManifest(ref.Registry, ref.Repository, ref.Tag, token)
+	manifest, err := resolveManifest(ref.Registry, ref.Repository, ref.Tag, token, registryHost)
 	if err != nil {
 		return nil, fmt.Errorf("manifest resolution failed: %w", err)
 	}
@@ -307,7 +403,7 @@ func PullImage(image string, dataDir string) ([]string, error) {
 	configURL := fmt.Sprintf("%s/v2/%s/blobs/%s", ref.Registry, ref.Repository, manifest.Config.Digest)
 	fmt.Printf("  ▶ Fetching image config...\n")
 
-	resp2, err := doRegistryRequest(configURL, token)
+	resp2, err := doRegistryRequest(configURL, token, registryHost)
 	if err != nil {
 		return nil, fmt.Errorf("config request failed: %w", err)
 	}
@@ -325,63 +421,78 @@ func PullImage(image string, dataDir string) ([]string, error) {
 	// Build command from Entrypoint + Cmd
 	cmd := append(imgCfg.Config.Entrypoint, imgCfg.Config.Cmd...)
 
-	// 4. Download and cache each layer
-	rootfsDir := cacheDir + "/rootfs"
-	if err := os.MkdirAll(rootfsDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create rootfs dir: %w", err)
-	}
-
+	// 4. Download and cache each layer separately
+	var layerDigests []string
 	for i, layer := range manifest.Layers {
 		layerDigest := strings.TrimPrefix(layer.Digest, "sha256:")
-		cacheFile := cacheDir + "/" + layerDigest + ".tar.gz"
+		layerDigests = append(layerDigests, layerDigest)
 
-		// Check if already cached
-		if _, err := os.Stat(cacheFile); os.IsNotExist(err) {
-			fmt.Printf("  ▶ Downloading layer %d/%d (%s)...\n", i+1, len(manifest.Layers), layer.Digest[:20])
+		layerCacheDir := layersDir + "/" + layerDigest
+		layerRootfsDir := layerCacheDir + "/rootfs"
+		cacheFile := layerCacheDir + "/" + layerDigest + ".tar.gz"
 
-			blobURL := fmt.Sprintf("%s/v2/%s/blobs/%s", ref.Registry, ref.Repository, layer.Digest)
-			resp3, err := doRegistryRequest(blobURL, token)
-			if err != nil {
-				return nil, fmt.Errorf("layer %d download failed: %w", i+1, err)
-			}
-			defer resp3.Body.Close()
-
-			if resp3.StatusCode != http.StatusOK {
-				return nil, fmt.Errorf("layer %d request returned %d", i+1, resp3.StatusCode)
-			}
-
-			// Verify digest while writing to cache
-			hash := sha256.New()
-			tee := io.TeeReader(resp3.Body, hash)
-
-			f, err := os.Create(cacheFile)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create cache file: %w", err)
-			}
-
-			written, err := io.Copy(f, tee)
-			f.Close()
-			if err != nil {
-				return nil, fmt.Errorf("failed to download layer %d: %w", i+1, err)
-			}
-
-			computedDigest := fmt.Sprintf("sha256:%x", hash.Sum(nil))
-			if computedDigest != layer.Digest {
-				os.Remove(cacheFile)
-				return nil, fmt.Errorf("layer %d digest mismatch: expected %s, got %s", i+1, layer.Digest, computedDigest)
-			}
-
-			fmt.Printf("    ✓ Layer %d: %d bytes, verified\n", i+1, written)
-		} else {
-			fmt.Printf("  ▶ Using cached layer %d/%d\n", i+1, len(manifest.Layers))
+		if err := os.MkdirAll(layerCacheDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create layer cache dir: %w", err)
 		}
 
-		// Extract layer to rootfs
-		fmt.Printf("  ▶ Extracting layer %d/%d...\n", i+1, len(manifest.Layers))
-		if err := extractTarGz(cacheFile, rootfsDir); err != nil {
-			return nil, fmt.Errorf("failed to extract layer %d: %w", i+1, err)
+		// Check if already extracted
+		if _, err := os.Stat(layerRootfsDir); os.IsNotExist(err) {
+			if _, err := os.Stat(cacheFile); os.IsNotExist(err) {
+				fmt.Printf("  ▶ Downloading layer %d/%d (%s)...\n", i+1, len(manifest.Layers), layer.Digest[:20])
+
+				blobURL := fmt.Sprintf("%s/v2/%s/blobs/%s", ref.Registry, ref.Repository, layer.Digest)
+				resp3, err := doRegistryRequest(blobURL, token, registryHost)
+				if err != nil {
+					return nil, fmt.Errorf("layer %d download failed: %w", i+1, err)
+				}
+				defer resp3.Body.Close()
+
+				if resp3.StatusCode != http.StatusOK {
+					return nil, fmt.Errorf("layer %d request returned %d", i+1, resp3.StatusCode)
+				}
+
+				// Verify digest while writing to cache
+				hash := sha256.New()
+				tee := io.TeeReader(resp3.Body, hash)
+
+				f, err := os.Create(cacheFile)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create cache file: %w", err)
+				}
+
+				written, err := io.Copy(f, tee)
+				f.Close()
+				if err != nil {
+					return nil, fmt.Errorf("failed to download layer %d: %w", i+1, err)
+				}
+
+				computedDigest := fmt.Sprintf("sha256:%x", hash.Sum(nil))
+				if computedDigest != layer.Digest {
+					os.Remove(cacheFile)
+					return nil, fmt.Errorf("layer %d digest mismatch: expected %s, got %s", i+1, layer.Digest, computedDigest)
+				}
+
+				fmt.Printf("    ✓ Layer %d: %d bytes, verified\n", i+1, written)
+			} else {
+				fmt.Printf("  ▶ Using cached archive for layer %d/%d\n", i+1, len(manifest.Layers))
+			}
+
+			// Extract layer to layerRootfsDir
+			fmt.Printf("  ▶ Extracting layer %d/%d...\n", i+1, len(manifest.Layers))
+			if err := os.MkdirAll(layerRootfsDir, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create layer rootfs dir: %w", err)
+			}
+			if err := extractTarGz(cacheFile, layerRootfsDir); err != nil {
+				return nil, fmt.Errorf("failed to extract layer %d: %w", i+1, err)
+			}
+		} else {
+			fmt.Printf("  ▶ Layer %d/%d already extracted\n", i+1, len(manifest.Layers))
 		}
 	}
+
+	// Save layers order list
+	layersData, _ := json.Marshal(layerDigests)
+	os.WriteFile(cacheDir+"/layers.json", layersData, 0644)
 
 	// Save image config for later use
 	cfgData, _ := json.MarshalIndent(imgCfg, "", "  ")
@@ -477,7 +588,7 @@ func ListCachedImages(dataDir string) ([]string, error) {
 
 	var images []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && e.Name() != "layers" {
 			name := strings.ReplaceAll(e.Name(), "_", "/")
 			if idx := strings.LastIndex(name, "/"); idx != -1 {
 				name = name[:idx] + ":" + name[idx+1:]

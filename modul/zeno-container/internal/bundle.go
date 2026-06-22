@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -216,24 +217,68 @@ func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string
 	return nil
 }
 
-// CopyRootfs copies the cached image rootfs to the container's bundle rootfs.
+// CopyRootfs sets up the container's bundle rootfs using OverlayFS.
 func CopyRootfs(image string, dataDir, containerID string) error {
 	ref := parseImageRef(image)
-	srcRootfs := ImageCacheDir(dataDir) + "/" + cacheDirName(ref.Repository, ref.Tag) + "/rootfs"
+	imgDir := ImageCacheDir(dataDir) + "/" + cacheDirName(ref.Repository, ref.Tag)
 	dstRootfs := RootfsDir(dataDir, containerID)
 
-	// Check source exists
-	if _, err := os.Stat(srcRootfs); os.IsNotExist(err) {
-		return fmt.Errorf("image %s not found in cache. pull it first", image)
-	}
-
-	// Check if destination already has content
+	// Check if already mounted / exists
 	if _, err := os.Stat(dstRootfs); err == nil {
-		return nil // Already exists
+		return nil // Already exists/mounted
 	}
 
-	fmt.Printf("  ▶ Copying rootfs...\n")
-	return copyDir(srcRootfs, dstRootfs)
+	// 1. Read layers list
+	layersData, err := os.ReadFile(imgDir + "/layers.json")
+	if err != nil {
+		// Fallback to legacy non-overlay method if layers.json is missing
+		legacySrcRootfs := imgDir + "/rootfs"
+		if _, err := os.Stat(legacySrcRootfs); os.IsNotExist(err) {
+			return fmt.Errorf("image %s not found in cache. pull it first", image)
+		}
+		if err := os.MkdirAll(dstRootfs, 0755); err != nil {
+			return err
+		}
+		fmt.Printf("  ▶ Fallback: copying rootfs for legacy image...\n")
+		return copyDir(legacySrcRootfs, dstRootfs)
+	}
+
+	var layers []string
+	if err := json.Unmarshal(layersData, &layers); err != nil {
+		return fmt.Errorf("failed to parse layers.json: %w", err)
+	}
+
+	// 2. Build lowerdir string (reverse order: top layer first)
+	var lowerdirs []string
+	layersCacheDir := ImageCacheDir(dataDir) + "/layers"
+	for i := len(layers) - 1; i >= 0; i-- {
+		lowerdirs = append(lowerdirs, layersCacheDir+"/"+layers[i]+"/rootfs")
+	}
+	lowerdirStr := strings.Join(lowerdirs, ":")
+
+	// 3. Setup container write layer (upperdir) and workdir
+	containerPath := ContainerDir(dataDir, containerID)
+	upperdir := containerPath + "/diff"
+	workdir := containerPath + "/work"
+
+	if err := os.MkdirAll(upperdir, 0755); err != nil {
+		return fmt.Errorf("failed to create upperdir: %w", err)
+	}
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		return fmt.Errorf("failed to create workdir: %w", err)
+	}
+	if err := os.MkdirAll(dstRootfs, 0755); err != nil {
+		return fmt.Errorf("failed to create mountpoint: %w", err)
+	}
+
+	// 4. Perform overlay mount
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerdirStr, upperdir, workdir)
+	fmt.Printf("  ▶ Mounting OverlayFS on %s...\n", dstRootfs)
+	if err := syscall.Mount("overlay", dstRootfs, "overlay", 0, opts); err != nil {
+		return fmt.Errorf("failed to mount overlayfs (opts: %s): %w", opts, err)
+	}
+
+	return nil
 }
 
 // copyDir recursively copies a directory tree.

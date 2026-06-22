@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -86,7 +87,7 @@ func (cm *ContainerManager) loadState(id string) (*ContainerState, error) {
 
 // ContainerCreate — setup bundle only (NO runc command)
 func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env map[string]string,
-	cwd string, mounts []string, ports []string, useHostNetwork bool) error {
+	cwd string, mounts []string, ports []string, useHostNetwork bool, restartPolicy string, healthConfig *HealthCheckConfig) error {
 
 	if _, err := os.Stat(StateFile(cm.DataDir, id)); err == nil {
 		return fmt.Errorf("container %s already exists", id)
@@ -108,6 +109,8 @@ func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env 
 	state.Mounts = mounts
 	state.Ports = ports
 	state.HostNetwork = useHostNetwork
+	state.RestartPolicy = restartPolicy
+	state.HealthCheck = healthConfig
 	state.LogPath = ContainerLogPath(cm.DataDir, id)
 	return cm.saveState(state)
 }
@@ -132,6 +135,7 @@ func (cm *ContainerManager) ContainerRun(id string) error {
 	defer logFile.Close()
 
 	state.Status = StatusRunning
+	state.DesiredStatus = StatusRunning
 	cm.saveState(state)
 
 	runcBin := cm.getRuncBin()
@@ -162,6 +166,7 @@ func (cm *ContainerManager) ContainerRun(id string) error {
 		state.ExitCode = 0
 	}
 	state.PID = 0
+	state.DesiredStatus = StatusStopped
 	cm.saveState(state)
 	return nil
 }
@@ -190,6 +195,28 @@ func (cm *ContainerManager) ContainerStart(id string) error {
 		return fmt.Errorf("runc create failed: %w", err)
 	}
 
+	// Configure networking for isolated network namespace before runc start
+	runcStateJSON, err := cm.runcExecOutput("state", id)
+	if err == nil {
+		var runcSt struct {
+			PID int `json:"pid"`
+		}
+		if json.Unmarshal([]byte(runcStateJSON), &runcSt) == nil && runcSt.PID > 0 {
+			state.PID = runcSt.PID
+			if !state.HostNetwork {
+				ip, netErr := ConfigureContainerNetwork(cm.DataDir, id, runcSt.PID, state.Ports)
+				if netErr == nil {
+					if state.Env == nil {
+						state.Env = make(map[string]string)
+					}
+					state.Env["ZENO_IP"] = ip
+				} else {
+					fmt.Printf("  ⚠ Network configuration failed: %v\n", netErr)
+				}
+			}
+		}
+	}
+
 	// runc start
 	if err := cm.runcExec("start", id); err != nil {
 		state.Status = StatusFailed
@@ -198,10 +225,11 @@ func (cm *ContainerManager) ContainerStart(id string) error {
 	}
 
 	state.Status = StatusRunning
+	state.DesiredStatus = StatusRunning
 	state.ExitCode = 0
 	cm.saveState(state)
 
-	// TCP proxy for port mappings
+	// TCP proxy for port mappings (only for legacy HostNetwork mode)
 	if state.HostNetwork && len(state.Ports) > 0 {
 		quit := make(chan struct{})
 		for _, p := range state.Ports {
@@ -230,15 +258,34 @@ func (cm *ContainerManager) ContainerStop(id string) error {
 		cm.runcExec("kill", id, "SIGKILL")
 	}
 
+	// Clean up port forwarding rules
+	ip := ""
+	if state.Env != nil {
+		ip = state.Env["ZENO_IP"]
+	}
+	CleanContainerNetwork(id, ip, state.Ports)
+
 	state.Status = StatusStopped
+	state.DesiredStatus = StatusStopped
 	return cm.saveState(state)
 }
 
 // ContainerDelete — "runc delete --force" + cleanup. Idempotent.
 func (cm *ContainerManager) ContainerDelete(id string) error {
+	state, err := cm.loadState(id)
+	if err == nil {
+		ip := ""
+		if state.Env != nil {
+			ip = state.Env["ZENO_IP"]
+		}
+		CleanContainerNetwork(id, ip, state.Ports)
+	}
+
 	// Best effort: try to clean up runc state
 	cm.runcExec("kill", id, "SIGKILL")
 	cm.runcExec("delete", "--force", id)
+	// Lazily unmount the OverlayFS mountpoint before removing files
+	_ = syscall.Unmount(RootfsDir(cm.DataDir, id), syscall.MNT_DETACH)
 	// Always try to remove files
 	os.RemoveAll(ContainerDir(cm.DataDir, id))
 	return nil

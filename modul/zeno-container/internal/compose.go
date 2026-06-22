@@ -4,21 +4,146 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// ComposeEnvironment supports unmarshaling environment variables as a map or list
+type ComposeEnvironment map[string]string
+
+func (ce *ComposeEnvironment) UnmarshalYAML(value *yaml.Node) error {
+	*ce = make(map[string]string)
+	var m map[string]string
+	if err := value.Decode(&m); err == nil {
+		*ce = m
+		return nil
+	}
+	var s []string
+	if err := value.Decode(&s); err == nil {
+		for _, item := range s {
+			parts := strings.SplitN(item, "=", 2)
+			if len(parts) == 2 {
+				(*ce)[parts[0]] = parts[1]
+			} else if len(parts) == 1 {
+				(*ce)[parts[0]] = ""
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("failed to unmarshal environment: must be a map or a list of strings")
+}
+
+// ComposePorts supports unmarshaling ports as integers or strings
+type ComposePorts []string
+
+func (cp *ComposePorts) UnmarshalYAML(value *yaml.Node) error {
+	*cp = make(ComposePorts, 0)
+	var raw []interface{}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	for _, r := range raw {
+		switch v := r.(type) {
+		case string:
+			*cp = append(*cp, v)
+		case int:
+			*cp = append(*cp, strconv.Itoa(v))
+		case int64:
+			*cp = append(*cp, strconv.FormatInt(v, 10))
+		default:
+			*cp = append(*cp, fmt.Sprintf("%v", v))
+		}
+	}
+	return nil
+}
+
+// ComposeHealthCheck represents health check configuration in docker-compose.yml
+type ComposeHealthCheck struct {
+	Test     yaml.Node `yaml:"test"`
+	Interval string    `yaml:"interval"`
+	Timeout  string    `yaml:"timeout"`
+	Retries  int       `yaml:"retries"`
+}
+
+func parseDurationSeconds(dStr string) int {
+	if dStr == "" {
+		return 0
+	}
+	dStr = strings.TrimSpace(dStr)
+	dur, err := time.ParseDuration(dStr)
+	if err == nil {
+		return int(dur.Seconds())
+	}
+	val, err := strconv.Atoi(dStr)
+	if err == nil {
+		return val
+	}
+	if strings.HasSuffix(dStr, "s") {
+		val, _ = strconv.Atoi(strings.TrimSuffix(dStr, "s"))
+		return val
+	}
+	if strings.HasSuffix(dStr, "m") {
+		val, _ = strconv.Atoi(strings.TrimSuffix(dStr, "m"))
+		return val * 60
+	}
+	return 0
+}
+
+func (chc *ComposeHealthCheck) ToHealthCheckConfig() *HealthCheckConfig {
+	if chc == nil || chc.Test.Kind == 0 {
+		return nil
+	}
+
+	var test []string
+	if chc.Test.Kind == yaml.ScalarNode {
+		test = []string{"CMD-SHELL", chc.Test.Value}
+	} else if chc.Test.Kind == yaml.SequenceNode {
+		for _, n := range chc.Test.Content {
+			test = append(test, n.Value)
+		}
+	}
+
+	if len(test) == 0 {
+		return nil
+	}
+
+	interval := parseDurationSeconds(chc.Interval)
+	timeout := parseDurationSeconds(chc.Timeout)
+	retries := chc.Retries
+
+	if interval == 0 {
+		interval = 30
+	}
+	if timeout == 0 {
+		timeout = 5
+	}
+	if retries == 0 {
+		retries = 3
+	}
+
+	return &HealthCheckConfig{
+		Test:     test,
+		Interval: interval,
+		Timeout:  timeout,
+		Retries:  retries,
+	}
+}
+
 // ComposeService represents a service in docker-compose.yml
 type ComposeService struct {
-	Image         string            `yaml:"image"`
-	ContainerName string            `yaml:"container_name"`
-	Ports         []string          `yaml:"ports"`
-	Environment   map[string]string `yaml:"environment"`
-	Volumes       []string          `yaml:"volumes"`
-	Command       string            `yaml:"command"`
-	DependsOn     []string          `yaml:"depends_on"`
-	Networks      []string          `yaml:"networks"`
+	Image         string             `yaml:"image"`
+	ContainerName string             `yaml:"container_name"`
+	Ports         ComposePorts       `yaml:"ports"`
+	Environment   ComposeEnvironment `yaml:"environment"`
+	Volumes       []string           `yaml:"volumes"`
+	Command       string             `yaml:"command"`
+	DependsOn     []string           `yaml:"depends_on"`
+	Networks      []string           `yaml:"networks"`
+	Restart       string             `yaml:"restart"`
+	HealthCheck   ComposeHealthCheck `yaml:"healthcheck"`
 }
 
 // ComposeNetwork represents a named network in docker-compose.yml
@@ -128,7 +253,7 @@ func (cm *ContainerManager) ComposeUp(path string) ([]ComposeUpResult, error) {
 			cmdArgs = strings.Fields(svc.Command)
 		}
 
-		env := svc.Environment
+		env := map[string]string(svc.Environment)
 		if env == nil {
 			env = make(map[string]string)
 		}
@@ -138,14 +263,26 @@ func (cm *ContainerManager) ComposeUp(path string) ([]ComposeUpResult, error) {
 			volumes = []string{}
 		}
 
-		ports := svc.Ports
+		ports := []string(svc.Ports)
 		if ports == nil {
 			ports = []string{}
 		}
 
+		// 3.5 If container already exists, stop and delete it to make compose up idempotent
+		if _, err := os.Stat(StateFile(cm.DataDir, containerName)); err == nil {
+			fmt.Printf("  ▶ Container '%s' already exists. Stopping and removing it first...\n", containerName)
+			_ = cm.ContainerStop(containerName)
+			_ = cm.ContainerDelete(containerName)
+		}
+
 		// 4. Create container (using host networking by default for compose)
 		fmt.Printf("  ▶ Creating container '%s'...\n", containerName)
-		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, true); err != nil {
+		restartPolicy := svc.Restart
+		if restartPolicy == "" {
+			restartPolicy = "no"
+		}
+		hcConfig := svc.HealthCheck.ToHealthCheckConfig()
+		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, true, restartPolicy, hcConfig); err != nil {
 			results = append(results, ComposeUpResult{Service: name, Error: fmt.Errorf("create: %w", err)})
 			continue
 		}

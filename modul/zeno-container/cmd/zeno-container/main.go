@@ -47,6 +47,8 @@ func main() {
 	}
 
 	switch command {
+	case "login":
+		cmdLogin(cm, cmdArgs)
 	case "pull":
 		cmdPull(cm, cmdArgs)
 	case "create":
@@ -73,6 +75,8 @@ func main() {
 		cmdExec(cm, cmdArgs)
 	case "logs":
 		cmdLogs(cm, cmdArgs)
+	case "daemon":
+		cmdDaemon(cm, cmdArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -87,6 +91,7 @@ Usage:
   zeno-container [--data-dir <path>] <command> [options]
 
 Commands:
+  login <registry>          Login to a registry (saves credentials)
   pull <image>              Pull an image from registry (e.g. nginx:alpine)
   create <name>             Create a container from an image
     --image <image>           Required: image name (e.g. nginx:alpine)
@@ -96,6 +101,11 @@ Commands:
     --volume <host:container>  Volume mount (can be specified multiple times)
     --cwd <path>              Working directory inside container
     --host-net                Use host networking (disables network namespace isolation)
+    --restart <policy>        Restart policy (no, always, on-failure)
+    --health-cmd <command>    Health check command
+    --health-interval <sec>   Health check interval (default: 30)
+    --health-timeout <sec>    Health check timeout (default: 5)
+    --health-retries <num>    Health check retries (default: 3)
   run <id>                  Run container synchronously with log capture
   start <id>                Start a stopped container (detached)
   stop <id>                 Stop a running container
@@ -106,6 +116,7 @@ Commands:
   inspect <id>              Show detailed container info
   exec <id> <command>       Execute a command in a running container
   logs <id> [--tail <n>]    Show container logs
+  daemon                    Run lifecycle orchestrator and health check daemon
   compose up <path>         Create and start all services from a docker-compose.yml
   compose down <path>       Stop and remove all services from a docker-compose.yml
   compose ps <path>         List containers managed by a docker-compose.yml
@@ -142,6 +153,53 @@ func cmdPull(cm *internal.ContainerManager, args []string) {
 	fmt.Println("Done.")
 }
 
+func cmdLogin(cm *internal.ContainerManager, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: zeno-container login <registry> [--username <username>] [--password <password>]")
+		os.Exit(1)
+	}
+	registry := args[0]
+	var username, password string
+	rest := args[1:]
+
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "--username", "-u":
+			if i+1 < len(rest) {
+				username = rest[i+1]
+				i++
+			}
+		case "--password", "-p":
+			if i+1 < len(rest) {
+				password = rest[i+1]
+				i++
+			}
+		}
+	}
+
+	if username == "" {
+		fmt.Print("Enter Username: ")
+		fmt.Scanln(&username)
+		username = strings.TrimSpace(username)
+	}
+	if password == "" {
+		fmt.Print("Enter Password: ")
+		fmt.Scanln(&password)
+		password = strings.TrimSpace(password)
+	}
+
+	if username == "" || password == "" {
+		fmt.Fprintln(os.Stderr, "Error: Username and Password cannot be empty.")
+		os.Exit(1)
+	}
+
+	if err := internal.SaveRegistryCredentials(registry, username, password); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving credentials: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Login Succeeded for registry: %s\n", registry)
+}
+
 func cmdCreate(cm *internal.ContainerManager, args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: zeno-container create <name> --image <image> [options]")
@@ -151,6 +209,11 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 	rest := args[1:]
 	var image, cmdStr, cwd string
 	var hostNet bool
+	var restartPolicy string
+	var healthCmd string
+	healthInterval := 30
+	healthTimeout := 5
+	healthRetries := 3
 
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -171,6 +234,31 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 			}
 		case "--host-net":
 			hostNet = true
+		case "--restart":
+			if i+1 < len(rest) {
+				restartPolicy = rest[i+1]
+				i++
+			}
+		case "--health-cmd":
+			if i+1 < len(rest) {
+				healthCmd = rest[i+1]
+				i++
+			}
+		case "--health-interval":
+			if i+1 < len(rest) {
+				healthInterval, _ = strconv.Atoi(rest[i+1])
+				i++
+			}
+		case "--health-timeout":
+			if i+1 < len(rest) {
+				healthTimeout, _ = strconv.Atoi(rest[i+1])
+				i++
+			}
+		case "--health-retries":
+			if i+1 < len(rest) {
+				healthRetries, _ = strconv.Atoi(rest[i+1])
+				i++
+			}
 		}
 	}
 	if image == "" {
@@ -196,8 +284,22 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 		finalCmd = []string{"/bin/sh"}
 	}
 
+	var healthConfig *internal.HealthCheckConfig
+	if healthCmd != "" {
+		healthConfig = &internal.HealthCheckConfig{
+			Test:     []string{"CMD-SHELL", healthCmd},
+			Interval: healthInterval,
+			Timeout:  healthTimeout,
+			Retries:  healthRetries,
+		}
+	}
+
+	if restartPolicy == "" {
+		restartPolicy = "no"
+	}
+
 	fmt.Printf("Creating container '%s' from image '%s'...\n", name, image)
-	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet); err != nil {
+	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet, restartPolicy, healthConfig); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -420,6 +522,10 @@ func cmdLogs(cm *internal.ContainerManager, args []string) {
 	for _, line := range lines {
 		fmt.Println(line)
 	}
+}
+
+func cmdDaemon(cm *internal.ContainerManager, args []string) {
+	internal.StartDaemon(cm)
 }
 
 func parseKeyValuePairs(args []string, flag string) map[string]string {

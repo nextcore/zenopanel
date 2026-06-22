@@ -13,12 +13,23 @@ type ContainerState struct {
 	ExitCode    int               `json:"exit_code,omitempty"`
 	Cmd         []string          `json:"cmd"`
 	LogPath     string            `json:"log_path,omitempty"`
-	Ports       []string          `json:"ports,omitempty"` // format: "hostPort:containerPort"
-	Env         map[string]string `json:"env,omitempty"`
-	Mounts      []string          `json:"mounts,omitempty"` // format: "hostPath:containerPath"
-	Cwd         string            `json:"cwd,omitempty"`
-	HostNetwork bool              `json:"host_network,omitempty"`
-	ProxyPID    int               `json:"proxy_pid,omitempty"`
+	Ports         []string           `json:"ports,omitempty"` // format: "hostPort:containerPort"
+	Env           map[string]string  `json:"env,omitempty"`
+	Mounts        []string           `json:"mounts,omitempty"` // format: "hostPath:containerPath"
+	Cwd           string             `json:"cwd,omitempty"`
+	HostNetwork   bool               `json:"host_network,omitempty"`
+	ProxyPID      int                `json:"proxy_pid,omitempty"`
+	RestartPolicy string             `json:"restart_policy,omitempty"` // always, on-failure, unless-stopped, no
+	DesiredStatus string             `json:"desired_status,omitempty"` // running, stopped
+	HealthCheck   *HealthCheckConfig `json:"health_check,omitempty"`
+	HealthStatus  string             `json:"health_status,omitempty"` // healthy, unhealthy, starting
+}
+
+type HealthCheckConfig struct {
+	Test     []string `json:"test,omitempty"`     // e.g. ["CMD-SHELL", "curl -f ..."] or ["TCP", "80"]
+	Interval int      `json:"interval,omitempty"` // in seconds
+	Timeout  int      `json:"timeout,omitempty"`  // in seconds
+	Retries  int      `json:"retries,omitempty"`
 }
 
 const (
