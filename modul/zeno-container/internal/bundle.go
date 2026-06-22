@@ -13,7 +13,7 @@ import (
 )
 
 // GenerateConfigJSON creates an OCI runtime-spec config.json for a container.
-func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string, cwd string, mounts []string, useHostNetwork bool, memoryLimit int64, cpuLimit float64) error {
+func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string, cwd string, mounts []string, useHostNetwork bool, memoryLimit int64, cpuLimit float64, oomScoreAdj *int, readonlyRootfs bool) error {
 	if len(cmd) == 0 {
 		cmd = []string{"/bin/sh"}
 	}
@@ -27,10 +27,11 @@ func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string
 			UID: 0,
 			GID: 0,
 		},
-		Args: cmd,
-		Cwd:  "/",
+		Args:        cmd,
+		Cwd:         "/",
+		OOMScoreAdj: oomScoreAdj,
 		Rlimits: []spec.POSIXRlimit{
-			{Type: "RLIMIT_NOFILE", Hard: 1024, Soft: 1024},
+			{Type: "RLIMIT_NOFILE", Hard: 65536, Soft: 65536},
 		},
 	}
 
@@ -72,6 +73,21 @@ func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string
 			Source:      "tmpfs",
 			Options:     []string{"nosuid", "strictatime", "mode=755", "size=65536k"},
 		},
+	}
+
+	if readonlyRootfs {
+		ociMounts = append(ociMounts, spec.Mount{
+			Destination: "/tmp",
+			Type:        "tmpfs",
+			Source:      "tmpfs",
+			Options:     []string{"nosuid", "nodev", "mode=1777", "size=65536k"},
+		})
+		ociMounts = append(ociMounts, spec.Mount{
+			Destination: "/run",
+			Type:        "tmpfs",
+			Source:      "tmpfs",
+			Options:     []string{"nosuid", "nodev", "mode=755", "size=65536k"},
+		})
 	}
 
 	if !isRootless {
@@ -133,7 +149,7 @@ func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string
 		Process: &process,
 		Root: &spec.Root{
 			Path:     "rootfs",
-			Readonly: false,
+			Readonly: readonlyRootfs,
 		},
 		Hostname: "zeno-container",
 		Mounts:   ociMounts,

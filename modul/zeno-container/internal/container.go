@@ -87,7 +87,7 @@ func (cm *ContainerManager) loadState(id string) (*ContainerState, error) {
 
 // ContainerCreate — setup bundle only (NO runc command)
 func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env map[string]string,
-	cwd string, mounts []string, ports []string, useHostNetwork bool, restartPolicy string, healthConfig *HealthCheckConfig, memoryLimit int64, cpuLimit float64) error {
+	cwd string, mounts []string, ports []string, useHostNetwork bool, restartPolicy string, healthConfig *HealthCheckConfig, memoryLimit int64, cpuLimit float64, oomScoreAdj *int, readonlyRootfs bool) error {
 
 	if _, err := os.Stat(StateFile(cm.DataDir, id)); err == nil {
 		return fmt.Errorf("container %s already exists", id)
@@ -99,7 +99,7 @@ func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env 
 	if err := CopyRootfs(image, cm.DataDir, id); err != nil {
 		return fmt.Errorf("copy rootfs: %w", err)
 	}
-	if err := GenerateConfigJSON(bundleDir, cmd, env, cwd, mounts, useHostNetwork, memoryLimit, cpuLimit); err != nil {
+	if err := GenerateConfigJSON(bundleDir, cmd, env, cwd, mounts, useHostNetwork, memoryLimit, cpuLimit, oomScoreAdj, readonlyRootfs); err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 
@@ -113,6 +113,8 @@ func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env 
 	state.DesiredStatus = StatusStopped
 	state.MemoryLimit = memoryLimit
 	state.CPULimit = cpuLimit
+	state.OOMScoreAdj = oomScoreAdj
+	state.ReadOnly = readonlyRootfs
 	state.HealthCheck = healthConfig
 	state.LogPath = ContainerLogPath(cm.DataDir, id)
 	return cm.saveState(state)

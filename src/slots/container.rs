@@ -110,6 +110,8 @@ fn register_container_create(engine: &mut Engine) {
             let mut host_net = false;
             let mut memory = String::new();
             let mut cpus = String::new();
+            let mut oom_score_adj = String::new();
+            let mut read_only = false;
             let mut target = "create_result".to_string();
 
             for child in &node.children {
@@ -127,6 +129,8 @@ fn register_container_create(engine: &mut Engine) {
                         "host_net" => host_net = resolved.to_bool(),
                         "memory" => memory = resolved.to_string_coerce(),
                         "cpus" => cpus = resolved.to_string_coerce(),
+                        "oom_score_adj" => oom_score_adj = resolved.to_string_coerce(),
+                        "read_only" => read_only = resolved.to_bool(),
                         "ports" => {
                             if let Value::List(ref list) = resolved {
                                 ports = list.iter().map(|v| v.to_string_coerce()).collect();
@@ -198,6 +202,13 @@ fn register_container_create(engine: &mut Engine) {
             if !cpus.is_empty() {
                 cli_args.push("--cpus");
                 cli_args.push(&cpus);
+            }
+            if !oom_score_adj.is_empty() {
+                cli_args.push("--oom-score-adj");
+                cli_args.push(&oom_score_adj);
+            }
+            if read_only {
+                cli_args.push("--read-only");
             }
 
             let (stdout, stderr, exit_code) = exec_zeno_container(&cli_args);

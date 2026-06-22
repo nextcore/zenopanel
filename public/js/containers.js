@@ -280,6 +280,8 @@ export function openAddContainerModal() {
   document.getElementById("container-cmd").value = "";
   document.getElementById("container-memory").value = "";
   document.getElementById("container-cpus").value = "";
+  document.getElementById("container-oom-score-adj").value = "";
+  document.getElementById("container-read-only").checked = false;
 
   // Reset cached images list
   document.getElementById("container-cached-images").innerHTML =
@@ -439,6 +441,9 @@ export function submitAddContainer() {
 
   const memory = document.getElementById("container-memory").value.trim();
   const cpus = document.getElementById("container-cpus").value.trim();
+  const oomScoreAdjVal = document.getElementById("container-oom-score-adj").value.trim();
+  const oom_score_adj = oomScoreAdjVal ? parseInt(oomScoreAdjVal, 10) : null;
+  const read_only = document.getElementById("container-read-only").checked;
 
   // Send structured payload
   const body = {
@@ -450,7 +455,9 @@ export function submitAddContainer() {
     env,
     host_net: false,
     memory,
-    cpus
+    cpus,
+    oom_score_adj,
+    read_only
   };
 
   closeAddContainerModal();

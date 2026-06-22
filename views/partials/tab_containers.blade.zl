@@ -158,6 +158,17 @@ services:
                 </div>
             </div>
 
+            <div class="form-group" style="margin-bottom:15px; display:flex; gap:15px; align-items:center;">
+                <div style="flex:1;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">OOM Score Adj (optional)</label>
+                    <input type="number" id="container-oom-score-adj" placeholder="e.g. -500" min="-1000" max="1000" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+                <div style="flex:1; display:flex; align-items:center; gap:8px; margin-top:20px;">
+                    <input type="checkbox" id="container-read-only" style="width:18px; height:18px; cursor:pointer;">
+                    <label for="container-read-only" style="font-weight:500; font-size:0.9rem; cursor:pointer; user-select:none;">Read-Only Root Filesystem</label>
+                </div>
+            </div>
+
             <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Environment Variables (optional)</label>
                 <div id="container-env-list">

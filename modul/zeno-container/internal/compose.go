@@ -146,6 +146,8 @@ type ComposeService struct {
 	HealthCheck   ComposeHealthCheck `yaml:"healthcheck"`
 	MemLimit      string             `yaml:"mem_limit"`
 	CPUs          float64            `yaml:"cpus"`
+	OomScoreAdj   *int               `yaml:"oom_score_adj"`
+	ReadOnly      bool               `yaml:"read_only"`
 }
 
 func parseMemoryBytes(mStr string) int64 {
@@ -312,7 +314,7 @@ func (cm *ContainerManager) ComposeUp(path string) ([]ComposeUpResult, error) {
 		hcConfig := svc.HealthCheck.ToHealthCheckConfig()
 		memLimit := parseMemoryBytes(svc.MemLimit)
 		cpuLimit := svc.CPUs
-		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, false, restartPolicy, hcConfig, memLimit, cpuLimit); err != nil {
+		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, false, restartPolicy, hcConfig, memLimit, cpuLimit, svc.OomScoreAdj, svc.ReadOnly); err != nil {
 			results = append(results, ComposeUpResult{Service: name, Error: fmt.Errorf("create: %w", err)})
 			continue
 		}

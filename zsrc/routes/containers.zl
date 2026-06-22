@@ -50,6 +50,8 @@ http.post: '/api/containers/create' {
         host_net: $body.host_net
         memory: $body.memory
         cpus: $body.cpus
+        oom_score_adj: $body.oom_score_adj
+        read_only: $body.read_only
         as: $result
     }
 

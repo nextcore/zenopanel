@@ -23,6 +23,8 @@ type ContainerState struct {
 	DesiredStatus string             `json:"desired_status,omitempty"` // running, stopped
 	MemoryLimit   int64              `json:"memory_limit,omitempty"`   // in bytes
 	CPULimit      float64            `json:"cpu_limit,omitempty"`      // fractional cores
+	OOMScoreAdj   *int               `json:"oom_score_adj,omitempty"`
+	ReadOnly      bool               `json:"read_only,omitempty"`
 	HealthCheck   *HealthCheckConfig `json:"health_check,omitempty"`
 	HealthStatus  string             `json:"health_status,omitempty"` // healthy, unhealthy, starting
 }

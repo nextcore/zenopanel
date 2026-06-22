@@ -218,6 +218,8 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 	healthRetries := 3
 	var memoryLimitStr string
 	var cpuLimit float64
+	var oomScoreAdj *int
+	var readOnly bool
 
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -273,6 +275,16 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 				cpuLimit, _ = strconv.ParseFloat(rest[i+1], 64)
 				i++
 			}
+		case "--oom-score-adj":
+			if i+1 < len(rest) {
+				val, err := strconv.Atoi(rest[i+1])
+				if err == nil {
+					oomScoreAdj = &val
+				}
+				i++
+			}
+		case "--read-only":
+			readOnly = true
 		}
 	}
 	if image == "" {
@@ -315,7 +327,7 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 	memoryLimit := parseMemoryBytes(memoryLimitStr)
 
 	fmt.Printf("Creating container '%s' from image '%s'...\n", name, image)
-	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet, restartPolicy, healthConfig, memoryLimit, cpuLimit); err != nil {
+	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet, restartPolicy, healthConfig, memoryLimit, cpuLimit, oomScoreAdj, readOnly); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
