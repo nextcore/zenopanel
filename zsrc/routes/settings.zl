@@ -193,3 +193,73 @@ http.get: '/api/settings/analytics' {
     }
 }
 
+# 9. GET /api/settings/backup
+http.get: '/api/settings/backup' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.get_backup_settings: { as: $backup_settings }
+            http.ok: {
+                success: true
+                settings: $backup_settings
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 10. POST /api/settings/backup
+http.post: '/api/settings/backup' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            system.update_backup_settings: {
+                enabled: $body.enabled
+                interval_hours: $body.interval_hours
+                retention: $body.retention
+                dest_dir: $body.dest_dir
+                post_script: $body.post_script
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Pengaturan backup berhasil diperbarui" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal memperbarui pengaturan backup" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 11. POST /api/settings/backup/trigger
+http.post: '/api/settings/backup/trigger' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.trigger_backup: { as: $res }
+            if: $res.success {
+                then: {
+                    http.ok: { success: true, message: "Backup berhasil dibuat", filename: $res.filename }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal membuat backup", error: $res.error }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+

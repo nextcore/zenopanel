@@ -669,4 +669,206 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "system.get_backup_settings",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "backup_settings".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.get_backup_settings".to_string()) })?;
+
+            let db_manager = app_state.db_manager.clone();
+            let target_clone = target.clone();
+            let scope_clone = scope.clone();
+            
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        macro_rules! get_s {
+                            ($k:expr) => {{
+                                let v: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+                                    .bind($k)
+                                    .fetch_optional(&pool)
+                                    .await
+                                    .unwrap_or(None);
+                                v.map(|r| r.0).unwrap_or_default()
+                            }};
+                        }
+
+                        let enabled = get_s!("backup_enabled") == "true";
+                        let interval = get_s!("backup_interval_hours").parse::<i64>().unwrap_or(24);
+                        let retention = get_s!("backup_retention").parse::<i64>().unwrap_or(7);
+                        let dest_dir = get_s!("backup_dest_dir");
+                        let post_script = get_s!("backup_post_script");
+                        let last_run = get_s!("backup_last_run");
+                        let last_status = get_s!("backup_last_status");
+
+                        let mut map = HashMap::new();
+                        map.insert("enabled".to_string(), Value::Bool(enabled));
+                        map.insert("interval_hours".to_string(), Value::Int(interval));
+                        map.insert("retention".to_string(), Value::Int(retention));
+                        map.insert("dest_dir".to_string(), Value::String(dest_dir));
+                        map.insert("post_script".to_string(), Value::String(post_script));
+                        map.insert("last_run".to_string(), Value::String(last_run));
+                        map.insert("last_status".to_string(), Value::String(last_status));
+
+                        scope_clone.set(&target_clone, Value::Map(map));
+                    }
+                });
+            });
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "system.update_backup_settings",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut target = "success".to_string();
+            let mut enabled = false;
+            let mut interval = 24;
+            let mut retention = 7;
+            let mut dest_dir = String::new();
+            let mut post_script = String::new();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "enabled" {
+                    enabled = val.to_bool();
+                } else if child.name == "interval_hours" {
+                    interval = val.to_int();
+                } else if child.name == "retention" {
+                    retention = val.to_int();
+                } else if child.name == "dest_dir" {
+                    dest_dir = val.to_string_coerce();
+                } else if child.name == "post_script" {
+                    post_script = val.to_string_coerce();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.update_backup_settings".to_string()) })?;
+
+            let db_manager = app_state.db_manager.clone();
+            
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(if enabled { "true" } else { "false" })
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_interval_hours', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(interval.to_string())
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_retention', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(retention.to_string())
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_dest_dir', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&dest_dir)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_post_script', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&post_script)
+                            .execute(&pool)
+                            .await;
+                    }
+                });
+            });
+
+            scope.set(&target, Value::Bool(true));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "system.trigger_backup",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "result".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.trigger_backup".to_string()) })?;
+
+            let backup_mgr = app_state.backup_manager.clone();
+            
+            let mut result = HashMap::new();
+            
+            let res = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    backup_mgr.run_backup().await
+                })
+            });
+
+            match res {
+                Ok(filename) => {
+                    result.insert("success".to_string(), Value::Bool(true));
+                    result.insert("filename".to_string(), Value::String(filename.clone()));
+                    
+                    let db_manager = app_state.db_manager.clone();
+                    let run_time = chrono::Utc::now().to_rfc3339();
+                    let success_status = format!("Success (Filename: {})", filename);
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                                let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_last_run', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                                    .bind(&run_time)
+                                    .execute(&pool)
+                                    .await;
+                                let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_last_status', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                                    .bind(&success_status)
+                                    .execute(&pool)
+                                    .await;
+                            }
+                        });
+                    });
+                }
+                Err(e) => {
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert("error".to_string(), Value::String(e.to_string()));
+                    
+                    let db_manager = app_state.db_manager.clone();
+                    let run_time = chrono::Utc::now().to_rfc3339();
+                    let failed_status = format!("Failed: {}", e);
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                                let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_last_run', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                                    .bind(&run_time)
+                                    .execute(&pool)
+                                    .await;
+                                let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_last_status', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                                    .bind(&failed_status)
+                                    .execute(&pool)
+                                    .await;
+                            }
+                        });
+                    });
+                }
+            }
+
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }

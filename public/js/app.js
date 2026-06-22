@@ -175,6 +175,10 @@ import {
   loadSecuritySettings,
   submitSaveSecurity,
   toggleRateLimitFields,
+  toggleBackupFields,
+  loadBackupSettings,
+  submitSaveBackupSettings,
+  triggerBackupManual,
 } from "./settings.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
@@ -398,6 +402,10 @@ const functionsToBind = {
   loadSecuritySettings,
   submitSaveSecurity,
   toggleRateLimitFields,
+  toggleBackupFields,
+  loadBackupSettings,
+  submitSaveBackupSettings,
+  triggerBackupManual,
   loadContainers,
   renderContainers,
   startContainerPolling,

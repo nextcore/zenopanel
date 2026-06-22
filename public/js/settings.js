@@ -16,6 +16,7 @@ export async function loadSettings() {
             }
         }
         await loadServiceStatus();
+        await loadBackupSettings();
     } catch (err) {
         showToast('error', 'Error loading settings: ' + err.message);
     }
@@ -353,6 +354,134 @@ function formatDate(dateStr) {
         return date.toLocaleString();
     } catch (e) {
         return dateStr;
+    }
+}
+
+export function toggleBackupFields() {
+    const backupCheckbox = document.getElementById('settings-backup-enabled');
+    const enabled = backupCheckbox ? backupCheckbox.checked : false;
+    const fields = document.getElementById('backup-settings-fields');
+    if (fields) {
+        fields.style.display = enabled ? 'flex' : 'none';
+    }
+}
+
+export async function loadBackupSettings() {
+    try {
+        const response = await fetch('/api/settings/backup');
+        if (!response.ok) {
+            throw new Error('Failed to fetch backup settings');
+        }
+        const data = await response.json();
+        if (data.success && data.settings) {
+            const settings = data.settings;
+            
+            const backupEnabled = document.getElementById('settings-backup-enabled');
+            if (backupEnabled) backupEnabled.checked = settings.enabled;
+            
+            const backupInterval = document.getElementById('settings-backup-interval');
+            if (backupInterval) backupInterval.value = settings.interval_hours;
+            
+            const backupRetention = document.getElementById('settings-backup-retention');
+            if (backupRetention) backupRetention.value = settings.retention;
+            
+            const backupDestDir = document.getElementById('settings-backup-dest-dir');
+            if (backupDestDir) backupDestDir.value = settings.dest_dir;
+            
+            const backupPostScript = document.getElementById('settings-backup-post-script');
+            if (backupPostScript) backupPostScript.value = settings.post_script;
+            
+            const backupLastRun = document.getElementById('backup-last-run-val');
+            if (backupLastRun) backupLastRun.textContent = settings.last_run ? formatDate(settings.last_run) : 'Never';
+            
+            const backupLastStatus = document.getElementById('backup-last-status-val');
+            if (backupLastStatus) backupLastStatus.textContent = settings.last_status || 'No status available';
+            
+            toggleBackupFields();
+        }
+    } catch (err) {
+        showToast('error', 'Error loading backup settings: ' + err.message);
+    }
+}
+
+export async function submitSaveBackupSettings() {
+    const backupEnabled = document.getElementById('settings-backup-enabled').checked;
+    const backupInterval = parseInt(document.getElementById('settings-backup-interval').value.trim(), 10) || 24;
+    const backupRetention = parseInt(document.getElementById('settings-backup-retention').value.trim(), 10) || 7;
+    const backupDestDir = document.getElementById('settings-backup-dest-dir').value.trim() || '/var/lib/zenopanel/backups';
+    const backupPostScript = document.getElementById('settings-backup-post-script').value.trim() || '';
+
+    const csrfToken = getCSRFToken();
+    const btn = document.getElementById('btn-save-backup-settings');
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+        
+        const response = await fetch('/api/settings/backup', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({
+                enabled: backupEnabled,
+                interval_hours: backupInterval,
+                retention: backupRetention,
+                dest_dir: backupDestDir,
+                post_script: backupPostScript
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Pengaturan backup berhasil disimpan');
+            await loadBackupSettings();
+        } else {
+            showToast('error', data.message || 'Gagal menyimpan pengaturan backup');
+        }
+    } catch (err) {
+        showToast('error', 'Error saving backup settings: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+export async function triggerBackupManual() {
+    if (!confirm('Apakah Anda yakin ingin memicu backup manual sekarang? Proses ini dapat memakan waktu beberapa saat.')) return;
+    
+    const csrfToken = getCSRFToken();
+    const btn = document.getElementById('btn-trigger-backup');
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Backing up...';
+        
+        const response = await fetch('/api/settings/backup/trigger', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            }
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', `${data.message}. File: ${data.filename}`);
+            await loadBackupSettings();
+        } else {
+            showToast('error', data.message + (data.error ? ': ' + data.error : ''));
+            await loadBackupSettings();
+        }
+    } catch (err) {
+        showToast('error', 'Error triggering backup: ' + err.message);
+        await loadBackupSettings();
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
     }
 }
 

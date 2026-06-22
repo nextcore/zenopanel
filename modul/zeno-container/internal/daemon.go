@@ -100,6 +100,23 @@ func StartDaemon(cm *ContainerManager) {
 						fmt.Printf("[Daemon] Container '%s' health status changed from '%s' to '%s'\n", c.ID, oldStatus, c.HealthStatus)
 						_ = cm.saveState(&c)
 					}
+
+					if c.HealthStatus == "unhealthy" {
+						fmt.Printf("[Daemon] Container '%s' is unhealthy. Restarting for auto-healing...\n", c.ID)
+						cState.Failures = 0
+						c.HealthStatus = "starting"
+						_ = cm.saveState(&c)
+
+						if err := cm.ContainerStop(c.ID); err != nil {
+							fmt.Fprintf(os.Stderr, "[Daemon] Error stopping unhealthy container '%s': %v\n", c.ID, err)
+						}
+						if err := cm.ContainerStart(c.ID); err != nil {
+							fmt.Fprintf(os.Stderr, "[Daemon] Error restarting unhealthy container '%s': %v\n", c.ID, err)
+						} else {
+							fmt.Printf("[Daemon] Unhealthy container '%s' successfully restarted for auto-healing.\n", c.ID)
+						}
+						continue
+					}
 				}
 			}
 		}
