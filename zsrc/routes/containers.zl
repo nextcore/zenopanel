@@ -48,6 +48,8 @@ http.post: '/api/containers/create' {
         volumes: $body.volumes
         env: $body.env
         host_net: $body.host_net
+        memory: $body.memory
+        cpus: $body.cpus
         as: $result
     }
 

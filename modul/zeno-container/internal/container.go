@@ -87,7 +87,7 @@ func (cm *ContainerManager) loadState(id string) (*ContainerState, error) {
 
 // ContainerCreate — setup bundle only (NO runc command)
 func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env map[string]string,
-	cwd string, mounts []string, ports []string, useHostNetwork bool, restartPolicy string, healthConfig *HealthCheckConfig) error {
+	cwd string, mounts []string, ports []string, useHostNetwork bool, restartPolicy string, healthConfig *HealthCheckConfig, memoryLimit int64, cpuLimit float64) error {
 
 	if _, err := os.Stat(StateFile(cm.DataDir, id)); err == nil {
 		return fmt.Errorf("container %s already exists", id)
@@ -99,7 +99,7 @@ func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env 
 	if err := CopyRootfs(image, cm.DataDir, id); err != nil {
 		return fmt.Errorf("copy rootfs: %w", err)
 	}
-	if err := GenerateConfigJSON(bundleDir, cmd, env, cwd, mounts, useHostNetwork); err != nil {
+	if err := GenerateConfigJSON(bundleDir, cmd, env, cwd, mounts, useHostNetwork, memoryLimit, cpuLimit); err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
 
@@ -110,6 +110,9 @@ func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env 
 	state.Ports = ports
 	state.HostNetwork = useHostNetwork
 	state.RestartPolicy = restartPolicy
+	state.DesiredStatus = StatusStopped
+	state.MemoryLimit = memoryLimit
+	state.CPULimit = cpuLimit
 	state.HealthCheck = healthConfig
 	state.LogPath = ContainerLogPath(cm.DataDir, id)
 	return cm.saveState(state)
@@ -241,6 +244,8 @@ func (cm *ContainerManager) ContainerStart(id string) error {
 		}
 		_ = quit
 	}
+	// Sync hosts entries for name-based communication
+	_ = SyncHostsEntries(cm.DataDir)
 	return nil
 }
 
@@ -267,7 +272,11 @@ func (cm *ContainerManager) ContainerStop(id string) error {
 
 	state.Status = StatusStopped
 	state.DesiredStatus = StatusStopped
-	return cm.saveState(state)
+	err = cm.saveState(state)
+	if err == nil {
+		_ = SyncHostsEntries(cm.DataDir)
+	}
+	return err
 }
 
 // ContainerDelete — "runc delete --force" + cleanup. Idempotent.
@@ -288,6 +297,9 @@ func (cm *ContainerManager) ContainerDelete(id string) error {
 	_ = syscall.Unmount(RootfsDir(cm.DataDir, id), syscall.MNT_DETACH)
 	// Always try to remove files
 	os.RemoveAll(ContainerDir(cm.DataDir, id))
+
+	// Sync hosts entries for name-based communication
+	_ = SyncHostsEntries(cm.DataDir)
 	return nil
 }
 

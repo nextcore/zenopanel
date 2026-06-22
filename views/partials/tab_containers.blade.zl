@@ -147,6 +147,17 @@ services:
                 </button>
             </div>
 
+            <div class="form-group" style="margin-bottom:15px; display:flex; gap:15px;">
+                <div style="flex:1;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Memory Limit (optional)</label>
+                    <input type="text" id="container-memory" placeholder="e.g. 512m or 1g" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+                <div style="flex:1;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">CPU Limit (optional)</label>
+                    <input type="text" id="container-cpus" placeholder="e.g. 1.5 or 0.5" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+            </div>
+
             <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Environment Variables (optional)</label>
                 <div id="container-env-list">

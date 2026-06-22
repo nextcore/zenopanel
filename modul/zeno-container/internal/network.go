@@ -163,3 +163,52 @@ func CleanContainerNetwork(containerID string, ip string, ports []string) {
 		}
 	}
 }
+
+// SyncHostsEntries updates /etc/hosts in all running containers to enable name-based communication.
+func SyncHostsEntries(dataDir string) error {
+	cm := NewContainerManager(dataDir)
+	containers, err := cm.ContainerList()
+	if err != nil {
+		return err
+	}
+
+	// 1. Collect name -> IP mapping for all running containers
+	runningIPs := make(map[string]string)
+	for _, c := range containers {
+		if c.Status == StatusRunning && c.Env != nil {
+			if ip, ok := c.Env["ZENO_IP"]; ok && ip != "" {
+				runningIPs[c.ID] = ip
+			}
+		}
+	}
+
+	// 2. For each running container, overwrite /etc/hosts with loopback + all container mappings
+	for _, c := range containers {
+		if c.Status != StatusRunning {
+			continue
+		}
+
+		hostsPath := RootfsDir(dataDir, c.ID) + "/etc/hosts"
+
+		var sb strings.Builder
+		sb.WriteString("127.0.0.1\tlocalhost\n")
+		sb.WriteString("::1\tlocalhost ip6-localhost ip6-loopback\n\n")
+		sb.WriteString("# Zeno Container Service Discovery\n")
+
+		// Add mapping for this container's own IP
+		if myIP, ok := runningIPs[c.ID]; ok {
+			sb.WriteString(fmt.Sprintf("%s\t%s\n", myIP, c.ID))
+		}
+
+		// Add mapping for all OTHER running containers
+		for otherID, otherIP := range runningIPs {
+			if otherID != c.ID {
+				sb.WriteString(fmt.Sprintf("%s\t%s\n", otherIP, otherID))
+			}
+		}
+
+		_ = os.WriteFile(hostsPath, []byte(sb.String()), 0644)
+	}
+
+	return nil
+}

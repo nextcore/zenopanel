@@ -13,7 +13,7 @@ import (
 )
 
 // GenerateConfigJSON creates an OCI runtime-spec config.json for a container.
-func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string, cwd string, mounts []string, useHostNetwork bool) error {
+func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string, cwd string, mounts []string, useHostNetwork bool, memoryLimit int64, cpuLimit float64) error {
 	if len(cmd) == 0 {
 		cmd = []string{"/bin/sh"}
 	}
@@ -138,7 +138,29 @@ func GenerateConfigJSON(bundleDir string, cmd []string, envMap map[string]string
 		Hostname: "zeno-container",
 		Mounts:   ociMounts,
 		Linux: &spec.Linux{
-			Resources: &spec.LinuxResources{},
+			Resources: func() *spec.LinuxResources {
+				res := &spec.LinuxResources{}
+				hasLimits := false
+				if memoryLimit > 0 {
+					res.Memory = &spec.LinuxMemory{
+						Limit: &memoryLimit,
+					}
+					hasLimits = true
+				}
+				if cpuLimit > 0 {
+					period := uint64(100000)
+					quota := int64(cpuLimit * 100000)
+					res.CPU = &spec.LinuxCPU{
+						Period: &period,
+						Quota:  &quota,
+					}
+					hasLimits = true
+				}
+				if hasLimits {
+					return res
+				}
+				return &spec.LinuxResources{}
+			}(),
 			Namespaces: func() []spec.LinuxNamespace {
 				ns := []spec.LinuxNamespace{
 					{Type: spec.PIDNamespace},

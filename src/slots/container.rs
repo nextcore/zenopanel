@@ -108,6 +108,8 @@ fn register_container_create(engine: &mut Engine) {
             let mut volumes: Vec<String> = Vec::new();
             let mut env_map: HashMap<String, String> = HashMap::new();
             let mut host_net = false;
+            let mut memory = String::new();
+            let mut cpus = String::new();
             let mut target = "create_result".to_string();
 
             for child in &node.children {
@@ -123,6 +125,8 @@ fn register_container_create(engine: &mut Engine) {
                         "image" => image = resolved.to_string_coerce(),
                         "cmd" => cmd = resolved.to_string_coerce(),
                         "host_net" => host_net = resolved.to_bool(),
+                        "memory" => memory = resolved.to_string_coerce(),
+                        "cpus" => cpus = resolved.to_string_coerce(),
                         "ports" => {
                             if let Value::List(ref list) = resolved {
                                 ports = list.iter().map(|v| v.to_string_coerce()).collect();
@@ -186,6 +190,14 @@ fn register_container_create(engine: &mut Engine) {
             }
             if host_net {
                 cli_args.push("--host-net");
+            }
+            if !memory.is_empty() {
+                cli_args.push("--memory");
+                cli_args.push(&memory);
+            }
+            if !cpus.is_empty() {
+                cli_args.push("--cpus");
+                cli_args.push(&cpus);
             }
 
             let (stdout, stderr, exit_code) = exec_zeno_container(&cli_args);

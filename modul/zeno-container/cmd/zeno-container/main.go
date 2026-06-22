@@ -106,6 +106,8 @@ Commands:
     --health-interval <sec>   Health check interval (default: 30)
     --health-timeout <sec>    Health check timeout (default: 5)
     --health-retries <num>    Health check retries (default: 3)
+    -m, --memory <limit>      Memory limit (e.g. 512m, 1g)
+    --cpus <limit>            CPU limit (fractional cores, e.g. 1.5, 0.5)
   run <id>                  Run container synchronously with log capture
   start <id>                Start a stopped container (detached)
   stop <id>                 Stop a running container
@@ -214,6 +216,8 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 	healthInterval := 30
 	healthTimeout := 5
 	healthRetries := 3
+	var memoryLimitStr string
+	var cpuLimit float64
 
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -259,6 +263,16 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 				healthRetries, _ = strconv.Atoi(rest[i+1])
 				i++
 			}
+		case "--memory", "-m":
+			if i+1 < len(rest) {
+				memoryLimitStr = rest[i+1]
+				i++
+			}
+		case "--cpus":
+			if i+1 < len(rest) {
+				cpuLimit, _ = strconv.ParseFloat(rest[i+1], 64)
+				i++
+			}
 		}
 	}
 	if image == "" {
@@ -298,8 +312,10 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 		restartPolicy = "no"
 	}
 
+	memoryLimit := parseMemoryBytes(memoryLimitStr)
+
 	fmt.Printf("Creating container '%s' from image '%s'...\n", name, image)
-	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet, restartPolicy, healthConfig); err != nil {
+	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet, restartPolicy, healthConfig, memoryLimit, cpuLimit); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -562,4 +578,30 @@ func parseListValues(args []string, flag string) []string {
 		}
 	}
 	return result
+}
+
+func parseMemoryBytes(mStr string) int64 {
+	if mStr == "" {
+		return 0
+	}
+	mStr = strings.ToLower(strings.TrimSpace(mStr))
+	var unit int64 = 1
+	if strings.HasSuffix(mStr, "b") {
+		mStr = strings.TrimSuffix(mStr, "b")
+	}
+	if strings.HasSuffix(mStr, "k") {
+		unit = 1024
+		mStr = strings.TrimSuffix(mStr, "k")
+	} else if strings.HasSuffix(mStr, "m") {
+		unit = 1024 * 1024
+		mStr = strings.TrimSuffix(mStr, "m")
+	} else if strings.HasSuffix(mStr, "g") {
+		unit = 1024 * 1024 * 1024
+		mStr = strings.TrimSuffix(mStr, "g")
+	}
+	val, err := strconv.ParseInt(mStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return val * unit
 }

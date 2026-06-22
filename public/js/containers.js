@@ -278,6 +278,8 @@ export function openAddContainerModal() {
   document.getElementById("container-name").value = "";
   document.getElementById("container-image").value = "";
   document.getElementById("container-cmd").value = "";
+  document.getElementById("container-memory").value = "";
+  document.getElementById("container-cpus").value = "";
 
   // Reset cached images list
   document.getElementById("container-cached-images").innerHTML =
@@ -435,6 +437,9 @@ export function submitAddContainer() {
     if (key) env[key] = val;
   });
 
+  const memory = document.getElementById("container-memory").value.trim();
+  const cpus = document.getElementById("container-cpus").value.trim();
+
   // Send structured payload
   const body = {
     name,
@@ -443,7 +448,9 @@ export function submitAddContainer() {
     ports,
     volumes,
     env,
-    host_net: false
+    host_net: false,
+    memory,
+    cpus
   };
 
   closeAddContainerModal();

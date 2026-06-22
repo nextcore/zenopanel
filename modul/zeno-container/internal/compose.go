@@ -144,6 +144,34 @@ type ComposeService struct {
 	Networks      []string           `yaml:"networks"`
 	Restart       string             `yaml:"restart"`
 	HealthCheck   ComposeHealthCheck `yaml:"healthcheck"`
+	MemLimit      string             `yaml:"mem_limit"`
+	CPUs          float64            `yaml:"cpus"`
+}
+
+func parseMemoryBytes(mStr string) int64 {
+	if mStr == "" {
+		return 0
+	}
+	mStr = strings.ToLower(strings.TrimSpace(mStr))
+	var unit int64 = 1
+	if strings.HasSuffix(mStr, "b") {
+		mStr = strings.TrimSuffix(mStr, "b")
+	}
+	if strings.HasSuffix(mStr, "k") {
+		unit = 1024
+		mStr = strings.TrimSuffix(mStr, "k")
+	} else if strings.HasSuffix(mStr, "m") {
+		unit = 1024 * 1024
+		mStr = strings.TrimSuffix(mStr, "m")
+	} else if strings.HasSuffix(mStr, "g") {
+		unit = 1024 * 1024 * 1024
+		mStr = strings.TrimSuffix(mStr, "g")
+	}
+	val, err := strconv.ParseInt(mStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return val * unit
 }
 
 // ComposeNetwork represents a named network in docker-compose.yml
@@ -275,14 +303,16 @@ func (cm *ContainerManager) ComposeUp(path string) ([]ComposeUpResult, error) {
 			_ = cm.ContainerDelete(containerName)
 		}
 
-		// 4. Create container (using host networking by default for compose)
+		// 4. Create container (using bridge networking by default for compose)
 		fmt.Printf("  ▶ Creating container '%s'...\n", containerName)
 		restartPolicy := svc.Restart
 		if restartPolicy == "" {
 			restartPolicy = "no"
 		}
 		hcConfig := svc.HealthCheck.ToHealthCheckConfig()
-		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, true, restartPolicy, hcConfig); err != nil {
+		memLimit := parseMemoryBytes(svc.MemLimit)
+		cpuLimit := svc.CPUs
+		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, false, restartPolicy, hcConfig, memLimit, cpuLimit); err != nil {
 			results = append(results, ComposeUpResult{Service: name, Error: fmt.Errorf("create: %w", err)})
 			continue
 		}
