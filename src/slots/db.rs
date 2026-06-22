@@ -397,13 +397,13 @@ pub fn register(engine: &mut Engine) {
             for child in &node.children {
                 let val = engine.resolve_shorthand_value(child, scope);
                 match child.name.as_str() {
-                    "name" => name = val.to_string_coerce();
-                    "driver" => driver = val.to_string_coerce();
-                    "host" => host = val.to_string_coerce();
-                    "port" => port = val.to_int() as u16;
-                    "user" => user = val.to_string_coerce();
-                    "password" => password = val.to_string_coerce();
-                    "database" => database = val.to_string_coerce();
+                    "name" => name = val.to_string_coerce(),
+                    "driver" => driver = val.to_string_coerce(),
+                    "host" => host = val.to_string_coerce(),
+                    "port" => port = val.to_int() as u16,
+                    "user" => user = val.to_string_coerce(),
+                    "password" => password = val.to_string_coerce(),
+                    "database" => database = val.to_string_coerce(),
                     "as" => {
                         if let Some(ref v) = child.value {
                             target = v.trim_start_matches('$').to_string();

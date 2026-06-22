@@ -49,3 +49,45 @@ Menyediakan visibilitas performa infrastruktur server tunggal agar sysadmin dapa
     *   Dashboard grafik di UI ZenoPanel untuk memantau penggunaan CPU, RAM, Disk, dan Swap dari server host serta masing-masing kontainer yang aktif.
 *   **Rotasi & Analisis Log Lokal**:
     *   Rotasi otomatis untuk file access log Pingora, WAF logs, dan log kontainer untuk mencegah disk VPS penuh secara tiba-tiba.
+
+---
+
+### Fase 5: Manajemen Database Terintegrasi (SELESAI)
+Menghadirkan fitur manajemen database setara aaPanel / 1Panel — langsung dari UI ZenoPanel, tanpa perlu tools eksternal seperti phpMyAdmin.
+
+*   **Multi-Driver Connection Pool (Rust/SQLx)**:
+    *   `DBManager` (Arc + RwLock) mendukung tiga jenis pool sekaligus: **SQLite** (panel internal), **MySQL/MariaDB**, dan **PostgreSQL**.
+    *   Koneksi dimuat otomatis saat startup dari tabel `db_servers` di database panel.
+    *   Slot ZenoCore baru: `db.connect` dan `db.disconnect` untuk mengelola pool secara dinamis dari ZenoLang route.
+
+*   **Dashboard Database Servers**:
+    *   Registrasi server database eksternal (MySQL/MariaDB/PostgreSQL) via UI dengan **uji koneksi otomatis** sebelum menyimpan.
+    *   Tabel daftar server terdaftar beserta engine, host:port, dan akun admin.
+    *   Hapus registrasi server (pool dilepas otomatis).
+
+*   **Lifecycle Database & User Management**:
+    *   Buat database baru beserta user eksklusifnya di server target (MySQL `CREATE DATABASE` + `CREATE USER` + `GRANT`, atau PostgreSQL equivalent) — satu klik dari UI.
+    *   Pilih akses: `localhost` atau `remote (%)`.
+    *   Ganti password user database langsung dari panel (`ALTER USER`).
+    *   Drop database dan hapus user secara bersamaan (`DROP DATABASE` + `DROP USER`).
+    *   Generator password acak 16 karakter (special chars included).
+    *   Tampilkan/sembunyikan password tersimpan di tabel (toggle eye icon).
+
+*   **SQL Query Console**:
+    *   Multi-connection console: pilih koneksi (panel SQLite, server admin, atau user database tertentu) dari dropdown.
+    *   Sidebar daftar tabel otomatis (klik tabel → auto-isi `SELECT * FROM table LIMIT 10`).
+    *   Badge driver aktif (SQLITE / MYSQL / POSTGRES).
+    *   Mode SELECT vs. Execute command (checkbox toggle).
+    *   Hasil query ditampilkan sebagai tabel dinamis; perintah non-SELECT menampilkan `rows_affected` dan `last_insert_id`.
+    *   Tombol shortcut "Buka Console" dari baris tabel databases langsung membuka console dengan koneksi yang sesuai.
+
+*   **API Routes (ZenoLang)**:
+    *   `GET /api/database/servers` — list server terdaftar
+    *   `POST /api/database/servers` — registrasi + uji koneksi
+    *   `DELETE /api/database/servers` — hapus registrasi
+    *   `GET /api/database/list` — list semua user database
+    *   `POST /api/database/create` — buat database + user
+    *   `POST /api/database/change-password` — ganti password user DB
+    *   `POST /api/database/delete` — drop database + user
+    *   `GET /api/database/tables` — list tabel dari koneksi aktif
+    *   `POST /api/database/query` — eksekusi raw SQL (SELECT atau command)
