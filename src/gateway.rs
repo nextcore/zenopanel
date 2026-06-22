@@ -24,6 +24,39 @@ impl ZenoGateway {
     }
 }
 
+fn is_realtime_request(req_header: &pingora::http::RequestHeader) -> bool {
+    let is_websocket = req_header
+        .headers
+        .get("Upgrade")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+
+    let is_sse = req_header
+        .headers
+        .get("Accept")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.contains("text/event-stream"))
+        .unwrap_or(false);
+
+    is_websocket || is_sse
+}
+
+fn configure_peer(peer: &mut HttpPeer, is_realtime: bool) {
+    peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
+    peer.options.idle_timeout = Some(std::time::Duration::from_secs(60));
+    
+    if is_realtime {
+        // Allow up to 1 hour of idle time for WebSockets and Server-Sent Events (SSE)
+        peer.options.read_timeout = Some(std::time::Duration::from_secs(3600));
+        peer.options.write_timeout = Some(std::time::Duration::from_secs(3600));
+    } else {
+        // Fast timeouts for standard HTTP requests
+        peer.options.read_timeout = Some(std::time::Duration::from_secs(15));
+        peer.options.write_timeout = Some(std::time::Duration::from_secs(15));
+    }
+}
+
 #[async_trait]
 impl ProxyHttp for ZenoGateway {
     type CTX = GatewayCtx;
@@ -307,18 +340,21 @@ impl ProxyHttp for ZenoGateway {
         let request_port = request_port.unwrap_or(80);
         let path = req_header.uri.path();
 
+        let is_realtime = is_realtime_request(req_header);
+
         if let Some(rule) = self.state.proxy_manager.match_rule(&host, request_port, path).await {
             if rule.rule_type == "static" {
                 // Forward static site requests to local Axum instance
                 ctx.is_proxy_rule = false;
                 ctx.target_host = "127.0.0.1".to_string();
 
-                let peer = Box::new(HttpPeer::new(
+                let mut peer = HttpPeer::new(
                     format!("127.0.0.1:{}", self.state.mgmt_port),
                     false,
                     String::new(),
-                ));
-                return Ok(peer);
+                );
+                configure_peer(&mut peer, is_realtime);
+                return Ok(Box::new(peer));
             }
 
             let target = self.state.proxy_manager.get_next_target(&rule.id, &rule.target).await;
@@ -353,23 +389,25 @@ impl ProxyHttp for ZenoGateway {
                 }
             };
 
-            let peer = Box::new(HttpPeer::new(
+            let mut peer = HttpPeer::new(
                 socket_addr,
                 is_https,
                 t_host.clone(),
-            ));
-            Ok(peer)
+            );
+            configure_peer(&mut peer, is_realtime);
+            Ok(Box::new(peer))
         } else {
             // Forward to local Axum instance
             ctx.is_proxy_rule = false;
             ctx.target_host = "127.0.0.1".to_string();
 
-            let peer = Box::new(HttpPeer::new(
+            let mut peer = HttpPeer::new(
                 format!("127.0.0.1:{}", self.state.mgmt_port),
                 false,
                 String::new(),
-            ));
-            Ok(peer)
+            );
+            configure_peer(&mut peer, is_realtime);
+            Ok(Box::new(peer))
         }
     }
 
@@ -426,6 +464,27 @@ impl ProxyHttp for ZenoGateway {
         let proto = "http";
         upstream_request.insert_header("X-Forwarded-Proto", proto)?;
 
+        Ok(())
+    }
+
+    async fn response_filter(
+        &self,
+        session: &mut Session,
+        upstream_response: &mut ResponseHeader,
+        ctx: &mut Self::CTX,
+    ) -> Result<()> {
+        if ctx.is_proxy_rule {
+            let req_header = session.req_header();
+            if let Some(origin) = req_header.headers.get("Origin") {
+                if let Ok(origin_str) = origin.to_str() {
+                    // Echo dynamic CORS headers back to client
+                    let _ = upstream_response.insert_header("Access-Control-Allow-Origin", origin_str);
+                    let _ = upstream_response.insert_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
+                    let _ = upstream_response.insert_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-CSRF-Token");
+                    let _ = upstream_response.insert_header("Access-Control-Allow-Credentials", "true");
+                }
+            }
+        }
         Ok(())
     }
 }

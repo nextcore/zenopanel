@@ -612,6 +612,10 @@ pub async fn run_tls_server(cert_resolver: Arc<ZenoCertResolver>, app: axum::Rou
         .parse::<u16>()
         .unwrap_or(8443);
 
+    // Safe and secure default: rustls is secure-by-default, only supporting
+    // TLS 1.2 and TLS 1.3 with modern AEAD ciphers (e.g., AES-GCM, ChaCha20-Poly1305).
+    // All legacy protocols (SSLv2, SSLv3, TLS 1.0, TLS 1.1) and weak ciphers (RC4, 3DES, CBC)
+    // are completely disabled at compile-time to pass strict enterprise security/financial audits.
     let mut server_config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_cert_resolver(cert_resolver);
