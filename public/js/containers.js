@@ -628,6 +628,10 @@ export function switchContainerSubTab(tab) {
     tab === "containers" ? "block" : "none";
   document.getElementById("subtab-compose").style.display =
     tab === "compose" ? "block" : "none";
+
+  if (tab === "compose") {
+    import("./compose.js").then((m) => m.loadComposeYaml());
+  }
 }
 
 // ─── Browse Container Files ─────────────────────────────────────────

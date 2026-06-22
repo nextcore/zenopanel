@@ -155,7 +155,7 @@ import {
   submitPortCheck,
   killPortProcess,
 } from "./portcheck.js";
-import { composeUp, composeDown, composePs } from "./compose.js";
+import { composeUp, composeDown, composePs, loadComposeYaml } from "./compose.js";
 import {
   allUsers,
   loadUsers,
@@ -439,6 +439,7 @@ Object.entries(functionsToBind).forEach(([name, fn]) => {
 window.composeUp = composeUp;
 window.composeDown = composeDown;
 window.composePs = composePs;
+window.loadComposeYaml = loadComposeYaml;
 
 // --- INITIALIZATION ROUTINE ---
 

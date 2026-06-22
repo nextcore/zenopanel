@@ -241,6 +241,17 @@ http.post: '/api/containers/rmi' {
     }
 }
 
+# Get Compose YAML content from physical file
+http.get: '/api/containers/compose/yaml' {
+    auth.guard
+    http.query: 'project_name' { as: $project_name }
+    container.compose_get_yaml: {
+        project_name: $project_name
+        as: $result
+    }
+    http.ok: { yaml: $result.yaml }
+}
+
 # ─── Compose ────────────────────────────────────────────────--
 http.post: '/api/containers/compose' {
     auth.guard
@@ -249,6 +260,7 @@ http.post: '/api/containers/compose' {
     # Call structured compose slot securely
     container.compose: $body.action {
         yaml: $body.yaml
+        project_name: $body.project_name
         as: $result
     }
     if: $result.success {

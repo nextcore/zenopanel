@@ -64,9 +64,14 @@
                     </button>
                 </div>
             </div>
-            <div style="margin-bottom:15px;">
-                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Compose YAML</label>
-                <textarea id="compose-yaml-input" placeholder='version: "3"
+            <div style="margin-bottom:15px; display:flex; gap:15px;">
+                <div style="width: 200px;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Project Name</label>
+                    <input type="text" id="compose-project-input" value="default" placeholder="e.g. wordpress" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;" onchange="loadComposeYaml()">
+                </div>
+                <div style="flex:1;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Compose YAML</label>
+                    <textarea id="compose-yaml-input" placeholder='version: "3"
 services:
   web:
     image: nginx:alpine
@@ -76,6 +81,7 @@ services:
     image: mariadb:10.11
     environment:
       MARIADB_ROOT_PASSWORD: root123' style="width:100%; min-height:250px; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family:var(--font-code); font-size:0.85rem; resize:vertical;"></textarea>
+                </div>
             </div>
             <div id="compose-result" style="display:none; padding:15px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.5); font-family:var(--font-code); font-size:0.85rem; white-space:pre-wrap; max-height:350px; overflow-y:auto; line-height:1.6;"></div>
         </div>

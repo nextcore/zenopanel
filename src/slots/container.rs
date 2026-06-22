@@ -16,6 +16,7 @@ pub fn register(engine: &mut Engine) {
     register_container_inspect(engine);
     register_container_logs(engine);
     register_container_compose(engine);
+    register_container_compose_get_yaml(engine);
 }
 
 /// Get the zeno-container binary path, checking env var ZENO_CONTAINER_BIN first.
@@ -684,38 +685,58 @@ fn register_container_compose(engine: &mut Engine) {
                 }
             }
 
-            if action.is_empty() || yaml.is_empty() {
+            if action.is_empty() {
                 let mut result = HashMap::new();
                 result.insert("success".to_string(), Value::Bool(false));
                 result.insert(
                     "stderr".to_string(),
-                    Value::String("action and yaml are required".to_string()),
+                    Value::String("action is required".to_string()),
                 );
                 scope.set(&target, Value::Map(result));
                 return Ok(());
             }
 
-            // Secure unique temp file path generation in /tmp
-            let rand_id: u32 = rand::random();
-            let temp_path = format!("/tmp/zeno-compose-{}.yml", rand_id);
+            let compose_dir = "/var/lib/zeno-container/compose";
+            let compose_path = "/var/lib/zeno-container/compose/docker-compose.yml";
 
-            // Write YAML content to temp file
-            if let Err(e) = std::fs::write(&temp_path, &yaml) {
-                let mut result = HashMap::new();
-                result.insert("success".to_string(), Value::Bool(false));
-                result.insert(
-                    "stderr".to_string(),
-                    Value::String(format!("Failed to write temporary compose file: {}", e)),
-                );
-                scope.set(&target, Value::Map(result));
-                return Ok(());
+            if !yaml.is_empty() {
+                if let Err(e) = std::fs::create_dir_all(compose_dir) {
+                    let mut result = HashMap::new();
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert(
+                        "stderr".to_string(),
+                        Value::String(format!("Failed to create compose directory: {}", e)),
+                    );
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+
+                if let Err(e) = std::fs::write(compose_path, &yaml) {
+                    let mut result = HashMap::new();
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert(
+                        "stderr".to_string(),
+                        Value::String(format!("Failed to write compose file: {}", e)),
+                    );
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+            } else {
+                // If YAML is empty, verify that the physical compose file already exists
+                if !std::path::Path::new(compose_path).exists() {
+                    let mut result = HashMap::new();
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert(
+                        "stderr".to_string(),
+                        Value::String("Compose file does not exist on disk and no YAML was provided".to_string()),
+                    );
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
             }
 
-            // Execute compose action
-            let (stdout, stderr, exit_code) = exec_zeno_container(&["compose", &action, &temp_path]);
-
-            // Automatically clean up the temp file
-            let _ = std::fs::remove_file(&temp_path);
+            // Execute compose action on the physical file
+            let (stdout, stderr, exit_code) = exec_zeno_container(&["compose", &action, compose_path]);
 
             let mut result = HashMap::new();
             result.insert("stdout".to_string(), Value::String(stdout));
@@ -727,8 +748,48 @@ fn register_container_compose(engine: &mut Engine) {
             Ok(())
         }),
         SlotMeta {
-            description: "Run docker-compose commands safely using a temporary file".to_string(),
+            description: "Run docker-compose commands safely using a physical compose file".to_string(),
             example: "container.compose: 'up' { yaml: $yaml, as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+fn register_container_compose_get_yaml(engine: &mut Engine) {
+    engine.register(
+        "container.compose_get_yaml",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+
+            for child in &node.children {
+                match child.name.as_str() {
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let compose_path = "/var/lib/zeno-container/compose/docker-compose.yml";
+            let yaml_content = match std::fs::read_to_string(compose_path) {
+                Ok(content) => content,
+                Err(_) => String::new(),
+            };
+
+            let mut result = HashMap::new();
+            result.insert("yaml".to_string(), Value::String(yaml_content));
+            result.insert("success".to_string(), Value::Bool(true));
+
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Get persistent docker-compose.yml content from disk".to_string(),
+            example: "container.compose_get_yaml: { as: $result }".to_string(),
             inputs: HashMap::new(),
             required_blocks: Vec::new(),
             value_type: "".to_string(),
