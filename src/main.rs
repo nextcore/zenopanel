@@ -17,6 +17,8 @@ use axum::{
     routing::any,
     Router,
 };
+use futures_util::stream::StreamExt as _;
+use tokio_stream::wrappers::BroadcastStream;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -103,6 +105,12 @@ pub(crate) struct AppState {
     pub(crate) backup_manager: Arc<crate::backupman::BackupManager>,
     pub(crate) log_manager: Arc<crate::logman::LogManager>,
     pub(crate) mgmt_port: u16,
+    pub(crate) dashboard_tx: tokio::sync::broadcast::Sender<String>,
+    pub(crate) last_dashboard_payload: Arc<Mutex<Option<String>>>,
+    pub(crate) container_tx: tokio::sync::broadcast::Sender<String>,
+    pub(crate) last_container_payload: Arc<Mutex<Option<String>>>,
+    pub(crate) managed_tx: tokio::sync::broadcast::Sender<String>,
+    pub(crate) last_managed_payload: Arc<Mutex<Option<String>>>,
 }
 
 fn kill_process_on_port(port: u16) {
@@ -580,6 +588,187 @@ fn main() {
         }
     });
 
+    // Initialize telemetry broadcast channel and cache
+    let (dashboard_tx, _) = tokio::sync::broadcast::channel::<String>(16);
+    let last_dashboard_payload = Arc::new(Mutex::new(None));
+
+    // Telemetry background worker
+    let tx_clone = dashboard_tx.clone();
+    let cache_clone = last_dashboard_payload.clone();
+    let traffic_stats_clone = traffic_stats.clone();
+    tokio::spawn(async move {
+        let mut sys = sysinfo::System::new_all();
+        loop {
+            // Measure CPU usage over 100ms
+            sys.refresh_cpu_usage();
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            sys.refresh_cpu_usage();
+
+            sys.refresh_memory();
+
+            let cpu = sys.global_cpu_info().cpu_usage() as f64;
+            let mem_total = sys.total_memory() as f64;
+            let mem_free = sys.free_memory() as f64;
+            let mem_used = sys.used_memory() as f64;
+            let mem_pct = if mem_total > 0.0 { (mem_used / mem_total) * 100.0 } else { 0.0 };
+
+            // Swap
+            let swap_total = sys.total_swap() as f64;
+            let swap_used = sys.used_swap() as f64;
+            let swap_pct = if swap_total > 0.0 { (swap_used / swap_total) * 100.0 } else { 0.0 };
+
+            // Disk
+            let mut disk_total = 0.0;
+            let mut disk_used = 0.0;
+            let mut disk_pct = 0.0;
+
+            let disks = sysinfo::Disks::new_with_refreshed_list();
+            if let Some(disk) = disks.iter().find(|d| d.mount_point() == std::path::Path::new("/")) {
+                disk_total = disk.total_space() as f64;
+                let disk_free = disk.available_space() as f64;
+                disk_used = disk_total - disk_free;
+                if disk_total > 0.0 {
+                    disk_pct = (disk_used / disk_total) * 100.0;
+                }
+            }
+
+            // Network throughput
+            let networks = sysinfo::Networks::new_with_refreshed_list();
+            let mut net_rx = 0.0;
+            let mut net_tx = 0.0;
+            for (_interface_name, network) in &networks {
+                net_rx += network.total_received() as f64;
+                net_tx += network.total_transmitted() as f64;
+            }
+
+            let stats = serde_json::json!({
+                "cpu": cpu,
+                "mem_total": mem_total,
+                "mem_free": mem_free,
+                "mem_used": mem_used,
+                "mem_pct": mem_pct,
+                "swap_total": swap_total,
+                "swap_used": swap_used,
+                "swap_pct": swap_pct,
+                "disk_total": disk_total,
+                "disk_used": disk_used,
+                "disk_pct": disk_pct,
+                "net_rx": net_rx,
+                "net_tx": net_tx,
+            });
+
+            // Processes telemetry
+            sys.refresh_processes();
+            let mut processes: Vec<serde_json::Value> = sys.processes().iter().map(|(pid, proc)| {
+                let mem_bytes = proc.memory() as f64;
+                let mem_pct = if sys.total_memory() > 0 {
+                    (mem_bytes / sys.total_memory() as f64) * 100.0
+                } else {
+                    0.0
+                };
+                serde_json::json!({
+                    "pid": pid.as_u32(),
+                    "name": proc.name().to_string(),
+                    "cpu": proc.cpu_usage() as f64,
+                    "memory": mem_pct,
+                    "status": format!("{:?}", proc.status()),
+                })
+            }).collect();
+
+            // Sort by Memory (descending) as default, matching /api/processes
+            processes.sort_by(|a, b| {
+                let a_val = a["memory"].as_f64().unwrap_or(0.0);
+                let b_val = b["memory"].as_f64().unwrap_or(0.0);
+                b_val.partial_cmp(&a_val).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            if processes.len() > 15 {
+                processes.truncate(15);
+            }
+
+            let traffic = traffic_stats_clone.get_history();
+
+            let payload = serde_json::json!({
+                "stats": stats,
+                "processes": processes,
+                "history": traffic,
+            });
+
+            if let Ok(payload_str) = serde_json::to_string(&payload) {
+                *cache_clone.lock().unwrap() = Some(payload_str.clone());
+                let _ = tx_clone.send(payload_str);
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(2900)).await;
+        }
+    });
+
+    // Initialize container broadcast channel and cache
+    let (container_tx, _) = tokio::sync::broadcast::channel::<String>(16);
+    let last_container_payload = Arc::new(Mutex::new(None));
+
+    // Container background worker
+    let c_tx_clone = container_tx.clone();
+    let c_cache_clone = last_container_payload.clone();
+    tokio::spawn(async move {
+        let bin = std::env::var("ZENO_CONTAINER_BIN")
+            .unwrap_or_else(|_| "/usr/local/bin/zeno-container".to_string());
+        let data_dir = std::env::var("ZENO_CONTAINER_DATA_DIR")
+            .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
+        
+        loop {
+            let output = tokio::process::Command::new(&bin)
+                .args(&["--data-dir", &data_dir, "ps", "--json"])
+                .output()
+                .await;
+                
+            match output {
+                Ok(out) => {
+                    if out.status.success() {
+                        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                            let payload = serde_json::json!({
+                                "success": true,
+                                "data": parsed
+                            });
+                            if let Ok(payload_str) = serde_json::to_string(&payload) {
+                                *c_cache_clone.lock().unwrap() = Some(payload_str.clone());
+                                let _ = c_tx_clone.send(payload_str);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to execute container ps: {}", e);
+                }
+            }
+            
+            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+        }
+    });
+
+    // Initialize managed processes broadcast channel and cache
+    let (managed_tx, _) = tokio::sync::broadcast::channel::<String>(16);
+    let last_managed_payload = Arc::new(Mutex::new(None));
+
+    // Managed processes background worker
+    let m_tx_clone = managed_tx.clone();
+    let m_cache_clone = last_managed_payload.clone();
+    let pm_clone = process_manager.clone();
+    tokio::spawn(async move {
+        loop {
+            let list = pm_clone.list_processes().await;
+            let payload = serde_json::json!({
+                "data": list
+            });
+            if let Ok(payload_str) = serde_json::to_string(&payload) {
+                *m_cache_clone.lock().unwrap() = Some(payload_str.clone());
+                let _ = m_tx_clone.send(payload_str);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        }
+    });
+
     let mgmt_port = std::env::var("MGMT_PORT")
         .unwrap_or_else(|_| "3002".to_string())
         .trim_start_matches(':')
@@ -623,11 +812,21 @@ fn main() {
         backup_manager: backup_mgr,
         log_manager: log_mgr,
         mgmt_port,
+        dashboard_tx,
+        last_dashboard_payload,
+        container_tx,
+        last_container_payload,
+        managed_tx,
+        last_managed_payload,
     });
 
     let static_service = ServeDir::new("public");
 
     let app = Router::new()
+        .route("/api/stats/stream", axum::routing::get(stats_stream_handler))
+        .route("/api/containers/stream", axum::routing::get(containers_stream_handler))
+        .route("/api/managed/stream", axum::routing::get(managed_stream_handler))
+        .route("/api/managed/logs/stream", axum::routing::get(managed_logs_stream_handler))
         .nest_service("/public", static_service)
         .fallback(any(wildcard_handler))
         .layer(axum::middleware::from_fn_with_state(state.clone(), waf::waf_middleware))
@@ -1535,5 +1734,150 @@ fn create_ssl_context_for_domain(domain: &str) -> Option<openssl::ssl::SslContex
 
     Some(builder.build())
 }
+
+async fn stats_stream_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, StatusCode> {
+    // 1. Authenticate token
+    let token = auth::extract_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _claims = auth::verify_jwt(&token, &state.jwt_secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    
+    // 2. Subscribe to the broadcast channel
+    let rx = state.dashboard_tx.subscribe();
+    
+    // 3. Get the initial payload from cache
+    let initial_payload = state.last_dashboard_payload.lock().unwrap().clone();
+    
+    // 4. Create the stream
+    let initial_event = initial_payload.map(|payload| Ok::<axum::response::sse::Event, std::convert::Infallible>(axum::response::sse::Event::default().data(payload)));
+    
+    let broadcast_stream = BroadcastStream::new(rx)
+        .filter_map(|res| async {
+            match res {
+                Ok(msg) => Some(Ok::<axum::response::sse::Event, std::convert::Infallible>(axum::response::sse::Event::default().data(msg))),
+                Err(_) => None, // ignore lag
+            }
+        });
+        
+    let stream = futures_util::stream::iter(initial_event)
+        .chain(broadcast_stream);
+        
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+async fn containers_stream_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, StatusCode> {
+    // 1. Authenticate token
+    let token = auth::extract_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _claims = auth::verify_jwt(&token, &state.jwt_secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    
+    // 2. Subscribe to the broadcast channel
+    let rx = state.container_tx.subscribe();
+    
+    // 3. Get the initial payload from cache
+    let initial_payload = state.last_container_payload.lock().unwrap().clone();
+    
+    // 4. Create the stream
+    let initial_event = initial_payload.map(|payload| Ok::<axum::response::sse::Event, std::convert::Infallible>(axum::response::sse::Event::default().data(payload)));
+    
+    let broadcast_stream = BroadcastStream::new(rx)
+        .filter_map(|res| async {
+            match res {
+                Ok(msg) => Some(Ok::<axum::response::sse::Event, std::convert::Infallible>(axum::response::sse::Event::default().data(msg))),
+                Err(_) => None, // ignore lag
+            }
+        });
+        
+    let stream = futures_util::stream::iter(initial_event)
+        .chain(broadcast_stream);
+        
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+async fn managed_stream_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, StatusCode> {
+    // 1. Authenticate token
+    let token = auth::extract_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _claims = auth::verify_jwt(&token, &state.jwt_secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    
+    // 2. Subscribe to the broadcast channel
+    let rx = state.managed_tx.subscribe();
+    
+    // 3. Get the initial payload from cache
+    let initial_payload = state.last_managed_payload.lock().unwrap().clone();
+    
+    // 4. Create the stream
+    let initial_event = initial_payload.map(|payload| Ok::<axum::response::sse::Event, std::convert::Infallible>(axum::response::sse::Event::default().data(payload)));
+    
+    let broadcast_stream = BroadcastStream::new(rx)
+        .filter_map(|res| async {
+            match res {
+                Ok(msg) => Some(Ok::<axum::response::sse::Event, std::convert::Infallible>(axum::response::sse::Event::default().data(msg))),
+                Err(_) => None, // ignore lag
+            }
+        });
+        
+    let stream = futures_util::stream::iter(initial_event)
+        .chain(broadcast_stream);
+        
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+async fn managed_logs_stream_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, StatusCode> {
+    // 1. Authenticate token
+    let token = auth::extract_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _claims = auth::verify_jwt(&token, &state.jwt_secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    
+    // Get process ID
+    let proc_id = params.get("id").ok_or(StatusCode::BAD_REQUEST)?;
+    
+    // 2. Subscribe to the broadcast channel
+    let rx = state.process_manager.log_tx.subscribe();
+    
+    // 3. Get initial logs (say, last 100 lines)
+    let initial_logs = state.process_manager.get_logs(proc_id, 100).await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+        
+    // 4. Create the stream
+    let initial_events: Vec<Result<axum::response::sse::Event, std::convert::Infallible>> = initial_logs
+        .into_iter()
+        .map(|line| Ok(axum::response::sse::Event::default().data(line)))
+        .collect();
+        
+    let proc_id_clone = proc_id.clone();
+    let broadcast_stream = BroadcastStream::new(rx)
+        .filter_map(move |res| {
+            let proc_id = proc_id_clone.clone();
+            async move {
+                match res {
+                    Ok((msg_id, msg_line)) => {
+                        if msg_id == proc_id {
+                            Some(Ok::<axum::response::sse::Event, std::convert::Infallible>(
+                                axum::response::sse::Event::default().data(msg_line)
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None, // ignore lag
+                }
+            }
+        });
+        
+    let stream = futures_util::stream::iter(initial_events)
+        .chain(broadcast_stream);
+        
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
 
 

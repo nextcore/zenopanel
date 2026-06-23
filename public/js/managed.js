@@ -3,6 +3,8 @@ import { showToast } from './toast.js';
 
 export let managedPollingInterval = null;
 export let logPollingInterval = null;
+export let managedEventSource = null;
+export let logEventSource = null;
 export let activeLogProcessId = null;
 export const managedState = {
     allManagedProcesses: []
@@ -102,14 +104,34 @@ export function renderManagedProcesses(processes) {
 }
 
 export function startManagedPolling() {
-    if (managedPollingInterval) clearInterval(managedPollingInterval);
-    managedPollingInterval = setInterval(loadManagedProcesses, 3000);
+    if (managedEventSource) return;
+    
+    // Perform initial load
+    loadManagedProcesses();
+    
+    managedEventSource = new EventSource('/api/managed/stream');
+    
+    managedEventSource.onmessage = (event) => {
+        try {
+            const res = JSON.parse(event.data);
+            if (res.data) {
+                managedState.allManagedProcesses = res.data;
+                renderManagedProcesses(res.data);
+            }
+        } catch (e) {
+            console.error("Failed to parse managed processes stream:", e);
+        }
+    };
+    
+    managedEventSource.onerror = (err) => {
+        console.error("Managed processes SSE stream error:", err);
+    };
 }
 
 export function stopManagedPolling() {
-    if (managedPollingInterval) {
-        clearInterval(managedPollingInterval);
-        managedPollingInterval = null;
+    if (managedEventSource) {
+        managedEventSource.close();
+        managedEventSource = null;
     }
 }
 
@@ -473,9 +495,38 @@ export function viewProcessLogs(id, name) {
     const modal = document.getElementById('proc-logs-modal');
     if (modal) modal.classList.add('active');
 
-    loadLogs();
-    if (logPollingInterval) clearInterval(logPollingInterval);
-    logPollingInterval = setInterval(loadLogs, 2000);
+    if (logEventSource) {
+        logEventSource.close();
+    }
+    
+    logEventSource = new EventSource(`/api/managed/logs/stream?id=${id}`);
+    
+    let isFirstMessage = true;
+    logEventSource.onopen = () => {
+        isFirstMessage = true;
+    };
+    
+    logEventSource.onmessage = (event) => {
+        const viewport = document.getElementById('proc-logs-viewport');
+        if (!viewport) return;
+        
+        if (isFirstMessage) {
+            viewport.innerHTML = '';
+            isFirstMessage = false;
+        }
+        
+        const isAtBottom = viewport.scrollHeight - viewport.clientHeight <= viewport.scrollTop + 20;
+        const line = event.data;
+        viewport.innerHTML += (viewport.innerHTML ? '\n' : '') + escapeHtml(line);
+        
+        if (isAtBottom) {
+            viewport.scrollTop = viewport.scrollHeight;
+        }
+    };
+    
+    logEventSource.onerror = (err) => {
+        console.error("Log SSE stream error:", err);
+    };
 }
 
 export function loadLogs() {
@@ -509,9 +560,9 @@ export function closeProcLogsModal() {
     const modal = document.getElementById('proc-logs-modal');
     if (modal) modal.classList.remove('active');
     activeLogProcessId = null;
-    if (logPollingInterval) {
-        clearInterval(logPollingInterval);
-        logPollingInterval = null;
+    if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
     }
 }
 
@@ -519,6 +570,9 @@ export function toggleProcessDropdown(event, id) {
     if (event) {
         event.stopPropagation();
     }
+
+    // Pause updates while interacting with dropdown
+    stopManagedPolling();
 
     const targetMenu = document.getElementById(`menu-${id}`);
     const allMenus = document.querySelectorAll('.action-dropdown-menu');

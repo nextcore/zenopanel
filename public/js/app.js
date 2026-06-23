@@ -567,9 +567,12 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     });
     if (hadOpen) {
-      // Resume container polling if it was paused by an open dropdown
+      // Resume container and managed polling if they were paused by an open dropdown
       try {
         startContainerPolling();
+      } catch (e) {}
+      try {
+        startManagedPolling();
       } catch (e) {}
     }
   });
@@ -594,6 +597,9 @@ window.addEventListener("DOMContentLoaded", () => {
       if (hadOpen) {
         try {
           startContainerPolling();
+        } catch (e) {}
+        try {
+          startManagedPolling();
         } catch (e) {}
       }
     },

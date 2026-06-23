@@ -4123,6 +4123,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -5036,6 +5037,7 @@ dependencies = [
  "tar",
  "tokio",
  "tokio-rustls",
+ "tokio-stream",
  "tower 0.4.13",
  "tower-http 0.5.2",
  "url",

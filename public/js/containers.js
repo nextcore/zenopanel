@@ -4,6 +4,7 @@ import { showToast } from "./toast.js";
 export const containerState = {
   allContainers: [],
   pollingInterval: null,
+  eventSource: null,
 };
 
 export function loadContainers() {
@@ -124,15 +125,31 @@ export function renderContainers(containers) {
 }
 
 export function startContainerPolling() {
-  if (containerState.pollingInterval) return;
-  loadContainers();
-  containerState.pollingInterval = setInterval(loadContainers, 2000);
+  if (containerState.eventSource) return;
+  
+  containerState.eventSource = new EventSource('/api/containers/stream');
+  
+  containerState.eventSource.onmessage = (event) => {
+    try {
+      const res = JSON.parse(event.data);
+      if (res.data) {
+        containerState.allContainers = res.data;
+        renderContainers(res.data);
+      }
+    } catch (e) {
+      console.error("Failed to parse container stream:", e);
+    }
+  };
+  
+  containerState.eventSource.onerror = (err) => {
+    console.error("Container SSE stream error:", err);
+  };
 }
 
 export function stopContainerPolling() {
-  if (containerState.pollingInterval) {
-    clearInterval(containerState.pollingInterval);
-    containerState.pollingInterval = null;
+  if (containerState.eventSource) {
+    containerState.eventSource.close();
+    containerState.eventSource = null;
   }
 }
 

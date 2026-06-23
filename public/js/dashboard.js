@@ -9,6 +9,7 @@ let swapRing = null;
 
 // Stats history trackers
 export let sysStatsInterval = null;
+export let statsEventSource = null;
 export let performanceChart = null;
 export let trafficChart = null;
 let chartDataPoints = { labels: [], cpu: [], ram: [] };
@@ -217,68 +218,72 @@ export function updatePerformanceChart(cpuPct, ramPct) {
     performanceChart.update();
 }
 
+export function updateStatsUI(s) {
+    initRingElements();
+    
+    // Update values
+    const cpuValEl = document.getElementById('cpu-val');
+    if (cpuValEl) cpuValEl.innerText = s.cpu.toFixed(1) + '%';
+    setRingProgress(cpuRing, s.cpu);
+
+    const ramValEl = document.getElementById('ram-val');
+    if (ramValEl) ramValEl.innerText = s.mem_pct.toFixed(1) + '%';
+    setRingProgress(ramRing, s.mem_pct);
+    
+    const ramSubEl = document.getElementById('ram-sub');
+    if (ramSubEl) ramSubEl.innerText = (s.mem_used / (1024*1024*1024)).toFixed(2) + ' / ' + (s.mem_total / (1024*1024*1024)).toFixed(2) + ' GB';
+
+    const diskValEl = document.getElementById('disk-val');
+    if (diskValEl) diskValEl.innerText = s.disk_pct.toFixed(1) + '%';
+    setRingProgress(diskRing, s.disk_pct);
+    
+    const diskSubEl = document.getElementById('disk-sub');
+    if (diskSubEl) diskSubEl.innerText = (s.disk_used / (1024*1024*1024)).toFixed(1) + ' / ' + (s.disk_total / (1024*1024*1024)).toFixed(1) + ' GB';
+
+    // Update Swap
+    if (s.swap_total !== undefined) {
+        const swapValEl = document.getElementById('swap-val');
+        const swapSubEl = document.getElementById('swap-sub');
+        if (swapValEl) swapValEl.innerText = (s.swap_pct || 0).toFixed(1) + '%';
+        if (swapSubEl) {
+            const usedGB = (s.swap_used / (1024*1024*1024)).toFixed(2);
+            const totalGB = (s.swap_total / (1024*1024*1024)).toFixed(2);
+            swapSubEl.innerText = usedGB + ' / ' + totalGB + ' GB';
+        }
+        setRingProgress(swapRing, s.swap_pct || 0);
+    }
+
+    // Net speed calculations
+    const now = Date.now();
+    if (lastNetCheckTime > 0) {
+        const timeSec = (now - lastNetCheckTime) / 1000;
+        const rxDiff = s.net_rx - lastRxBytes;
+        const txDiff = s.net_tx - lastTxBytes;
+
+        const rxSpeedKB = (rxDiff / 1024) / timeSec;
+        const txSpeedKB = (txDiff / 1024) / timeSec;
+
+        const rxValEl = document.getElementById('net-rx-val');
+        const txValEl = document.getElementById('net-tx-val');
+        if (rxValEl) rxValEl.innerText = formatSpeed(rxSpeedKB);
+        if (txValEl) txValEl.innerText = formatSpeed(txSpeedKB);
+    }
+
+    lastRxBytes = s.net_rx;
+    lastTxBytes = s.net_tx;
+    lastNetCheckTime = now;
+
+    // Update chart
+    updatePerformanceChart(s.cpu, s.mem_pct);
+}
+
 export function loadSystemStats() {
     initRingElements();
     fetch('/api/stats')
         .then(res => res.json())
         .then(res => {
             if (res.success && res.data) {
-                const s = res.data;
-                
-                // Update values
-                const cpuValEl = document.getElementById('cpu-val');
-                if (cpuValEl) cpuValEl.innerText = s.cpu.toFixed(1) + '%';
-                setRingProgress(cpuRing, s.cpu);
-
-                const ramValEl = document.getElementById('ram-val');
-                if (ramValEl) ramValEl.innerText = s.mem_pct.toFixed(1) + '%';
-                setRingProgress(ramRing, s.mem_pct);
-                
-                const ramSubEl = document.getElementById('ram-sub');
-                if (ramSubEl) ramSubEl.innerText = (s.mem_used / (1024*1024*1024)).toFixed(2) + ' / ' + (s.mem_total / (1024*1024*1024)).toFixed(2) + ' GB';
-
-                const diskValEl = document.getElementById('disk-val');
-                if (diskValEl) diskValEl.innerText = s.disk_pct.toFixed(1) + '%';
-                setRingProgress(diskRing, s.disk_pct);
-                
-                const diskSubEl = document.getElementById('disk-sub');
-                if (diskSubEl) diskSubEl.innerText = (s.disk_used / (1024*1024*1024)).toFixed(1) + ' / ' + (s.disk_total / (1024*1024*1024)).toFixed(1) + ' GB';
-
-                // Update Swap
-                if (s.swap_total !== undefined) {
-                    const swapValEl = document.getElementById('swap-val');
-                    const swapSubEl = document.getElementById('swap-sub');
-                    if (swapValEl) swapValEl.innerText = (s.swap_pct || 0).toFixed(1) + '%';
-                    if (swapSubEl) {
-                        const usedGB = (s.swap_used / (1024*1024*1024)).toFixed(2);
-                        const totalGB = (s.swap_total / (1024*1024*1024)).toFixed(2);
-                        swapSubEl.innerText = usedGB + ' / ' + totalGB + ' GB';
-                    }
-                    setRingProgress(swapRing, s.swap_pct || 0);
-                }
-
-                // Net speed calculations
-                const now = Date.now();
-                if (lastNetCheckTime > 0) {
-                    const timeSec = (now - lastNetCheckTime) / 1000;
-                    const rxDiff = s.net_rx - lastRxBytes;
-                    const txDiff = s.net_tx - lastTxBytes;
-
-                    const rxSpeedKB = (rxDiff / 1024) / timeSec;
-                    const txSpeedKB = (txDiff / 1024) / timeSec;
-
-                    const rxValEl = document.getElementById('net-rx-val');
-                    const txValEl = document.getElementById('net-tx-val');
-                    if (rxValEl) rxValEl.innerText = formatSpeed(rxSpeedKB);
-                    if (txValEl) txValEl.innerText = formatSpeed(txSpeedKB);
-                }
-
-                lastRxBytes = s.net_rx;
-                lastTxBytes = s.net_tx;
-                lastNetCheckTime = now;
-
-                // Update chart
-                updatePerformanceChart(s.cpu, s.mem_pct);
+                updateStatsUI(res.data);
             }
         })
         .catch(err => console.error("Error polling system stats:", err));
@@ -315,37 +320,41 @@ export function loadStaticSystemInfo() {
         .catch(err => console.error(err));
 }
 
+export function updateProcessesUI(procs) {
+    const tbody = document.getElementById('process-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    procs.forEach(p => {
+        const tr = document.createElement('tr');
+        
+        // Determine badge state
+        let stateClass = 'badge-sleeping';
+        let stateLabel = 'Sleeping';
+        if (p.status === 'R' || p.status === 'Running') { stateClass = 'badge-running'; stateLabel = 'Running'; }
+        if (p.status === 'T' || p.status === 'Stopped') { stateClass = 'badge-stopped'; stateLabel = 'Stopped'; }
+
+        tr.innerHTML = `
+            <td style="font-family:var(--font-code); font-weight:600;">${p.pid}</td>
+            <td style="font-family:var(--font-code); max-width:240px; overflow:hidden; text-overflow:ellipsis;" title="${p.name}">${p.name}</td>
+            <td>${p.cpu.toFixed(1)}%</td>
+            <td>${p.memory.toFixed(1)}%</td>
+            <td><span class="badge ${stateClass}">${stateLabel}</span></td>
+            <td style="text-align:right;">
+                <button class="btn-icon" onclick="killProcess(${p.pid})" title="Kill process">
+                    <i class="fa-solid fa-skull"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
 export function loadProcesses() {
     fetch('/api/processes?limit=15')
         .then(res => res.json())
         .then(res => {
             if (res.success && res.data) {
-                const tbody = document.getElementById('process-table-body');
-                if (!tbody) return;
-                tbody.innerHTML = '';
-                res.data.forEach(p => {
-                    const tr = document.createElement('tr');
-                    
-                    // Determine badge state
-                    let stateClass = 'badge-sleeping';
-                    let stateLabel = 'Sleeping';
-                    if (p.status === 'R') { stateClass = 'badge-running'; stateLabel = 'Running'; }
-                    if (p.status === 'T') { stateClass = 'badge-stopped'; stateLabel = 'Stopped'; }
-
-                    tr.innerHTML = `
-                        <td style="font-family:var(--font-code); font-weight:600;">${p.pid}</td>
-                        <td style="font-family:var(--font-code); max-width:240px; overflow:hidden; text-overflow:ellipsis;" title="${p.name}">${p.name}</td>
-                        <td>${p.cpu.toFixed(1)}%</td>
-                        <td>${p.memory.toFixed(1)}%</td>
-                        <td><span class="badge ${stateClass}">${stateLabel}</span></td>
-                        <td style="text-align:right;">
-                            <button class="btn-icon" onclick="killProcess(${p.pid})" title="Kill process">
-                                <i class="fa-solid fa-skull"></i>
-                            </button>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                updateProcessesUI(res.data);
             }
         })
         .catch(err => console.error("Error loading processes:", err));
@@ -376,80 +385,99 @@ export function killProcess(pid) {
     }
 }
 
+export function updateTrafficStatsUI(history) {
+    trafficDataPoints.labels = [];
+    trafficDataPoints.rps = [];
+    trafficDataPoints.latency = [];
+    
+    const itemsToShow = history.slice(-15);
+    
+    itemsToShow.forEach(item => {
+        const time = new Date(item.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        trafficDataPoints.labels.push(time);
+        
+        const rpsVal = item.requests / 2.0;
+        trafficDataPoints.rps.push(rpsVal);
+        
+        const avgLat = item.requests > 0 ? (item.latency_ms / item.requests) : 0;
+        trafficDataPoints.latency.push(avgLat);
+    });
+
+    if (history.length > 0) {
+        const latest = history[history.length - 1];
+        const currentRps = latest.requests / 2.0;
+        const avgLatency = latest.requests > 0 ? (latest.latency_ms / latest.requests) : 0;
+        
+        const rxSpeedKB = (latest.bytes_received / 1024) / 2.0;
+        const txSpeedKB = (latest.bytes_sent / 1024) / 2.0;
+
+        const rpsEl = document.getElementById('traffic-rps');
+        if (rpsEl) rpsEl.innerText = currentRps.toFixed(1) + ' reqs/s';
+        
+        const latEl = document.getElementById('traffic-latency');
+        if (latEl) latEl.innerText = Math.round(avgLatency) + ' ms';
+
+        const inEl = document.getElementById('traffic-in');
+        if (inEl) inEl.innerText = formatSpeed(rxSpeedKB);
+
+        const outEl = document.getElementById('traffic-out');
+        if (outEl) outEl.innerText = formatSpeed(txSpeedKB);
+    }
+
+    if (trafficChart) {
+        trafficChart.data.labels = trafficDataPoints.labels;
+        trafficChart.data.datasets[0].data = trafficDataPoints.rps;
+        trafficChart.data.datasets[1].data = trafficDataPoints.latency;
+        trafficChart.update();
+    }
+}
+
 export function loadTrafficStats() {
     fetch('/api/settings/analytics')
         .then(res => res.json())
         .then(res => {
             if (res.success && res.history) {
-                const history = res.history;
-                
-                trafficDataPoints.labels = [];
-                trafficDataPoints.rps = [];
-                trafficDataPoints.latency = [];
-                
-                const itemsToShow = history.slice(-15);
-                
-                itemsToShow.forEach(item => {
-                    const time = new Date(item.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    trafficDataPoints.labels.push(time);
-                    
-                    const rpsVal = item.requests / 2.0;
-                    trafficDataPoints.rps.push(rpsVal);
-                    
-                    const avgLat = item.requests > 0 ? (item.latency_ms / item.requests) : 0;
-                    trafficDataPoints.latency.push(avgLat);
-                });
-
-                if (history.length > 0) {
-                    const latest = history[history.length - 1];
-                    const currentRps = latest.requests / 2.0;
-                    const avgLatency = latest.requests > 0 ? (latest.latency_ms / latest.requests) : 0;
-                    
-                    const rxSpeedKB = (latest.bytes_received / 1024) / 2.0;
-                    const txSpeedKB = (latest.bytes_sent / 1024) / 2.0;
-
-                    const rpsEl = document.getElementById('traffic-rps');
-                    if (rpsEl) rpsEl.innerText = currentRps.toFixed(1) + ' reqs/s';
-                    
-                    const latEl = document.getElementById('traffic-latency');
-                    if (latEl) latEl.innerText = Math.round(avgLatency) + ' ms';
-
-                    const inEl = document.getElementById('traffic-in');
-                    if (inEl) inEl.innerText = formatSpeed(rxSpeedKB);
-
-                    const outEl = document.getElementById('traffic-out');
-                    if (outEl) outEl.innerText = formatSpeed(txSpeedKB);
-                }
-
-                if (trafficChart) {
-                    trafficChart.data.labels = trafficDataPoints.labels;
-                    trafficChart.data.datasets[0].data = trafficDataPoints.rps;
-                    trafficChart.data.datasets[1].data = trafficDataPoints.latency;
-                    trafficChart.update();
-                }
+                updateTrafficStatsUI(res.history);
             }
         })
         .catch(err => console.error("Error loading traffic stats:", err));
 }
 
 export function startStatsPolling() {
-    if (!sysStatsInterval) {
-        loadSystemStats();
-        loadProcesses();
-        loadTrafficStats();
-        loadContainerList();
-        sysStatsInterval = setInterval(() => {
-            loadSystemStats();
-            loadProcesses();
-            loadTrafficStats();
-        }, 3000);
+    loadContainerList();
+    
+    if (statsEventSource) {
+        return;
     }
+    
+    statsEventSource = new EventSource('/api/stats/stream');
+    
+    statsEventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.stats) {
+                updateStatsUI(data.stats);
+            }
+            if (data.processes) {
+                updateProcessesUI(data.processes);
+            }
+            if (data.history) {
+                updateTrafficStatsUI(data.history);
+            }
+        } catch (e) {
+            console.error("Gagal mengurai data SSE:", e);
+        }
+    };
+    
+    statsEventSource.onerror = (err) => {
+        console.error("SSE stream error:", err);
+    };
 }
 
 export function stopStatsPolling() {
-    if (sysStatsInterval) {
-        clearInterval(sysStatsInterval);
-        sysStatsInterval = null;
+    if (statsEventSource) {
+        statsEventSource.close();
+        statsEventSource = null;
     }
 }
 

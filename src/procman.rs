@@ -57,6 +57,7 @@ pub struct ProcessManager {
     pool: SqlitePool,
     processes: Arc<RwLock<HashMap<String, Arc<RwLock<ProcessState>>>>>,
     sys: Arc<tokio::sync::Mutex<sysinfo::System>>,
+    pub log_tx: tokio::sync::broadcast::Sender<(String, String)>,
 }
 
 impl ProcessManager {
@@ -81,10 +82,12 @@ impl ProcessManager {
         let alter_query = "ALTER TABLE managed_procs ADD COLUMN port INTEGER;";
         let _ = sqlx::query(alter_query).execute(&pool).await;
 
+        let (log_tx, _) = tokio::sync::broadcast::channel::<(String, String)>(128);
         Self {
             pool,
             processes: Arc::new(RwLock::new(HashMap::new())),
             sys: Arc::new(tokio::sync::Mutex::new(sysinfo::System::new_all())),
+            log_tx,
         }
     }
 
@@ -277,6 +280,7 @@ impl ProcessManager {
         let env = state.env.clone();
         let state_arc_clone = state_arc.clone();
         let id = state.id.clone();
+        let log_tx_clone = self.log_tx.clone();
 
         // Spawn background supervisor task
         tokio::spawn(async move {
@@ -346,11 +350,12 @@ impl ProcessManager {
                         {
                             let mut lock = state_arc_clone.write().await;
                             lock.status = "failed".to_string();
-                            lock.logs.push_back(err_msg);
+                            lock.logs.push_back(err_msg.clone());
                             if lock.logs.len() > 1000 {
                                 lock.logs.pop_front();
                             }
                         }
+                        let _ = log_tx_clone.send((id.clone(), err_msg));
                         backoff = std::cmp::min(backoff + 2, 10); // exponential backoff on spawns
                         let lock = state_arc_clone.read().await;
                         if !lock.auto_restart || lock.stop_requested {
@@ -368,11 +373,12 @@ impl ProcessManager {
                     lock.status = "running".to_string();
                     lock.pid = pid;
                     lock.exit_code = None;
-                    lock.logs.push_back(start_msg);
+                    lock.logs.push_back(start_msg.clone());
                     if lock.logs.len() > 1000 {
                         lock.logs.pop_front();
                     }
                 }
+                let _ = log_tx_clone.send((id.clone(), start_msg));
 
                 // Capture stdout & stderr
                 let stdout = child.stdout.take().unwrap();
@@ -380,29 +386,37 @@ impl ProcessManager {
 
                 let proc_id_stdout = id.clone();
                 let state_ref_for_stdout = state_arc_clone.clone();
+                let log_tx_stdout = log_tx_clone.clone();
                 tokio::spawn(async move {
                     let mut reader = BufReader::new(stdout).lines();
                     while let Ok(Some(line)) = reader.next_line().await {
                         append_log_line(&proc_id_stdout, &line);
-                        let mut lock = state_ref_for_stdout.write().await;
-                        lock.logs.push_back(line);
-                        if lock.logs.len() > 1000 {
-                            lock.logs.pop_front();
+                        {
+                            let mut lock = state_ref_for_stdout.write().await;
+                            lock.logs.push_back(line.clone());
+                            if lock.logs.len() > 1000 {
+                                lock.logs.pop_front();
+                            }
                         }
+                        let _ = log_tx_stdout.send((proc_id_stdout.clone(), line));
                     }
                 });
 
                 let proc_id_stderr = id.clone();
                 let state_ref_for_stderr = state_arc_clone.clone();
+                let log_tx_stderr = log_tx_clone.clone();
                 tokio::spawn(async move {
                     let mut reader = BufReader::new(stderr).lines();
                     while let Ok(Some(line)) = reader.next_line().await {
                         append_log_line(&proc_id_stderr, &line);
-                        let mut lock = state_ref_for_stderr.write().await;
-                        lock.logs.push_back(line);
-                        if lock.logs.len() > 1000 {
-                            lock.logs.pop_front();
+                        {
+                            let mut lock = state_ref_for_stderr.write().await;
+                            lock.logs.push_back(line.clone());
+                            if lock.logs.len() > 1000 {
+                                lock.logs.pop_front();
+                            }
                         }
+                        let _ = log_tx_stderr.send((proc_id_stderr.clone(), line));
                     }
                 });
 
@@ -418,17 +432,21 @@ impl ProcessManager {
                         let exit_msg = format!("[ZenoPanel] Process exited with code {:?}", exit_code);
                         append_log_line(&id, &exit_msg);
 
-                        let mut lock = state_arc_clone.write().await;
-                        lock.status = if exit_code == Some(0) { "stopped".to_string() } else { "failed".to_string() };
-                        lock.pid = None;
-                        lock.exit_code = exit_code;
-                        lock.logs.push_back(exit_msg);
-                        if lock.logs.len() > 1000 {
-                            lock.logs.pop_front();
-                        }
+                        let (auto_restart, stop_requested) = {
+                            let mut lock = state_arc_clone.write().await;
+                            lock.status = if exit_code == Some(0) { "stopped".to_string() } else { "failed".to_string() };
+                            lock.pid = None;
+                            lock.exit_code = exit_code;
+                            lock.logs.push_back(exit_msg.clone());
+                            if lock.logs.len() > 1000 {
+                                lock.logs.pop_front();
+                            }
+                            (lock.auto_restart, lock.stop_requested)
+                        };
+                        let _ = log_tx_clone.send((id.clone(), exit_msg));
 
                         // Determine if we should auto-restart
-                        if !lock.auto_restart || lock.stop_requested {
+                        if !auto_restart || stop_requested {
                             break;
                         }
 
@@ -444,14 +462,17 @@ impl ProcessManager {
                         let stop_msg = "[ZenoPanel] Process stopped by user".to_string();
                         append_log_line(&id, &stop_msg);
 
-                        let mut lock = state_arc_clone.write().await;
-                        lock.status = "stopped".to_string();
-                        lock.pid = None;
-                        lock.exit_code = None;
-                        lock.logs.push_back(stop_msg);
-                        if lock.logs.len() > 1000 {
-                            lock.logs.pop_front();
+                        {
+                            let mut lock = state_arc_clone.write().await;
+                            lock.status = "stopped".to_string();
+                            lock.pid = None;
+                            lock.exit_code = None;
+                            lock.logs.push_back(stop_msg.clone());
+                            if lock.logs.len() > 1000 {
+                                lock.logs.pop_front();
+                            }
                         }
+                        let _ = log_tx_clone.send((id.clone(), stop_msg));
 
                         #[cfg(unix)]
                         {
