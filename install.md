@@ -33,8 +33,15 @@
 
 ZenoPanel dilengkapi dengan runtime container berbasis OCI (`runc`) yang dikelola oleh binary pendukung bernama `zeno-container`.
 
-### Lokasi Default
-Untuk mematuhi standar hierarki sistem berkas Linux (FHS) dan menjamin keamanan data saat upgrade, komponen `zeno-container` diletakkan di luar folder aplikasi ZenoPanel secara terpisah:
+### Otomatisasi Instalasi (Direkomendasikan)
+Ketika Anda melakukan instalasi service systemd (Langkah 6 di atas) via dashboard ZenoPanel, sistem akan berjalan sebagai **root** dan secara otomatis mendeteksi keberadaan file binary `zeno-container` di dalam folder ZenoPanel (seperti di `./zeno-container` atau di subfolder `./modul/zeno-container`). 
+
+Jika terdeteksi, ZenoPanel akan otomatis:
+1. Menyalin binary ke `/usr/local/bin/zeno-container`.
+2. Memberikan izin eksekusi (`chmod +x`).
+3. Membuat direktori penyimpanan data `/var/lib/zeno-container`.
+
+### Lokasi Default Sistem
 * **Binary Executable**: `/usr/local/bin/zeno-container`  
   *Alasan*: Agar dapat dieksekusi secara global langsung dari terminal oleh administrator server.
 * **Direktori Data (State & Storage)**: `/var/lib/zeno-container`  
