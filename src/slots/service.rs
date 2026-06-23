@@ -99,6 +99,20 @@ fn generate_service_content(init_sys: &str) -> String {
              WantedBy=multi-user.target\n",
             app_user, cap_lines, working_dir, exe_path
         )
+    } else if init_sys == "openrc" {
+        format!(
+            "#!/sbin/openrc-run\n\n\
+             name=\"zenopanel\"\n\
+             description=\"ZenoPanel Service\"\n\
+             command=\"{}\"\n\
+             command_background=true\n\
+             pidfile=\"/run/zenopanel.pid\"\n\
+             directory=\"{}\"\n\n\
+             depend() {{\n\
+                 need net\n\
+             }}\n",
+            exe_path, working_dir
+        )
     } else {
         format!(
             "#!/bin/sh\n\
@@ -166,12 +180,16 @@ pub fn register(engine: &mut Engine) {
 
             let install_cmd = if init_sys == "systemd" {
                 "sudo systemctl daemon-reload && sudo systemctl enable zenopanel && sudo systemctl start zenopanel"
+            } else if init_sys == "openrc" {
+                "sudo chmod +x /etc/init.d/zenopanel && sudo rc-update add zenopanel default && sudo rc-service zenopanel start"
             } else {
                 "sudo chmod +x /etc/init.d/zenopanel && sudo update-rc.d zenopanel defaults && sudo service zenopanel start"
             };
 
             let uninstall_cmd = if init_sys == "systemd" {
                 "sudo systemctl stop zenopanel && sudo systemctl disable zenopanel && sudo rm /etc/systemd/system/zenopanel.service && sudo systemctl daemon-reload"
+            } else if init_sys == "openrc" {
+                "sudo rc-service zenopanel stop && sudo rc-update del zenopanel default && sudo rm /etc/init.d/zenopanel"
             } else {
                 "sudo service zenopanel stop && sudo update-rc.d -f zenopanel remove && sudo rm /etc/init.d/zenopanel"
             };
@@ -241,7 +259,17 @@ pub fn register(engine: &mut Engine) {
                 } else {
                     false
                 }
-            } else if init_sys == "openrc" || init_sys == "sysvinit" {
+            } else if init_sys == "openrc" {
+                let path = "/etc/init.d/zenopanel";
+                if std::fs::write(path, &service_content).is_ok() {
+                    let chmod = Command::new("chmod").args(&["+x", path]).status();
+                    let update = Command::new("rc-update").args(&["add", "zenopanel", "default"]).status();
+                    let start = Command::new("rc-service").args(&["zenopanel", "start"]).status();
+                    chmod.is_ok() && update.is_ok() && start.is_ok()
+                } else {
+                    false
+                }
+            } else if init_sys == "sysvinit" {
                 let path = "/etc/init.d/zenopanel";
                 if std::fs::write(path, &service_content).is_ok() {
                     let chmod = Command::new("chmod").args(&["+x", path]).status();
@@ -285,7 +313,12 @@ pub fn register(engine: &mut Engine) {
                 let rm = std::fs::remove_file("/etc/systemd/system/zenopanel.service");
                 let reload = Command::new("systemctl").arg("daemon-reload").status();
                 stop.is_ok() && disable.is_ok() && rm.is_ok() && reload.is_ok()
-            } else if init_sys == "openrc" || init_sys == "sysvinit" {
+            } else if init_sys == "openrc" {
+                let stop = Command::new("rc-service").args(&["zenopanel", "stop"]).status();
+                let remove = Command::new("rc-update").args(&["del", "zenopanel", "default"]).status();
+                let rm = std::fs::remove_file("/etc/init.d/zenopanel");
+                stop.is_ok() && remove.is_ok() && rm.is_ok()
+            } else if init_sys == "sysvinit" {
                 let stop = Command::new("service").args(&["zenopanel", "stop"]).status();
                 let remove = Command::new("update-rc.d").args(&["-f", "zenopanel", "remove"]).status();
                 let rm = std::fs::remove_file("/etc/init.d/zenopanel");
