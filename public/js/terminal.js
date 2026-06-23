@@ -24,9 +24,11 @@ export function handleTerminalCommand(event) {
         const viewport = document.getElementById('terminal-viewport');
         if (!viewport) return;
         
+        const promptNode = document.getElementById('terminal-prompt-node');
+        const currentPrompt = promptNode ? promptNode.innerText : 'root@control-panel:~#';
         const promptLine = document.createElement('div');
         promptLine.className = 'terminal-line';
-        promptLine.innerHTML = `<span class="terminal-prompt">root@control-panel:~#</span> ${escapeHtml(command)}`;
+        promptLine.innerHTML = `<span class="terminal-prompt">${escapeHtml(currentPrompt)}</span> ${escapeHtml(command)}`;
         viewport.insertBefore(promptLine, inputField.parentElement);
 
         if (command === 'clear') {
@@ -98,4 +100,23 @@ export function initTerminal() {
             handleTerminalCommand(e);
         });
     }
+
+    // Load actual user and hostname to make the prompt dynamic
+    fetch('/api/info')
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data) {
+                const username = res.data.username || 'max';
+                const hostname = res.data.hostname || 'control-panel';
+                // root uses '#', non-root uses '$'
+                const symbol = username === 'root' ? '#' : '$';
+                const promptString = `${username}@${hostname}:~${symbol}`;
+
+                const promptNode = document.getElementById('terminal-prompt-node');
+                if (promptNode) {
+                    promptNode.innerText = promptString;
+                }
+            }
+        })
+        .catch(err => console.error(err));
 }

@@ -39,6 +39,9 @@ pub fn register(engine: &mut Engine) {
             let cpu_model = sys.cpus().first().map(|cpu| cpu.brand().to_string()).unwrap_or_default();
             let platform = std::env::consts::OS.to_string();
             let arch = std::env::consts::ARCH.to_string();
+            let username = std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .unwrap_or_else(|_| "zeno".to_string());
 
             let mut info = HashMap::new();
             info.insert("hostname".to_string(), Value::String(hostname));
@@ -48,6 +51,7 @@ pub fn register(engine: &mut Engine) {
             info.insert("cpu_model".to_string(), Value::String(cpu_model));
             info.insert("platform".to_string(), Value::String(platform));
             info.insert("arch".to_string(), Value::String(arch));
+            info.insert("username".to_string(), Value::String(username));
 
             scope.set(&target, Value::Map(info));
             Ok(())
