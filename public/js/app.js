@@ -12,6 +12,7 @@ import {
   switchTab,
   refreshCurrentTab,
   initNavigation,
+  toggleMobileSidebar,
 } from "./navigation.js";
 import {
   sysStatsInterval,
@@ -312,6 +313,7 @@ const functionsToBind = {
   showToast,
   switchTab,
   refreshCurrentTab,
+  toggleMobileSidebar,
   setRingProgress,
   initPerformanceChart,
   initTrafficChart,

@@ -1,10 +1,15 @@
 <header>
-    <div class="header-left">
-        <h1 id="page-title">Dashboard</h1>
-        <div class="system-pill-container" id="sys-pills">
-            <!-- Dynamic Pill Details -->
-            <div class="system-pill"><i class="fa-solid fa-desktop"></i> <span id="sys-os">Scanning...</span></div>
-            <div class="system-pill"><i class="fa-solid fa-clock"></i> <span id="sys-uptime">Uptime: --</span></div>
+    <div class="header-left" style="display: flex; align-items: center; gap: 15px;">
+        <button class="btn-action mobile-menu-toggle" onclick="toggleMobileSidebar()">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+        <div>
+            <h1 id="page-title" style="margin: 0;">Dashboard</h1>
+            <div class="system-pill-container" id="sys-pills" style="margin-top: 4px;">
+                <!-- Dynamic Pill Details -->
+                <div class="system-pill"><i class="fa-solid fa-desktop"></i> <span id="sys-os">Scanning...</span></div>
+                <div class="system-pill"><i class="fa-solid fa-clock"></i> <span id="sys-uptime">Uptime: --</span></div>
+            </div>
         </div>
     </div>
     <div class="header-right" style="display: flex; gap: 0.5rem;">

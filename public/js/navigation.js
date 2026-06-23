@@ -111,6 +111,16 @@ export function refreshCurrentTab() {
   showToast("success", "Refreshed tab data successfully");
 }
 
+// Toggle mobile sidebar view
+export function toggleMobileSidebar() {
+  const aside = document.querySelector("aside");
+  const overlay = document.querySelector(".sidebar-overlay");
+  if (aside && overlay) {
+    aside.classList.toggle("active");
+    overlay.classList.toggle("active");
+  }
+}
+
 // Setup navigation event listeners
 export function initNavigation() {
   document.querySelectorAll(".nav-item").forEach((item) => {
@@ -122,6 +132,14 @@ export function initNavigation() {
       
       const tab = item.getAttribute("data-tab");
       currentTab = tab;
+
+      // Close mobile sidebar if active on navigation
+      const aside = document.querySelector("aside");
+      const overlay = document.querySelector(".sidebar-overlay");
+      if (aside && overlay) {
+        aside.classList.remove("active");
+        overlay.classList.remove("active");
+      }
     });
   });
 
