@@ -7,9 +7,9 @@
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
 
-**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), mandiri (*self-hosted*), dan **sepenuhnya kompatibel dengan Alpine Linux**. Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang khusus untuk para developer modern yang menginginkan kendali server penuh tanpa overhead dan kompleksitas panel tradisional.
+**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), mandiri (*self-hosted*), dan **satu-satunya web panel terlengkap yang sepenuhnya kompatibel dengan Alpine Linux**. Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang khusus untuk para developer modern yang menginginkan kendali server penuh tanpa overhead dan kompleksitas panel tradisional.
 
-Tidak seperti aaPanel atau 1Panel yang menginstal ratusan megabyte dependensi pihak ketiga, ZenoPanel hadir sebagai **single binary** dengan gateway reverse proxy bawaan dari Pingora serta persistensi database SQLite lokal. **Zero dependency, zero bloatware, dan berjalan native di lingkungan MUSL/Alpine.**
+Tidak seperti aaPanel atau 1Panel yang sulit/tidak mendukung Alpine secara native serta menginstal ratusan megabyte dependensi pihak ketiga, ZenoPanel hadir sebagai **single binary** dengan gateway reverse proxy bawaan dari Pingora serta persistensi database SQLite lokal. **Zero dependency, zero bloatware, dan berjalan native di lingkungan MUSL/Alpine.** (Dukungan terhadap Alpine secara statis ini berarti ZenoPanel secara otomatis kompatibel dan siap berjalan di semua distribusi Linux lainnya seperti Ubuntu, Debian, CentOS, Rocky Linux, dll. tanpa masalah kecocokan pustaka).
 
 ---
 
