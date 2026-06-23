@@ -5,10 +5,11 @@
 [![License](https://img.shields.io/badge/license-Apache-blue?style=flat-square)](./LICENSE)
 [![RAM Usage](https://img.shields.io/badge/RAM-~15MB-brightgreen?style=flat-square)](#)
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
+[![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
 
-**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang khusus untuk para developer modern yang menginginkan kendali server penuh tanpa overhead dan kompleksitas panel tradisional.
+**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), mandiri (*self-hosted*), dan **sepenuhnya kompatibel dengan Alpine Linux**. Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang khusus untuk para developer modern yang menginginkan kendali server penuh tanpa overhead dan kompleksitas panel tradisional.
 
-Tidak seperti aaPanel atau 1Panel yang menginstal ratusan megabyte dependensi pihak ketiga, ZenoPanel hadir sebagai **single binary** dengan gateway reverse proxy bawaan dari Pingora serta persistensi database SQLite lokal. **Zero dependency, zero bloatware.**
+Tidak seperti aaPanel atau 1Panel yang menginstal ratusan megabyte dependensi pihak ketiga, ZenoPanel hadir sebagai **single binary** dengan gateway reverse proxy bawaan dari Pingora serta persistensi database SQLite lokal. **Zero dependency, zero bloatware, dan berjalan native di lingkungan MUSL/Alpine.**
 
 ---
 
@@ -55,8 +56,8 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 ### 🖥️ Process Manager (Supervisord-Like)
 - Kelola proses background aplikasi Anda (Node, Go, Python, dll) langsung dari UI web.
 - **Auto-Restart Cerdas**: Pemulihan otomatis jika proses crash dengan algoritma *exponential backoff*.
-- **Telemetry Real-Time**: Pantau beban CPU, RAM, dan status port aktif secara visual.
-- **Logs Streaming**: Streaming log stdout dan stderr secara real-time langsung ke browser Anda.
+- **Telemetry Real-Time**: Pantau beban CPU, RAM, dan status port aktif secara visual via Server-Sent Events (SSE).
+- **Logs Streaming**: Streaming log stdout dan stderr secara asinkron dan real-time langsung ke browser Anda via Server-Sent Events (SSE).
 
 ### 🐳 Container Manager (Lightweight Runtime)
 - **Container Runtime Bawaan**: Jalankan container tanpa Docker daemon — menggunakan `runc` (OCI-compliant) yang di-embedded langsung di binary.
@@ -65,7 +66,7 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 - **Volume Mount & Port Mapping**: Bind mount folder host, mapping port container.
 - **Environment Variables**: Dukung env vars saat create container.
 - **Browse Files Container**: Navigasi filesystem container langsung dari File Manager.
-- **Real-Time Status**: Status container update otomatis tiap 2 detik.
+- **Real-Time Status**: Status container update otomatis secara instan via Server-Sent Events (SSE).
 - **Rootless Mode**: Container bisa jalan tanpa root (menggunakan user namespace).
 
 ### 📦 Docker Compose Support
@@ -152,7 +153,7 @@ Salin berkas konfigurasi default:
 ```bash
 cp .env.example .env
 ```
-Sesuaikan konfigurasi port di file `.env`. Untuk panduan detail port dan eksekusi lokal (development), lihat [development.md](./development.md). Untuk kompilasi rilis kompatibilitas tinggi (GLIBC 2.17), lihat [compile.md](./compile.md).
+Sesuaikan konfigurasi port di file `.env`. Untuk panduan detail port dan eksekusi lokal (development), lihat [development.md](./development.md). Untuk kompilasi rilis kompatibilitas tinggi (GLIBC 2.17) atau static MUSL (untuk Alpine Linux), lihat [compile.md](./compile.md).
 
 Jalankan panel dalam mode development:
 ```bash
