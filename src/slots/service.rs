@@ -209,6 +209,27 @@ pub fn register(engine: &mut Engine) {
                 return Ok(());
             }
 
+            // Copy zeno-container if found in local candidate paths
+            let candidates = [
+                "modul/zeno-container/zeno-container",
+                "modul/zeno-container",
+                "zeno-container",
+            ];
+            for path in &candidates {
+                if Path::new(path).exists() {
+                    let dest = "/usr/local/bin/zeno-container";
+                    if std::fs::copy(path, dest).is_ok() {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755));
+                        }
+                        let _ = std::fs::create_dir_all("/var/lib/zeno-container");
+                        break;
+                    }
+                }
+            }
+
             let service_content = generate_service_content(&init_sys);
             let success = if init_sys == "systemd" {
                 let path = "/etc/systemd/system/zenopanel.service";
