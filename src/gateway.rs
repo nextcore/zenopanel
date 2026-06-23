@@ -442,8 +442,6 @@ impl ProxyHttp for ZenoGateway {
         ctx: &mut Self::CTX,
     ) -> Result<()> {
         if ctx.is_proxy_rule && !ctx.target_host.is_empty() {
-            upstream_request.insert_header("Host", &ctx.target_host)?;
-
             if ctx.strip_path {
                 let current_path = upstream_request.uri.path();
                 let stripped_path = current_path.strip_prefix(&ctx.rule_path).unwrap_or(current_path);

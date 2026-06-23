@@ -1300,8 +1300,7 @@ async fn forward_request(
     let mut req_headers = reqwest::header::HeaderMap::new();
     for (name, value) in headers.iter() {
         let name_str = name.as_str().to_lowercase();
-        if name_str == "host"
-            || name_str == "connection"
+        if name_str == "connection"
             || name_str == "keep-alive"
             || name_str == "proxy-connection"
             || name_str == "transfer-encoding"

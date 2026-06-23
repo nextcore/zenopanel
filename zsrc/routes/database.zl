@@ -48,7 +48,7 @@ http.post: '/api/database/servers' {
 }
 
 # Delete Database Server Registration
-http.delete: '/api/database/servers' {
+http.post: '/api/database/servers/delete' {
     auth.guard
     http.json_body: { as: $body }
     var: $id { val: $body.id }
@@ -618,7 +618,7 @@ http.get: '/api/database/backups' {
     db.select: "SELECT id, database_name, server_name, filename, size, status, created_at FROM db_backups ORDER BY id DESC" { as: $backups }
     db.select: "SELECT COUNT(*) as count, SUM(size) as total_size FROM db_backups WHERE status = 'success'" { first: true, as: $stats_ok }
     db.select: "SELECT created_at FROM db_backups WHERE status = 'success' ORDER BY id DESC LIMIT 1" { first: true, as: $last_backup }
-    
+
     coalesce: $stats_ok.count { default: 0, as: $total_count }
     coalesce: $stats_ok.total_size { default: 0, as: $total_size }
     coalesce: $last_backup.created_at { default: '-', as: $last_date }
@@ -830,4 +830,3 @@ http.post: '/api/database/backups/delete' {
         }
     }
 }
-
