@@ -263,6 +263,13 @@
             box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3);
         }
 
+        #viewport-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
         /* Content Viewport */
         .viewport {
             flex-grow: 1;
@@ -273,12 +280,26 @@
 
         .viewport.active {
             display: block;
+            flex-grow: 1;
+            overflow-y: auto;
             animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         #viewport-container .viewport {
             display: block;
+            flex-grow: 1;
+            overflow-y: auto;
             animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Sub-tab scroll behavior on mobile */
+        .sub-tab-container {
+            overflow-x: auto;
+            white-space: nowrap;
+            scrollbar-width: none; /* Firefox */
+        }
+        .sub-tab-container::-webkit-scrollbar {
+            display: none; /* Chrome/Safari */
         }
 
         @keyframes fadeIn {
@@ -1210,15 +1231,42 @@
                 gap: 16px;
             }
 
-            /* Database explorer */
+            /* Database explorer overrides */
             .db-layout {
-                grid-template-columns: 1fr;
+                display: flex !important;
+                flex-direction: column !important;
                 gap: 16px;
             }
 
             .db-sidebar {
-                height: auto;
-                max-height: 250px;
+                width: 100% !important;
+                height: auto !important;
+                max-height: 250px !important;
+            }
+
+            /* Docker Compose layout responsive */
+            .compose-layout {
+                flex-direction: column !important;
+            }
+
+            .compose-project-col {
+                width: 100% !important;
+            }
+
+            /* Form grids and flex structures */
+            .flex-2col {
+                flex-direction: column !important;
+                gap: 12px !important;
+            }
+
+            .grid-2col {
+                grid-template-columns: 1fr !important;
+                gap: 12px !important;
+            }
+
+            .grid-3col {
+                grid-template-columns: 1fr !important;
+                gap: 12px !important;
             }
 
             /* Modals card sizing */
@@ -1240,6 +1288,7 @@
             .fm-toolbar > div {
                 width: 100%;
                 justify-content: flex-start;
+                flex-wrap: wrap;
             }
         }
     </style>

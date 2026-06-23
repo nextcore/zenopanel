@@ -2,7 +2,7 @@
 <div class="viewport" id="tab-containers">
     <div class="card" style="margin-top:0;">
         <!-- Sub-tab Navigation -->
-        <div style="display:flex; gap:4px; border-bottom:1px solid var(--card-border); padding-bottom:10px; margin-bottom:15px;">
+        <div class="sub-tab-container" style="display:flex; gap:4px; border-bottom:1px solid var(--card-border); padding-bottom:10px; margin-bottom:15px;">
             <button class="sub-tab-btn active" id="subtab-containers-btn" onclick="switchContainerSubTab('containers')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:rgba(59,130,246,0.1); color:var(--accent-primary); cursor:pointer; font-size:0.85rem; font-weight:500;">
                 <i class="fa-solid fa-cube"></i> Containers
             </button>
@@ -64,8 +64,8 @@
                     </button>
                 </div>
             </div>
-            <div style="margin-bottom:15px; display:flex; gap:15px;">
-                <div style="width: 200px;">
+            <div class="compose-layout" style="margin-bottom:15px; display:flex; gap:15px;">
+                <div class="compose-project-col" style="width: 200px;">
                     <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Project Name</label>
                     <input type="text" id="compose-project-input" value="default" placeholder="e.g. wordpress" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;" onchange="loadComposeYaml()">
                 </div>
@@ -147,7 +147,7 @@ services:
                 </button>
             </div>
 
-            <div class="form-group" style="margin-bottom:15px; display:flex; gap:15px;">
+            <div class="form-group flex-2col" style="margin-bottom:15px; display:flex; gap:15px;">
                 <div style="flex:1;">
                     <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Memory Limit (optional)</label>
                     <input type="text" id="container-memory" placeholder="e.g. 512m or 1g" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
@@ -158,7 +158,7 @@ services:
                 </div>
             </div>
 
-            <div class="form-group" style="margin-bottom:15px; display:flex; gap:15px; align-items:center;">
+            <div class="form-group flex-2col" style="margin-bottom:15px; display:flex; gap:15px; align-items:center;">
                 <div style="flex:1;">
                     <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">OOM Score Adj (optional)</label>
                     <input type="number" id="container-oom-score-adj" placeholder="e.g. -500" min="-1000" max="1000" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">

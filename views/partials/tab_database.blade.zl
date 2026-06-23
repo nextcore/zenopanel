@@ -2,7 +2,7 @@
 <div class="viewport" id="tab-database">
     <div class="card" style="margin-top:0;">
         <!-- Sub-tab Navigation -->
-        <div style="display:flex; gap:6px; border-bottom:1px solid var(--card-border); padding-bottom:10px; margin-bottom:15px;">
+        <div class="sub-tab-container" style="display:flex; gap:6px; border-bottom:1px solid var(--card-border); padding-bottom:10px; margin-bottom:15px;">
             <button class="sub-tab-btn active" id="subtab-db-databases-btn" onclick="switchDatabaseSubTab('databases')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:rgba(59,130,246,0.1); color:var(--accent-primary); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
                 <i class="fa-solid fa-database"></i> Databases
             </button>
