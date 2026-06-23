@@ -19,6 +19,7 @@ include: 'zsrc/routes/proxy.zl'
 include: 'zsrc/routes/containers.zl'
 include: 'zsrc/routes/settings.zl'
 include: 'zsrc/routes/users.zl'
+include: 'zsrc/routes/views.zl'
 
 # Auth routes — login/logout dengan dynamic entrance path support
 # HARUS di-include terakhir karena mendaftarkan wildcard GET /* dan POST /*

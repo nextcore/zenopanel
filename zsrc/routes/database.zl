@@ -53,7 +53,11 @@ http.post: '/api/database/servers/delete' {
     http.json_body: { as: $body }
     var: $id { val: $body.id }
 
-    db.select: "SELECT name FROM db_servers WHERE id = ?" { bind: [$id], first: true, as: $server }
+    db.select: "SELECT name FROM db_servers WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $server
+    }
     if: $server {
         then: {
             # Disconnect active pool
@@ -95,11 +99,21 @@ http.post: '/api/database/create' {
     var: $collation { val: $body.collation }
 
     # Default charset/collation fallback
-    coalesce: $charset { default: 'utf8mb4', as: $charset }
-    coalesce: $collation { default: 'utf8mb4_unicode_ci', as: $collation }
+    coalesce: $charset {
+        default: 'utf8mb4'
+        as: $charset
+    }
+    coalesce: $collation {
+        default: 'utf8mb4_unicode_ci'
+        as: $collation
+    }
 
     # Fetch Server details
-    db.select: "SELECT name, driver FROM db_servers WHERE id = ?" { bind: [$server_id], first: true, as: $server }
+    db.select: "SELECT name, driver FROM db_servers WHERE id = ?" {
+        bind: [$server_id]
+        first: true
+        as: $server
+    }
 
     if: $server {
         then: {
@@ -181,7 +195,11 @@ http.post: '/api/database/change-password' {
     var: $id { val: $body.id }
     var: $new_password { val: $body.password }
 
-    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" { bind: [$id], first: true, as: $db_info }
+    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
+        bind: [$id]
+        first: true
+        as: $db_info
+    }
 
     if: $db_info {
         then: {
@@ -227,7 +245,11 @@ http.post: '/api/database/delete' {
     http.json_body: { as: $body }
     var: $id { val: $body.id }
 
-    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" { bind: [$id], first: true, as: $db_info }
+    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
+        bind: [$id]
+        first: true
+        as: $db_info
+    }
 
     if: $db_info {
         then: {
@@ -289,7 +311,11 @@ http.get: '/api/database/tables' {
     }
 
     # Fetch connection metadata to determine driver
-    db.select: "SELECT driver FROM db_servers WHERE name = ?" { bind: [$connection], first: true, as: $server_meta }
+    db.select: "SELECT driver FROM db_servers WHERE name = ?" {
+        bind: [$connection]
+        first: true
+        as: $server_meta
+    }
     coalesce: $server_meta {
         default: { driver: 'sqlite' }
         as: $meta
@@ -308,7 +334,10 @@ http.get: '/api/database/tables' {
         }
     }
 
-    db.select: $query { db: $connection, as: $tables }
+    db.select: $query {
+        db: $connection
+        as: $tables
+    }
     http.ok: {
         data: $tables
         driver: $driver
@@ -329,7 +358,10 @@ http.post: '/api/database/query' {
 
     if: $is_select {
         then: {
-            db.select: $sql { db: $connection, as: $rows }
+            db.select: $sql {
+                db: $connection
+                as: $rows
+            }
             http.ok: {
                 data: $rows
                 type: 'select'
@@ -616,12 +648,27 @@ http.post: '/api/database/install-server' {
 http.get: '/api/database/backups' {
     auth.guard
     db.select: "SELECT id, database_name, server_name, filename, size, status, created_at FROM db_backups ORDER BY id DESC" { as: $backups }
-    db.select: "SELECT COUNT(*) as count, SUM(size) as total_size FROM db_backups WHERE status = 'success'" { first: true, as: $stats_ok }
-    db.select: "SELECT created_at FROM db_backups WHERE status = 'success' ORDER BY id DESC LIMIT 1" { first: true, as: $last_backup }
+    db.select: "SELECT COUNT(*) as count, SUM(size) as total_size FROM db_backups WHERE status = 'success'" {
+        first: true
+        as: $stats_ok
+    }
+    db.select: "SELECT created_at FROM db_backups WHERE status = 'success' ORDER BY id DESC LIMIT 1" {
+        first: true
+        as: $last_backup
+    }
 
-    coalesce: $stats_ok.count { default: 0, as: $total_count }
-    coalesce: $stats_ok.total_size { default: 0, as: $total_size }
-    coalesce: $last_backup.created_at { default: '-', as: $last_date }
+    coalesce: $stats_ok.count {
+        default: 0
+        as: $total_count
+    }
+    coalesce: $stats_ok.total_size {
+        default: 0
+        as: $total_size
+    }
+    coalesce: $last_backup.created_at {
+        default: '-'
+        as: $last_date
+    }
 
     http.ok: {
         success: true
@@ -641,8 +688,14 @@ http.post: '/api/database/backups/create' {
     var: $db_name { val: $body.database_name }
 
     # Fetch settings for backup destination dir
-    db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" { first: true, as: $dest_setting }
-    coalesce: $dest_setting.value { default: '/var/lib/zenopanel/backups', as: $dest_dir }
+    db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" {
+        first: true
+        as: $dest_setting
+    }
+    coalesce: $dest_setting.value {
+        default: '/var/lib/zenopanel/backups'
+        as: $dest_dir
+    }
     var: $db_backup_dir { val: "${dest_dir}/db" }
 
     # Generate filename and path
@@ -679,7 +732,11 @@ http.post: '/api/database/backups/create' {
         }
         else: {
             # Find DB info and Server credentials
-            db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" { bind: [$db_name], first: true, as: $db_info }
+            db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" {
+                bind: [$db_name]
+                first: true
+                as: $db_info
+            }
 
             if: $db_info {
                 then: {
@@ -732,7 +789,11 @@ http.post: '/api/database/backups/restore' {
     http.json_body: { as: $body }
     var: $id { val: $body.id }
 
-    db.select: "SELECT database_name, filename FROM db_backups WHERE id = ?" { bind: [$id], first: true, as: $backup_info }
+    db.select: "SELECT database_name, filename FROM db_backups WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $backup_info
+    }
 
     if: $backup_info {
         then: {
@@ -740,8 +801,14 @@ http.post: '/api/database/backups/restore' {
             var: $filename { val: $backup_info.filename }
 
             # Fetch backup destination dir
-            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" { first: true, as: $dest_setting }
-            coalesce: $dest_setting.value { default: '/var/lib/zenopanel/backups', as: $dest_dir }
+            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" {
+                first: true
+                as: $dest_setting
+            }
+            coalesce: $dest_setting.value {
+                default: '/var/lib/zenopanel/backups'
+                as: $dest_dir
+            }
             var: $backup_path { val: "${dest_dir}/db/${filename}" }
 
             if: "$db_name == 'default'" {
@@ -763,7 +830,11 @@ http.post: '/api/database/backups/restore' {
                     }
                 }
                 else: {
-                    db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" { bind: [$db_name], first: true, as: $db_info }
+                    db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" {
+                        bind: [$db_name]
+                        first: true
+                        as: $db_info
+                    }
 
                     if: $db_info {
                         then: {
@@ -806,15 +877,25 @@ http.post: '/api/database/backups/delete' {
     http.json_body: { as: $body }
     var: $id { val: $body.id }
 
-    db.select: "SELECT filename FROM db_backups WHERE id = ?" { bind: [$id], first: true, as: $backup_info }
+    db.select: "SELECT filename FROM db_backups WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $backup_info
+    }
 
     if: $backup_info {
         then: {
             var: $filename { val: $backup_info.filename }
 
             # Fetch backup destination dir
-            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" { first: true, as: $dest_setting }
-            coalesce: $dest_setting.value { default: '/var/lib/zenopanel/backups', as: $dest_dir }
+            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" {
+                first: true
+                as: $dest_setting
+            }
+            coalesce: $dest_setting.value {
+                default: '/var/lib/zenopanel/backups'
+                as: $dest_dir
+            }
             var: $backup_path { val: "${dest_dir}/db/${filename}" }
 
             # Delete physical file

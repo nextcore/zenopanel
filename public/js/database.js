@@ -114,11 +114,11 @@ export function openAddDbServerModal() {
         }
     };
 
-    document.getElementById('add-db-server-modal').classList.add('show');
+    document.getElementById('add-db-server-modal').classList.add('active');
 }
 
 export function closeAddDbServerModal() {
-    document.getElementById('add-db-server-modal').classList.remove('show');
+    document.getElementById('add-db-server-modal').classList.remove('active');
 }
 
 export function submitAddDbServer() {
@@ -302,12 +302,11 @@ export function openAddDatabaseModal() {
     document.getElementById('db-create-server-select').onchange = updateCharsetVisibility;
     updateCharsetVisibility();
 
-    document.getElementById('create-db-modal').classList.add('show');
+    document.getElementById('create-db-modal').classList.add('active');
 }
 
 export function closeAddDatabaseModal() {
-    document.getElementById('create-db-modal').classList.remove('remove');
-    document.getElementById('create-db-modal').classList.remove('show');
+    document.getElementById('create-db-modal').classList.remove('active');
 }
 
 export function generateRandomDbPassword() {
@@ -398,11 +397,11 @@ export function deleteUserDatabase(id, name) {
 export function openChangeDbPasswordModal(id) {
     document.getElementById('change-db-id').value = id;
     document.getElementById('change-db-password-field').value = generateSecurePassword();
-    document.getElementById('change-db-password-modal').classList.add('show');
+    document.getElementById('change-db-password-modal').classList.add('active');
 }
 
 export function closeChangeDbPasswordModal() {
-    document.getElementById('change-db-password-modal').classList.remove('show');
+    document.getElementById('change-db-password-modal').classList.remove('active');
 }
 
 export function generateRandomDbPasswordChange() {
@@ -653,11 +652,11 @@ export function openManageDbUsersModal(dbId, dbName) {
     document.getElementById('new-db-user-access').value = 'local';
     document.getElementById('new-db-user-privileges').value = 'ALL';
     loadDbUsers(dbId);
-    document.getElementById('manage-db-users-modal').classList.add('show');
+    document.getElementById('manage-db-users-modal').classList.add('active');
 }
 
 export function closeManageDbUsersModal() {
-    document.getElementById('manage-db-users-modal').classList.remove('show');
+    document.getElementById('manage-db-users-modal').classList.remove('active');
     activeManageDbId = null;
 }
 
@@ -754,11 +753,11 @@ export function openChangeDbUserPasswordModal(userId, username) {
     document.getElementById('change-dbuser-id').value = userId;
     document.getElementById('change-dbuser-name-label').textContent = username;
     document.getElementById('change-dbuser-password-field').value = generateSecurePassword();
-    document.getElementById('change-dbuser-password-modal').classList.add('show');
+    document.getElementById('change-dbuser-password-modal').classList.add('active');
 }
 
 export function closeChangeDbUserPasswordModal() {
-    document.getElementById('change-dbuser-password-modal').classList.remove('show');
+    document.getElementById('change-dbuser-password-modal').classList.remove('active');
 }
 
 export function generateChangeDbUserPassword() {
@@ -803,11 +802,11 @@ export function openInstallDbEngineModal() {
     document.getElementById('install-db-data-dir').value = '';
     document.getElementById('install-db-engine').value = 'mysql:8.4';
     onInstallDbEngineChange();
-    document.getElementById('install-db-engine-modal').classList.add('show');
+    document.getElementById('install-db-engine-modal').classList.add('active');
 }
 
 export function closeInstallDbEngineModal() {
-    document.getElementById('install-db-engine-modal').classList.remove('show');
+    document.getElementById('install-db-engine-modal').classList.remove('active');
 }
 
 export function onInstallDbEngineChange() {
@@ -1013,11 +1012,11 @@ export function openCreateBackupModal() {
     });
     select.innerHTML = optionsHtml;
 
-    document.getElementById('create-db-backup-modal').classList.add('show');
+    document.getElementById('create-db-backup-modal').classList.add('active');
 }
 
 export function closeCreateBackupModal() {
-    document.getElementById('create-db-backup-modal').classList.remove('show');
+    document.getElementById('create-db-backup-modal').classList.remove('active');
 }
 
 export function submitCreateBackup() {
@@ -1082,11 +1081,11 @@ export function triggerRestoreDatabaseBackup(id, dbName, filename, createdAt, si
         btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Yes, Restore Now';
     }
 
-    document.getElementById('confirm-restore-db-backup-modal').classList.add('show');
+    document.getElementById('confirm-restore-db-backup-modal').classList.add('active');
 }
 
 export function closeConfirmRestoreModal() {
-    document.getElementById('confirm-restore-db-backup-modal').classList.remove('show');
+    document.getElementById('confirm-restore-db-backup-modal').classList.remove('active');
 }
 
 export function confirmRestoreDatabaseBackup() {

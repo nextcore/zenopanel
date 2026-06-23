@@ -35,6 +35,11 @@ export function setRingProgress(ring, pct) {
 export function initPerformanceChart() {
     const chartEl = document.getElementById('performanceChart');
     if (!chartEl) return;
+    
+    if (performanceChart) {
+        performanceChart.destroy();
+        performanceChart = null;
+    }
     const ctx = chartEl.getContext('2d');
     
     // Build gradient color
@@ -108,6 +113,11 @@ export function initPerformanceChart() {
 export function initTrafficChart() {
     const chartEl = document.getElementById('trafficChart');
     if (!chartEl) return;
+    
+    if (trafficChart) {
+        trafficChart.destroy();
+        trafficChart = null;
+    }
     const ctx = chartEl.getContext('2d');
     
     const rpsGrad = ctx.createLinearGradient(0, 0, 0, 300);

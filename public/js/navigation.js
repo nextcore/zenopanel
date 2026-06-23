@@ -4,9 +4,9 @@ import {
   startStatsPolling,
   stopStatsPolling,
 } from "./dashboard.js";
-import { loadFilesList } from "./filemanager.js";
+import { loadFilesList, initFileManager } from "./filemanager.js";
 import { initDatabaseTab } from "./database.js";
-import { focusTerminalInput } from "./terminal.js";
+import { focusTerminalInput, initTerminal } from "./terminal.js";
 import {
   loadManagedProcesses,
   startManagedPolling,
@@ -25,27 +25,28 @@ import { loadSettings, loadSecuritySettings } from "./settings.js";
 export let currentTab = "dashboard";
 
 export function switchTab(tab) {
+  // Update nav active button class
   document
     .querySelectorAll(".nav-item")
     .forEach((el) => el.classList.remove("active"));
-  document
-    .querySelectorAll(".viewport")
-    .forEach((el) => el.classList.remove("active"));
-
   const activeBtn = document.querySelector(`.nav-item[data-tab="${tab}"]`);
   if (activeBtn) activeBtn.classList.add("active");
 
-  const activeViewport = document.getElementById(`tab-${tab}`);
-  if (activeViewport) activeViewport.classList.add("active");
-
   currentTab = tab;
 
+  // Let HTMX load the content programmatically if it's not already loading it
+  if (typeof htmx !== "undefined") {
+    htmx.ajax("GET", `/tab/${tab}`, "#viewport-container");
+  }
+}
+
+export function runTabInit(tab) {
   const pageTitle = document.getElementById("page-title");
   if (pageTitle) {
     pageTitle.innerText = tab.charAt(0).toUpperCase() + tab.slice(1);
   }
 
-  // Tab initialization routines
+  // Manage all pollers (stop pollers of other tabs, start pollers of active tab)
   if (tab === "dashboard") {
     loadSystemStats();
     startStatsPolling();
@@ -54,9 +55,7 @@ export function switchTab(tab) {
   }
 
   if (tab === "files") {
-    // Get the currentFilePath from window or import dynamically if needed
-    // Since we bind state variables to window for backward compatibility,
-    // window.currentFilePath is a safe fallback.
+    initFileManager();
     const path = window.currentFilePath || ".";
     loadFilesList(path);
   }
@@ -66,6 +65,7 @@ export function switchTab(tab) {
   }
 
   if (tab === "terminal") {
+    initTerminal();
     setTimeout(focusTerminalInput, 50);
   }
 
@@ -102,7 +102,12 @@ export function switchTab(tab) {
 
 // Global refresh trigger
 export function refreshCurrentTab() {
-  switchTab(currentTab);
+  if (typeof htmx !== "undefined") {
+    // Re-request active tab content via HTMX
+    htmx.ajax("GET", `/tab/${currentTab}`, "#viewport-container");
+  } else {
+    runTabInit(currentTab);
+  }
   showToast("success", "Refreshed tab data successfully");
 }
 
@@ -110,8 +115,20 @@ export function refreshCurrentTab() {
 export function initNavigation() {
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.addEventListener("click", () => {
+      document
+        .querySelectorAll(".nav-item")
+        .forEach((el) => el.classList.remove("active"));
+      item.classList.add("active");
+      
       const tab = item.getAttribute("data-tab");
-      switchTab(tab);
+      currentTab = tab;
     });
+  });
+
+  // Listen to HTMX afterSwap events to run tab initializers
+  document.body.addEventListener("htmx:afterSwap", (evt) => {
+    if (evt.detail.target.id === "viewport-container") {
+      runTabInit(currentTab);
+    }
   });
 }
