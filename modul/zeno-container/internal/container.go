@@ -421,6 +421,87 @@ func (cm *ContainerManager) RemoveLocalImage(image string) error {
 	return RemoveCachedImage(image, cm.DataDir)
 }
 
+// ContainerUpdate — updates container resource limits dynamically via "runc update".
+func (cm *ContainerManager) ContainerUpdate(id string, memoryLimit int64, cpuLimit float64) error {
+	state, err := cm.loadState(id)
+	if err != nil {
+		return err
+	}
+
+	// Update active container resource constraints
+	var runcArgs []string
+	runcArgs = append(runcArgs, "update")
+
+	if memoryLimit > 0 {
+		runcArgs = append(runcArgs, "--memory", fmt.Sprintf("%d", memoryLimit))
+	}
+	if cpuLimit > 0 {
+		period := int64(100000)
+		quota := int64(cpuLimit * 100000)
+		runcArgs = append(runcArgs, "--cpu-period", fmt.Sprintf("%d", period))
+		runcArgs = append(runcArgs, "--cpu-quota", fmt.Sprintf("%d", quota))
+	}
+
+	runcArgs = append(runcArgs, id)
+
+	// If container is running, call runc update.
+	if state.Status == StatusRunning {
+		if err := cm.runcExec(runcArgs...); err != nil {
+			return fmt.Errorf("runc update failed: %w", err)
+		}
+	}
+
+	// Update OCI config.json in bundle dir so the limits persist across restarts
+	configPath := BundleDir(cm.DataDir, id) + "/config.json"
+	if configData, err := os.ReadFile(configPath); err == nil {
+		var configMap map[string]interface{}
+		if json.Unmarshal(configData, &configMap) == nil {
+			var linuxMap map[string]interface{}
+			if l, ok := configMap["linux"].(map[string]interface{}); ok {
+				linuxMap = l
+			} else {
+				linuxMap = make(map[string]interface{})
+				configMap["linux"] = linuxMap
+			}
+
+			var resourcesMap map[string]interface{}
+			if r, ok := linuxMap["resources"].(map[string]interface{}); ok {
+				resourcesMap = r
+			} else {
+				resourcesMap = make(map[string]interface{})
+				linuxMap["resources"] = resourcesMap
+			}
+
+			if memoryLimit > 0 {
+				resourcesMap["memory"] = map[string]interface{}{
+					"limit": memoryLimit,
+				}
+			}
+			if cpuLimit > 0 {
+				period := uint64(100000)
+				quota := int64(cpuLimit * 100000)
+				resourcesMap["cpu"] = map[string]interface{}{
+					"period": period,
+					"quota":  quota,
+				}
+			}
+
+			if newData, err := json.MarshalIndent(configMap, "", "  "); err == nil {
+				_ = os.WriteFile(configPath, newData, 0644)
+			}
+		}
+	}
+
+	// Update container state file
+	if memoryLimit > 0 {
+		state.MemoryLimit = memoryLimit
+	}
+	if cpuLimit > 0 {
+		state.CPULimit = cpuLimit
+	}
+	return cm.saveState(state)
+}
+
 // StartPortProxy — simple TCP forwarder.
 func StartPortProxy(hostPort, containerPort string, quit chan struct{}) {
 	ln, err := net.Listen("tcp", "0.0.0.0:"+hostPort)

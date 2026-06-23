@@ -17,6 +17,7 @@ pub fn register(engine: &mut Engine) {
     register_container_logs(engine);
     register_container_compose(engine);
     register_container_compose_get_yaml(engine);
+    register_container_update(engine);
 }
 
 /// Get the zeno-container binary path, checking env var ZENO_CONTAINER_BIN first.
@@ -813,6 +814,79 @@ fn register_container_compose_get_yaml(engine: &mut Engine) {
         SlotMeta {
             description: "Get persistent docker-compose.yml content from disk".to_string(),
             example: "container.compose_get_yaml: { as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+/// container.update: Update resource limits of a container dynamically.
+fn register_container_update(engine: &mut Engine) {
+    engine.register(
+        "container.update",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut id = String::new();
+            let mut memory = String::new();
+            let mut cpus = String::new();
+            let mut target = "update_result".to_string();
+
+            if node.value.is_some() {
+                id = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+
+            for child in &node.children {
+                let child_name = &child.name;
+                if child_name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                } else {
+                    let resolved = engine.resolve_shorthand_value(child, scope);
+                    match child_name.as_str() {
+                        "id" => id = resolved.to_string_coerce(),
+                        "memory" => memory = resolved.to_string_coerce(),
+                        "cpus" => cpus = resolved.to_string_coerce(),
+                        _ => {}
+                    }
+                }
+            }
+
+            if id.is_empty() {
+                let mut result = HashMap::new();
+                result.insert("success".to_string(), Value::Bool(false));
+                result.insert(
+                    "stderr".to_string(),
+                    Value::String("container id is required".to_string()),
+                );
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            let mut cli_args = vec!["update", &id];
+            if !memory.is_empty() {
+                cli_args.push("--memory");
+                cli_args.push(&memory);
+            }
+            if !cpus.is_empty() {
+                cli_args.push("--cpus");
+                cli_args.push(&cpus);
+            }
+
+            let (stdout, stderr, exit_code) = exec_zeno_container(&cli_args);
+
+            let mut result = HashMap::new();
+            result.insert("stdout".to_string(), Value::String(stdout));
+            result.insert("stderr".to_string(), Value::String(stderr));
+            result.insert("exit_code".to_string(), Value::Int(exit_code as i64));
+            result.insert("success".to_string(), Value::Bool(exit_code == 0));
+
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Update dynamic resource limits of a container".to_string(),
+            example: "container.update: 'my-web' { memory: '512m', cpus: '1.5', as: $result }".to_string(),
             inputs: HashMap::new(),
             required_blocks: Vec::new(),
             value_type: "".to_string(),

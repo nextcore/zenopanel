@@ -151,6 +151,9 @@ import {
   openContainerProxyModal,
   closeContainerProxyModal,
   submitContainerProxy,
+  openEditContainerResources,
+  closeEditContainerResourcesModal,
+  submitEditContainerResources,
 } from "./containers.js";
 import {
   openPortCheckModal,
@@ -449,6 +452,9 @@ const functionsToBind = {
   openContainerProxyModal,
   closeContainerProxyModal,
   submitContainerProxy,
+  openEditContainerResources,
+  closeEditContainerResourcesModal,
+  submitEditContainerResources,
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {

@@ -287,3 +287,26 @@ http.get: '/api/containers/rootfs-path' {
     container.rootfs_path: $container_id { as: $path }
     http.ok: { path: $path }
 }
+
+# ─── Update Container Resources ──────────────────────────────────
+http.post: '/api/containers/update' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.update: $body.id {
+        memory: $body.memory
+        cpus: $body.cpus
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Container resources updated successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to update container resources"
+                error: $result.stderr
+            }
+        }
+    }
+}
+

@@ -108,6 +108,9 @@ export function renderContainers(containers) {
                         <button class="action-dropdown-item" onclick="viewContainerLogs('${container.id}')">
                             <i class="fa-solid fa-terminal" style="color:var(--text-main);"></i> Logs
                         </button>
+                        <button class="action-dropdown-item" onclick="openEditContainerResources('${container.id}')">
+                            <i class="fa-solid fa-sliders" style="color:var(--accent-primary);"></i> Edit Resources
+                        </button>
                         <hr style="border:none; border-top:1px solid var(--card-border); margin:4px 0;">
                         <button class="action-dropdown-item danger" onclick="deleteContainer('${container.id}')">
                             <i class="fa-solid fa-trash-can"></i> Delete
@@ -729,4 +732,74 @@ export function toggleContainerDropdown(event, id) {
   } else {
     targetMenu.parentElement.classList.remove("open-up");
   }
+}
+
+// ─── Resource Updates ──────────────────────────────────────────────
+
+export function openEditContainerResources(id) {
+  const container = containerState.allContainers.find((c) => c.id === id);
+  if (!container) return;
+
+  document.getElementById("edit-container-resources-id").value = id;
+  document.getElementById("edit-container-resources-name").textContent = id;
+
+  let memStr = "";
+  if (container.memory_limit && container.memory_limit > 0) {
+    const bytes = container.memory_limit;
+    if (bytes % (1024 * 1024 * 1024) === 0) {
+      memStr = (bytes / (1024 * 1024 * 1024)) + "g";
+    } else {
+      memStr = (bytes / (1024 * 1024)) + "m";
+    }
+  }
+  document.getElementById("edit-container-resources-memory").value = memStr;
+
+  let cpuStr = "";
+  if (container.cpu_limit && container.cpu_limit > 0) {
+    cpuStr = container.cpu_limit.toString();
+  }
+  document.getElementById("edit-container-resources-cpus").value = cpuStr;
+
+  document.getElementById("edit-container-resources-modal").classList.add("active");
+}
+
+export function closeEditContainerResourcesModal() {
+  document.getElementById("edit-container-resources-modal").classList.remove("active");
+}
+
+export function submitEditContainerResources() {
+  const id = document.getElementById("edit-container-resources-id").value;
+  const memory = document.getElementById("edit-container-resources-memory").value.trim();
+  const cpus = document.getElementById("edit-container-resources-cpus").value.trim();
+
+  const btn = document.getElementById("btn-update-resources-submit");
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving...`;
+
+  fetch("/api/containers/update", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCSRFToken(),
+    },
+    body: JSON.stringify({ id, memory, cpus }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+      if (res.success) {
+        showToast("success", `Container resources updated successfully`);
+        closeEditContainerResourcesModal();
+        loadContainers();
+      } else {
+        showToast("error", res.error || res.message || "Failed to update resources");
+      }
+    })
+    .catch((err) => {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+      showToast("error", "Network error");
+    });
 }

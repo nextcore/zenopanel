@@ -77,6 +77,8 @@ func main() {
 		cmdLogs(cm, cmdArgs)
 	case "daemon":
 		cmdDaemon(cm, cmdArgs)
+	case "update":
+		cmdUpdate(cm, cmdArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -116,6 +118,9 @@ Commands:
   images                    List cached images
   rmi <image>               Remove a cached image
   inspect <id>              Show detailed container info
+  update <id> [options]     Update resource limits dynamically
+    -m, --memory <limit>      Memory limit (e.g. 512m, 1g)
+    --cpus <limit>            CPU limit (fractional cores, e.g. 1.5, 0.5)
   exec <id> <command>       Execute a command in a running container
   logs <id> [--tail <n>]    Show container logs
   daemon                    Run lifecycle orchestrator and health check daemon
@@ -616,4 +621,39 @@ func parseMemoryBytes(mStr string) int64 {
 		return 0
 	}
 	return val * unit
+}
+
+func cmdUpdate(cm *internal.ContainerManager, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: zeno-container update <id> [options]")
+		os.Exit(1)
+	}
+	id := args[0]
+	rest := args[1:]
+	var memoryLimitStr string
+	var cpuLimit float64
+
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "--memory", "-m":
+			if i+1 < len(rest) {
+				memoryLimitStr = rest[i+1]
+				i++
+			}
+		case "--cpus":
+			if i+1 < len(rest) {
+				cpuLimit, _ = strconv.ParseFloat(rest[i+1], 64)
+				i++
+			}
+		}
+	}
+
+	memoryLimit := parseMemoryBytes(memoryLimitStr)
+
+	fmt.Printf("Updating resource limits for container '%s'...\n", id)
+	if err := cm.ContainerUpdate(id, memoryLimit, cpuLimit); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Container '%s' resources updated.\n", id)
 }
