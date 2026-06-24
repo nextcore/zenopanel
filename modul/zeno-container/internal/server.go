@@ -129,9 +129,10 @@ func (s *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 				PortBindings map[string][]struct {
 					HostPort string `json:"HostPort"`
 				} `json:"PortBindings"`
-				Binds  []string `json:"Binds"`
-				Memory int64    `json:"Memory"`
-				NanoCPUs int64  `json:"NanoCPUs"`
+				Binds       []string `json:"Binds"`
+				Memory      int64    `json:"Memory"`
+				NanoCPUs    int64    `json:"NanoCPUs"`
+				NetworkMode string   `json:"NetworkMode"`
 			} `json:"HostConfig"`
 		}
 
@@ -201,6 +202,7 @@ func (s *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 			cpuLimit,
 			nil,   // oomScoreAdj
 			false, // readOnly
+			req.HostConfig.NetworkMode, // network
 		)
 
 		if err != nil {
@@ -218,8 +220,7 @@ func (s *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// 5. GET /networks
 	if path == "/networks" && method == "GET" {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode([]map[string]interface{}{
+		list := []map[string]interface{}{
 			{
 				"Name":       "bridge",
 				"Id":         "zenobr0",
@@ -236,15 +237,65 @@ func (s *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 					},
 				},
 			},
-		})
+		}
+
+		customNets, err := LoadNetworks(s.cm.DataDir)
+		if err == nil {
+			for _, n := range customNets {
+				list = append(list, map[string]interface{}{
+					"Name":       n.Name,
+					"Id":         n.ID,
+					"Scope":      "local",
+					"Driver":     n.Driver,
+					"EnableIPv6": false,
+					"IPAM": map[string]interface{}{
+						"Driver": "default",
+						"Config": []map[string]interface{}{
+							{
+								"Subnet":  n.Subnet,
+								"Gateway": n.Gateway,
+							},
+						},
+					},
+				})
+			}
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(list)
 		return
 	}
 
 	// 6. POST /networks/create
 	if path == "/networks/create" && method == "POST" {
+		var req struct {
+			Name string `json:"Name"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Name == "" {
+			s.writeError(w, http.StatusBadRequest, "Missing Name field")
+			return
+		}
+
+		if err := CreateBridgeNetwork(s.cm.DataDir, req.Name); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		customNets, err := LoadNetworks(s.cm.DataDir)
+		id := ""
+		if err == nil {
+			for _, n := range customNets {
+				if n.Name == req.Name {
+					id = n.ID
+					break
+				}
+			}
+		}
+
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"Id":      "zenobr0",
+			"Id":      id,
 			"Warning": "",
 		})
 		return
@@ -321,16 +372,43 @@ func (s *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(path, "/networks/")
 		if id != "" {
 			if method == "DELETE" {
+				if id == "zenobr0" || id == "bridge" || id == "default" {
+					s.writeError(w, http.StatusForbidden, "Cannot delete default bridge network")
+					return
+				}
+				if err := DeleteBridgeNetwork(s.cm.DataDir, id); err != nil {
+					s.writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 			if method == "GET" {
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"Name":   "bridge",
-					"Id":     "zenobr0",
-					"Driver": "bridge",
-				})
+				if id == "zenobr0" || id == "bridge" || id == "default" {
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"Name":   "bridge",
+						"Id":     "zenobr0",
+						"Driver": "bridge",
+					})
+					return
+				}
+
+				customNets, err := LoadNetworks(s.cm.DataDir)
+				if err == nil {
+					for _, n := range customNets {
+						if n.ID == id || n.Name == id {
+							w.WriteHeader(http.StatusOK)
+							json.NewEncoder(w).Encode(map[string]interface{}{
+								"Name":   n.Name,
+								"Id":     n.ID,
+								"Driver": n.Driver,
+							})
+							return
+						}
+					}
+				}
+				s.writeError(w, http.StatusNotFound, "Network not found")
 				return
 			}
 		}

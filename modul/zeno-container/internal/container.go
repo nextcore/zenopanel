@@ -87,7 +87,7 @@ func (cm *ContainerManager) loadState(id string) (*ContainerState, error) {
 
 // ContainerCreate — setup bundle only (NO runc command)
 func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env map[string]string,
-	cwd string, mounts []string, ports []string, useHostNetwork bool, restartPolicy string, healthConfig *HealthCheckConfig, memoryLimit int64, cpuLimit float64, oomScoreAdj *int, readonlyRootfs bool) error {
+	cwd string, mounts []string, ports []string, useHostNetwork bool, restartPolicy string, healthConfig *HealthCheckConfig, memoryLimit int64, cpuLimit float64, oomScoreAdj *int, readonlyRootfs bool, network string) error {
 
 	if _, err := os.Stat(StateFile(cm.DataDir, id)); err == nil {
 		return fmt.Errorf("container %s already exists", id)
@@ -116,6 +116,7 @@ func (cm *ContainerManager) ContainerCreate(id, image string, cmd []string, env 
 	state.OOMScoreAdj = oomScoreAdj
 	state.ReadOnly = readonlyRootfs
 	state.HealthCheck = healthConfig
+	state.Network = network
 	state.LogPath = ContainerLogPath(cm.DataDir, id)
 	return cm.saveState(state)
 }

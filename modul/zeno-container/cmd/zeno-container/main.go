@@ -107,6 +107,7 @@ Commands:
     --volume <host:container>  Volume mount (can be specified multiple times)
     --cwd <path>              Working directory inside container
     --host-net                Use host networking (disables network namespace isolation)
+    --network <name>          Network name to join (default: default bridge)
     --restart <policy>        Restart policy (no, always, on-failure)
     --health-cmd <command>    Health check command
     --health-interval <sec>   Health check interval (default: 30)
@@ -236,6 +237,7 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 	var cpuLimit float64
 	var oomScoreAdj *int
 	var readOnly bool
+	var network string
 
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -259,6 +261,11 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 		case "--restart":
 			if i+1 < len(rest) {
 				restartPolicy = rest[i+1]
+				i++
+			}
+		case "--network":
+			if i+1 < len(rest) {
+				network = rest[i+1]
 				i++
 			}
 		case "--health-cmd":
@@ -343,7 +350,7 @@ func cmdCreate(cm *internal.ContainerManager, args []string) {
 	memoryLimit := parseMemoryBytes(memoryLimitStr)
 
 	fmt.Printf("Creating container '%s' from image '%s'...\n", name, image)
-	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet, restartPolicy, healthConfig, memoryLimit, cpuLimit, oomScoreAdj, readOnly); err != nil {
+	if err := cm.ContainerCreate(name, image, finalCmd, envMap, cwd, volumes, ports, hostNet, restartPolicy, healthConfig, memoryLimit, cpuLimit, oomScoreAdj, readOnly, network); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -791,6 +798,20 @@ func cmdNetwork(cm *internal.ContainerManager, args []string) {
 				"Gateway": "172.20.0.1",
 			},
 		}
+
+		customNets, err := internal.LoadNetworks(cm.DataDir)
+		if err == nil {
+			for _, n := range customNets {
+				list = append(list, map[string]interface{}{
+					"Id":      n.ID,
+					"Name":    n.Name,
+					"Driver":  n.Driver,
+					"Subnet":  n.Subnet,
+					"Gateway": n.Gateway,
+				})
+			}
+		}
+
 		if jsonOut {
 			data, _ := json.MarshalIndent(list, "", "  ")
 			fmt.Println(string(data))
@@ -806,14 +827,22 @@ func cmdNetwork(cm *internal.ContainerManager, args []string) {
 			os.Exit(1)
 		}
 		name := subArgs[0]
-		fmt.Printf("Network %s created (mocked).\n", name)
+		if err := internal.CreateBridgeNetwork(cm.DataDir, name); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating network: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Network %s created.\n", name)
 	case "rm", "delete":
 		if len(subArgs) < 1 {
 			fmt.Fprintln(os.Stderr, "Usage: zeno-container network rm <name>")
 			os.Exit(1)
 		}
 		name := subArgs[0]
-		fmt.Printf("Network %s removed (mocked).\n", name)
+		if err := internal.DeleteBridgeNetwork(cm.DataDir, name); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing network: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Network %s removed.\n", name)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown network command: %s\n", subCmd)
 		os.Exit(1)

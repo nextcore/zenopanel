@@ -314,7 +314,11 @@ func (cm *ContainerManager) ComposeUp(path string) ([]ComposeUpResult, error) {
 		hcConfig := svc.HealthCheck.ToHealthCheckConfig()
 		memLimit := parseMemoryBytes(svc.MemLimit)
 		cpuLimit := svc.CPUs
-		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, false, restartPolicy, hcConfig, memLimit, cpuLimit, svc.OomScoreAdj, svc.ReadOnly); err != nil {
+		networkName := ""
+		if len(svc.Networks) > 0 {
+			networkName = svc.Networks[0]
+		}
+		if err := cm.ContainerCreate(containerName, svc.Image, cmdArgs, env, "", volumes, ports, false, restartPolicy, hcConfig, memLimit, cpuLimit, svc.OomScoreAdj, svc.ReadOnly, networkName); err != nil {
 			results = append(results, ComposeUpResult{Service: name, Error: fmt.Errorf("create: %w", err)})
 			continue
 		}

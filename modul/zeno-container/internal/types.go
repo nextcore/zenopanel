@@ -27,6 +27,16 @@ type ContainerState struct {
 	ReadOnly      bool               `json:"read_only,omitempty"`
 	HealthCheck   *HealthCheckConfig `json:"health_check,omitempty"`
 	HealthStatus  string             `json:"health_status,omitempty"` // healthy, unhealthy, starting
+	Network       string             `json:"network,omitempty"`
+}
+
+// NetworkConfig represents a persistent custom bridge network.
+type NetworkConfig struct {
+	ID      string `json:"id"`      // e.g. "zenobr21"
+	Name    string `json:"name"`    // e.g. "my-net"
+	Driver  string `json:"driver"`  // e.g. "bridge"
+	Subnet  string `json:"subnet"`  // e.g. "172.21.0.0/16"
+	Gateway string `json:"gateway"` // e.g. "172.21.0.1"
 }
 
 type HealthCheckConfig struct {
