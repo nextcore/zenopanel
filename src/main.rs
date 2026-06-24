@@ -718,7 +718,7 @@ fn main() {
         
         // Sync local zeno-container to /usr/local/bin/zeno-container if running as root
         unsafe {
-            extern "C" {
+            unsafe extern "C" {
                 fn getuid() -> u32;
             }
             if getuid() == 0 {
