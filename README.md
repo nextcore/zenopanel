@@ -161,12 +161,28 @@ ZenoPanel dibangun di atas fondasi teknologi Rust yang kokoh untuk menjamin efis
 
 ---
 
-## 🚀 Memulai ZenoPanel dalam 3 Langkah
+## 📥 Cara Instalasi (Production)
+
+Untuk melakukan instalasi cepat ZenoPanel dan runtime `zeno-container` di server produksi Linux x86_64, jalankan perintah installer otomatis satu baris berikut:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash
+```
+
+*Catatan: Secara default, ZenoPanel akan dipasang di `/opt/zenopanel`. Anda dapat menyesuaikan direktori tujuan instalasi secara interaktif selama script berjalan.*
+
+Untuk panduan instalasi manual secara detail dan kustomisasi lokasi data, silakan baca berkas [install.md](./install.md).
+
+---
+
+## 🛠️ Pengembangan Lokal (Development)
+
+Jika Anda ingin berkontribusi atau menjalankan ZenoPanel dari source code untuk pengembangan lokal:
 
 ### 1. Prasyarat
-Pastikan server Anda memiliki runtime Rust stable terinstal.
+Pastikan komputer Anda memiliki kompiler Rust (stable) terpasang.
 
-### 2. Clone & Build
+### 2. Kloning & Build
 ```bash
 git clone https://github.com/nextcore/zenopanel.git
 cd zenopanel
@@ -185,7 +201,7 @@ Jalankan panel dalam mode development:
 PATH=$PWD/cmake_local/bin:$PATH cargo run
 ```
 
-Server Anda kini aktif! Buka `http://localhost:3001/zpanel` (atau sub-path login khusus yang Anda setel di `.env`) untuk masuk ke dashboard.
+Buka browser Anda di `http://localhost:3001/zpanel` (atau sub-path login khusus yang disetel di `.env`) untuk mengakses dashboard.
 
 ---
 

@@ -1,19 +1,51 @@
 # 🚀 Panduan Instalasi ZenoPanel
 
-1. **Unduh binary ZenoPanel**:
+Anda dapat memasang ZenoPanel secara otomatis menggunakan script installer (Direkomendasikan) atau melakukan instalasi secara manual.
+
+## I. Instalasi Otomatis (Direkomendasikan)
+
+Cukup unduh dan jalankan script installer otomatis. Script ini akan memeriksa kompatibilitas sistem, mengunduh rilis tarball terbaru, memverifikasi integritas berkas menggunakan checksum SHA-256, mengekstrak aset, serta men-generate JWT key keamanan secara otomatis.
+
+Jalankan perintah satu baris berikut di server target Anda:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash
+```
+
+*Catatan: Secara default, aplikasi akan dipasang di `/opt/zenopanel`. Anda dapat menyesuaikan direktori tujuan instalasi interaktif saat script berjalan.*
+
+---
+
+## II. Instalasi Manual
+
+Jika Anda ingin mengunduh dan memasang berkas distribusi secara manual:
+
+1. **Unduh binary ZenoPanel & Checksum**:
    ```bash
-   wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.2.1.tar.gz
+   # Unduh berkas rilis
+   wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.2.3.tar.gz
+
+   # Unduh berkas checksum untuk verifikasi integritas
+   wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.2.3.tar.gz.sha256
    ```
 
-2. **Ekstrak & Masuk ke Folder**:
+2. **Verifikasi Berkas & Ekstrak**:
    ```bash
-   tar -xzvf zenopanel-v0.2.1.tar.gz
-   cd zenopanel-v0.2.1
+   # Verifikasi integritas berkas tarball
+   sha256sum -c zenopanel-v0.2.3.tar.gz.sha256
+   # Hasil yang diharapkan: zenopanel-v0.2.3.tar.gz: OK
+
+   # Ekstrak dan masuk ke folder
+   tar -xzvf zenopanel-v0.2.3.tar.gz
+   cd zenopanel-v0.2.3
    ```
 
-3. **Salin Konfigurasi Environment**:
+3. **Salin Konfigurasi Environment & Inisialisasi**:
    ```bash
    cp .env.example .env
+   
+   # Jalankan generator JWT_SECRET jika menggunakan binary baru
+   ./zeno key:generate
    ```
 
 4. **Jalankan ZenoPanel**:
@@ -21,11 +53,12 @@
    ./zeno
    ```
 
-5. **Akses aplikasi di port yang ditentukan di `.env` (default: 3001)**:
-   Akses melalui browser: `http://[IP_ADDRESS]:3001/login`
+5. **Akses Aplikasi**:
+   Akses melalui browser di port yang ditentukan di `.env` (default: `3001`):
+   `http://[IP_ADDRESS]:3001/login`
 
-6. **Instalasi Service**:
-   Masuk ke menu **Settings**, lalu pada bagian **Service Injector** pilih **Install** untuk mendaftarkan ZenoPanel sebagai service sistem (systemd).
+6. **Instalasi Service (Systemd)**:
+   Masuk ke menu **Settings** di dashboard, lalu pada bagian **Service Injector** pilih **Install** untuk mendaftarkan ZenoPanel sebagai service sistem (systemd).
 
 ---
 
