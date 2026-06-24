@@ -18,6 +18,12 @@ pub fn register(engine: &mut Engine) {
     register_container_compose(engine);
     register_container_compose_get_yaml(engine);
     register_container_update(engine);
+    register_volume_list(engine);
+    register_volume_create(engine);
+    register_volume_delete(engine);
+    register_network_list(engine);
+    register_network_create(engine);
+    register_network_delete(engine);
 }
 
 /// Get the zeno-container binary path, checking env var ZENO_CONTAINER_BIN first.
@@ -887,6 +893,216 @@ fn register_container_update(engine: &mut Engine) {
         SlotMeta {
             description: "Update dynamic resource limits of a container".to_string(),
             example: "container.update: 'my-web' { memory: '512m', cpus: '1.5', as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+fn register_volume_list(engine: &mut Engine) {
+    engine.register(
+        "container.volume_list",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "volumes".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+            let (stdout, _stderr, exit_code) = exec_zeno_container(&["volume", "list", "--json"]);
+            if exit_code != 0 {
+                scope.set(&target, Value::List(Vec::new()));
+                return Ok(());
+            }
+            let parsed = parse_json_output(&stdout);
+            scope.set(&target, parsed);
+            Ok(())
+        }),
+        SlotMeta {
+            description: "List all volumes".to_string(),
+            example: "container.volume_list { as: $volumes }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+fn register_volume_create(engine: &mut Engine) {
+    engine.register(
+        "container.volume_create",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut name = String::new();
+            let mut target = "create_result".to_string();
+            if node.value.is_some() {
+                name = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+            for child in &node.children {
+                if child.name == "name" {
+                    name = engine.resolve_shorthand_value(child, scope).to_string_coerce();
+                } else if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+            let (stdout, stderr, exit_code) = exec_zeno_container(&["volume", "create", &name]);
+            let mut result = HashMap::new();
+            result.insert("stdout".to_string(), Value::String(stdout));
+            result.insert("stderr".to_string(), Value::String(stderr));
+            result.insert("exit_code".to_string(), Value::Int(exit_code as i64));
+            result.insert("success".to_string(), Value::Bool(exit_code == 0));
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Create a volume directory".to_string(),
+            example: "container.volume_create: 'my-vol' { as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+fn register_volume_delete(engine: &mut Engine) {
+    engine.register(
+        "container.volume_delete",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut name = String::new();
+            let mut target = "delete_result".to_string();
+            if node.value.is_some() {
+                name = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+            for child in &node.children {
+                if child.name == "name" {
+                    name = engine.resolve_shorthand_value(child, scope).to_string_coerce();
+                } else if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+            let (stdout, stderr, exit_code) = exec_zeno_container(&["volume", "rm", &name]);
+            let mut result = HashMap::new();
+            result.insert("stdout".to_string(), Value::String(stdout));
+            result.insert("stderr".to_string(), Value::String(stderr));
+            result.insert("exit_code".to_string(), Value::Int(exit_code as i64));
+            result.insert("success".to_string(), Value::Bool(exit_code == 0));
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Delete a volume directory".to_string(),
+            example: "container.volume_delete: 'my-vol' { as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+fn register_network_list(engine: &mut Engine) {
+    engine.register(
+        "container.network_list",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "networks".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+            let (stdout, _stderr, exit_code) = exec_zeno_container(&["network", "list", "--json"]);
+            if exit_code != 0 {
+                scope.set(&target, Value::List(Vec::new()));
+                return Ok(());
+            }
+            let parsed = parse_json_output(&stdout);
+            scope.set(&target, parsed);
+            Ok(())
+        }),
+        SlotMeta {
+            description: "List all networks".to_string(),
+            example: "container.network_list { as: $networks }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+fn register_network_create(engine: &mut Engine) {
+    engine.register(
+        "container.network_create",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut name = String::new();
+            let mut target = "create_result".to_string();
+            if node.value.is_some() {
+                name = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+            for child in &node.children {
+                if child.name == "name" {
+                    name = engine.resolve_shorthand_value(child, scope).to_string_coerce();
+                } else if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+            let (stdout, stderr, exit_code) = exec_zeno_container(&["network", "create", &name]);
+            let mut result = HashMap::new();
+            result.insert("stdout".to_string(), Value::String(stdout));
+            result.insert("stderr".to_string(), Value::String(stderr));
+            result.insert("exit_code".to_string(), Value::Int(exit_code as i64));
+            result.insert("success".to_string(), Value::Bool(exit_code == 0));
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Create a network".to_string(),
+            example: "container.network_create: 'my-net' { as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        },
+    );
+}
+
+fn register_network_delete(engine: &mut Engine) {
+    engine.register(
+        "container.network_delete",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut name = String::new();
+            let mut target = "delete_result".to_string();
+            if node.value.is_some() {
+                name = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+            for child in &node.children {
+                if child.name == "name" {
+                    name = engine.resolve_shorthand_value(child, scope).to_string_coerce();
+                } else if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+            let (stdout, stderr, exit_code) = exec_zeno_container(&["network", "rm", &name]);
+            let mut result = HashMap::new();
+            result.insert("stdout".to_string(), Value::String(stdout));
+            result.insert("stderr".to_string(), Value::String(stderr));
+            result.insert("exit_code".to_string(), Value::Int(exit_code as i64));
+            result.insert("success".to_string(), Value::Bool(exit_code == 0));
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Delete a network".to_string(),
+            example: "container.network_delete: 'my-net' { as: $result }".to_string(),
             inputs: HashMap::new(),
             required_blocks: Vec::new(),
             value_type: "".to_string(),

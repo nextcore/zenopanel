@@ -820,3 +820,203 @@ export function submitEditContainerResources() {
       showToast("error", "Network error");
     });
 }
+
+// ─── Volumes Management ──────────────────────────────────────────────
+
+export function loadVolumes() {
+  const tbody = document.getElementById("volume-table-body");
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading volumes...</td></tr>';
+
+  fetch("/api/volumes/list")
+    .then((res) => res.json())
+    .then((res) => {
+      tbody.innerHTML = "";
+      if (res.success && res.data && res.data.length > 0) {
+        res.data.forEach((vol) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td style="font-weight:600; color:var(--text-main);">${escapeHtml(vol.Name)}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(vol.Driver)}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--text-muted);">${escapeHtml(vol.Mountpoint)}</td>
+            <td style="text-align:right;">
+              <button class="btn-action" onclick="deleteVolume('${escapeHtml(vol.Name)}')" style="color:#ef4444; padding:4px 8px; font-size:0.8rem;">
+                <i class="fa-solid fa-trash-can"></i> Delete
+              </button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } else {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:var(--text-muted);">No volumes found.</td></tr>';
+      }
+    })
+    .catch(() => {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px; color:#ef4444;">Failed to load volumes.</td></tr>';
+    });
+}
+
+export function openAddVolumeModal() {
+  document.getElementById("volume-name").value = "";
+  document.getElementById("add-volume-modal").classList.add("active");
+}
+
+export function closeAddVolumeModal() {
+  document.getElementById("add-volume-modal").classList.remove("active");
+}
+
+export function submitAddVolume() {
+  const name = document.getElementById("volume-name").value.trim();
+  if (!name) {
+    showToast("error", "Volume name is required");
+    return;
+  }
+  closeAddVolumeModal();
+  showToast("info", "Creating volume...");
+
+  fetch("/api/volumes/create", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCSRFToken(),
+    },
+    body: JSON.stringify({ name }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success) {
+        showToast("success", `Volume "${name}" created`);
+        loadVolumes();
+      } else {
+        showToast("error", res.message || "Failed to create volume");
+      }
+    })
+    .catch(() => showToast("error", "Network error"));
+}
+
+export function deleteVolume(name) {
+  if (!confirm(`Delete volume "${name}"? This will permanently delete the folder.`)) return;
+  showToast("info", "Deleting volume...");
+
+  fetch("/api/volumes/delete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCSRFToken(),
+    },
+    body: JSON.stringify({ name }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success) {
+        showToast("success", `Volume "${name}" removed`);
+        loadVolumes();
+      } else {
+        showToast("error", res.message || "Failed to remove volume");
+      }
+    })
+    .catch(() => showToast("error", "Network error"));
+}
+
+// ─── Networks Management ─────────────────────────────────────────────
+
+export function loadNetworks() {
+  const tbody = document.getElementById("network-table-body");
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading networks...</td></tr>';
+
+  fetch("/api/networks/list")
+    .then((res) => res.json())
+    .then((res) => {
+      tbody.innerHTML = "";
+      if (res.success && res.data && res.data.length > 0) {
+        res.data.forEach((net) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--accent-primary);">${escapeHtml(net.Id)}</td>
+            <td style="font-weight:600; color:var(--text-main);">${escapeHtml(net.Name)}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(net.Driver)}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--warning);">${escapeHtml(net.Subnet || "-")}</td>
+            <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--success);">${escapeHtml(net.Gateway || "-")}</td>
+            <td style="text-align:right;">
+              ${net.Id === "zenobr0" ? 
+                `<span style="color:var(--text-muted); font-size:0.8rem; font-style:italic; padding-right:10px;">Default System</span>` : 
+                `<button class="btn-action" onclick="deleteNetwork('${escapeHtml(net.Name)}')" style="color:#ef4444; padding:4px 8px; font-size:0.8rem;">
+                  <i class="fa-solid fa-trash-can"></i> Delete
+                </button>`
+              }
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } else {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">No networks found.</td></tr>';
+      }
+    })
+    .catch(() => {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#ef4444;">Failed to load networks.</td></tr>';
+    });
+}
+
+export function openAddNetworkModal() {
+  document.getElementById("network-name").value = "";
+  document.getElementById("add-network-modal").classList.add("active");
+}
+
+export function closeAddNetworkModal() {
+  document.getElementById("add-network-modal").classList.remove("active");
+}
+
+export function submitAddNetwork() {
+  const name = document.getElementById("network-name").value.trim();
+  if (!name) {
+    showToast("error", "Network name is required");
+    return;
+  }
+  closeAddNetworkModal();
+  showToast("info", "Creating network...");
+
+  fetch("/api/networks/create", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCSRFToken(),
+    },
+    body: JSON.stringify({ name }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success) {
+        showToast("success", `Network "${name}" created (mocked)`);
+        loadNetworks();
+      } else {
+        showToast("error", res.message || "Failed to create network");
+      }
+    })
+    .catch(() => showToast("error", "Network error"));
+}
+
+export function deleteNetwork(name) {
+  if (!confirm(`Delete network "${name}"?`)) return;
+  showToast("info", "Deleting network...");
+
+  fetch("/api/networks/delete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCSRFToken(),
+    },
+    body: JSON.stringify({ name }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success) {
+        showToast("success", `Network "${name}" removed`);
+        loadNetworks();
+      } else {
+        showToast("error", res.message || "Failed to remove network");
+      }
+    })
+    .catch(() => showToast("error", "Network error"));
+}
+

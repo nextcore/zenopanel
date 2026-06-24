@@ -310,3 +310,102 @@ http.post: '/api/containers/update' {
     }
 }
 
+# ─── List Volumes ───────────────────────────────────────────────────
+http.get: '/api/volumes/list' {
+    auth.guard
+    container.volume_list: { as: $volumes }
+    http.ok: { data: $volumes }
+}
+
+# ─── Create Volume ──────────────────────────────────────────────────
+http.post: '/api/volumes/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.volume_create: {
+        name: $body.name
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.created: { message: "Volume created successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to create volume"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Delete Volume ──────────────────────────────────────────────────
+http.post: '/api/volumes/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.volume_delete: {
+        name: $body.name
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Volume removed successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to remove volume"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── List Networks ──────────────────────────────────────────────────
+http.get: '/api/networks/list' {
+    auth.guard
+    container.network_list: { as: $networks }
+    http.ok: { data: $networks }
+}
+
+# ─── Create Network ─────────────────────────────────────────────────
+http.post: '/api/networks/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.network_create: {
+        name: $body.name
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.created: { message: "Network created successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to create network"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# ─── Delete Network ─────────────────────────────────────────────────
+http.post: '/api/networks/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    container.network_delete: {
+        name: $body.name
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Network removed successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to remove network"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+

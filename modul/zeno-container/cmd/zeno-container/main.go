@@ -79,6 +79,10 @@ func main() {
 		cmdDaemon(cm, cmdArgs)
 	case "update":
 		cmdUpdate(cm, cmdArgs)
+	case "volume":
+		cmdVolume(cm, cmdArgs)
+	case "network":
+		cmdNetwork(cm, cmdArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		printUsage()
@@ -123,10 +127,17 @@ Commands:
     --cpus <limit>            CPU limit (fractional cores, e.g. 1.5, 0.5)
   exec <id> <command>       Execute a command in a running container
   logs <id> [--tail <n>]    Show container logs
-  daemon                    Run lifecycle orchestrator and health check daemon
+  daemon                    Run lifecycle orchestrator, health checks, and REST API server
+    --socket <path>           UNIX Socket path for REST API (default: /var/run/zeno-container.sock)
   compose up <path>         Create and start all services from a docker-compose.yml
   compose down <path>       Stop and remove all services from a docker-compose.yml
   compose ps <path>         List containers managed by a docker-compose.yml
+  volume list [--json]      List all volumes
+  volume create <name>      Create a volume directory
+  volume rm <name>          Remove a volume directory
+  network list [--json]     List all networks
+  network create <name>     Create a network (mocked)
+  network rm <name>         Remove a network (mocked)
 
 Global Flags:
   --data-dir <path>         Data directory (default: /var/lib/zeno-container)
@@ -558,7 +569,29 @@ func cmdLogs(cm *internal.ContainerManager, args []string) {
 }
 
 func cmdDaemon(cm *internal.ContainerManager, args []string) {
-	internal.StartDaemon(cm)
+	socketPath := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--socket" {
+			if i+1 < len(args) {
+				socketPath = args[i+1]
+				i++
+			}
+		}
+	}
+	if socketPath == "" {
+		if os.Getuid() == 0 {
+			socketPath = "/var/run/zeno-container.sock"
+		} else {
+			homeDir, _ := os.UserHomeDir()
+			if homeDir != "" {
+				socketPath = homeDir + "/.zeno/zeno-container.sock"
+				_ = os.MkdirAll(homeDir+"/.zeno", 0755)
+			} else {
+				socketPath = "/tmp/zeno-container.sock"
+			}
+		}
+	}
+	internal.StartDaemon(cm, socketPath)
 }
 
 func parseKeyValuePairs(args []string, flag string) map[string]string {
@@ -656,4 +689,133 @@ func cmdUpdate(cm *internal.ContainerManager, args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Container '%s' resources updated.\n", id)
+}
+
+func cmdVolume(cm *internal.ContainerManager, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: zeno-container volume <list|create|rm> [options]")
+		os.Exit(1)
+	}
+	subCmd := args[0]
+	subArgs := args[1:]
+	switch subCmd {
+	case "list", "ls":
+		jsonOut := false
+		for _, arg := range subArgs {
+			if arg == "--json" {
+				jsonOut = true
+			}
+		}
+		volumesDir := cm.DataDir + "/volumes"
+		_ = os.MkdirAll(volumesDir, 0755)
+		files, err := os.ReadDir(volumesDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		list := []map[string]interface{}{}
+		for _, file := range files {
+			if file.IsDir() {
+				name := file.Name()
+				list = append(list, map[string]interface{}{
+					"Name":       name,
+					"Driver":     "local",
+					"Mountpoint": volumesDir + "/" + name,
+				})
+			}
+		}
+		if jsonOut {
+			data, _ := json.MarshalIndent(list, "", "  ")
+			fmt.Println(string(data))
+		} else {
+			if len(list) == 0 {
+				fmt.Println("No volumes found.")
+				return
+			}
+			fmt.Printf("%-20s %-10s %s\n", "NAME", "DRIVER", "MOUNTPOINT")
+			for _, v := range list {
+				fmt.Printf("%-20s %-10s %s\n", v["Name"], v["Driver"], v["Mountpoint"])
+			}
+		}
+	case "create":
+		if len(subArgs) < 1 {
+			fmt.Fprintln(os.Stderr, "Usage: zeno-container volume create <name>")
+			os.Exit(1)
+		}
+		name := subArgs[0]
+		volPath := cm.DataDir + "/volumes/" + name
+		if err := os.MkdirAll(volPath, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Volume %s created.\n", name)
+	case "rm", "delete":
+		if len(subArgs) < 1 {
+			fmt.Fprintln(os.Stderr, "Usage: zeno-container volume rm <name>")
+			os.Exit(1)
+		}
+		name := subArgs[0]
+		volPath := cm.DataDir + "/volumes/" + name
+		if err := os.RemoveAll(volPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Volume %s removed.\n", name)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown volume command: %s\n", subCmd)
+		os.Exit(1)
+	}
+}
+
+func cmdNetwork(cm *internal.ContainerManager, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: zeno-container network <list|create|rm> [options]")
+		os.Exit(1)
+	}
+	subCmd := args[0]
+	subArgs := args[1:]
+	switch subCmd {
+	case "list", "ls":
+		jsonOut := false
+		for _, arg := range subArgs {
+			if arg == "--json" {
+				jsonOut = true
+			}
+		}
+		list := []map[string]interface{}{
+			{
+				"Id":      "zenobr0",
+				"Name":    "bridge",
+				"Driver":  "bridge",
+				"Subnet":  "172.20.0.0/16",
+				"Gateway": "172.20.0.1",
+			},
+		}
+		if jsonOut {
+			data, _ := json.MarshalIndent(list, "", "  ")
+			fmt.Println(string(data))
+		} else {
+			fmt.Printf("%-15s %-15s %-10s %-18s %-15s\n", "ID", "NAME", "DRIVER", "SUBNET", "GATEWAY")
+			for _, n := range list {
+				fmt.Printf("%-15s %-15s %-10s %-18s %-15s\n", n["Id"], n["Name"], n["Driver"], n["Subnet"], n["Gateway"])
+			}
+		}
+	case "create":
+		if len(subArgs) < 1 {
+			fmt.Fprintln(os.Stderr, "Usage: zeno-container network create <name>")
+			os.Exit(1)
+		}
+		name := subArgs[0]
+		fmt.Printf("Network %s created (mocked).\n", name)
+	case "rm", "delete":
+		if len(subArgs) < 1 {
+			fmt.Fprintln(os.Stderr, "Usage: zeno-container network rm <name>")
+			os.Exit(1)
+		}
+		name := subArgs[0]
+		fmt.Printf("Network %s removed (mocked).\n", name)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown network command: %s\n", subCmd)
+		os.Exit(1)
+	}
 }

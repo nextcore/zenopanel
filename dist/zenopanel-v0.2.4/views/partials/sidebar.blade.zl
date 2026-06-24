@@ -1,0 +1,54 @@
+<!-- Sidebar Navigation -->
+<aside>
+    <div class="brand">
+        <div class="brand-logo">Z</div>
+        <div class="brand-name">ZenoPanel</div>
+    </div>
+    <nav class="nav-menu">
+        <div class="nav-item active" data-tab="dashboard" hx-get="/tab/dashboard" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Dashboard</span>
+        </div>
+        <div class="nav-item" data-tab="files" hx-get="/tab/files" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-folder-open"></i>
+            <span>File Manager</span>
+        </div>
+        <div class="nav-item" data-tab="database" hx-get="/tab/database" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-database"></i>
+            <span>Database</span>
+        </div>
+
+        <div class="nav-item" data-tab="terminal" hx-get="/tab/terminal" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-terminal"></i>
+            <span>Command Shell</span>
+        </div>
+        <div class="nav-item" data-tab="managed" hx-get="/tab/managed" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-gears"></i>
+            <span>Managed Procs</span>
+        </div>
+        <div class="nav-item" data-tab="proxy" hx-get="/tab/proxy" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-network-wired"></i>
+            <span>Reverse Proxy</span>
+        </div>
+        <div class="nav-item" data-tab="containers" hx-get="/tab/containers" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-cube"></i>
+            <span>Containers</span>
+        </div>
+        <div class="nav-item" data-tab="users" id="nav-users" style="display: none;" hx-get="/tab/users" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-users-gear"></i>
+            <span>Users</span>
+        </div>
+        <div class="nav-item" data-tab="security" id="nav-security" style="display: none;" hx-get="/tab/security" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-shield-halved"></i>
+            <span>Security</span>
+        </div>
+        <div class="nav-item" data-tab="settings" id="nav-settings" style="display: none;" hx-get="/tab/settings" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-sliders"></i>
+            <span>Settings</span>
+        </div>
+
+    </nav>
+    <div class="sidebar-footer">
+        &copy; 2026 ZenoPanel v0.2.4
+    </div>
+</aside>

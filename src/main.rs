@@ -716,6 +716,25 @@ fn main() {
         let data_dir = std::env::var("ZENO_CONTAINER_DATA_DIR")
             .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
         
+        // Spawn zeno-container daemon in background with self-healing loop
+        let daemon_bin = bin.clone();
+        let daemon_data = data_dir.clone();
+        tokio::spawn(async move {
+            loop {
+                let mut cmd = tokio::process::Command::new(&daemon_bin);
+                cmd.args(&["--data-dir", &daemon_data, "daemon"]);
+                match cmd.spawn() {
+                    Ok(mut child) => {
+                        let _ = child.wait().await;
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to spawn zeno-container daemon: {}", e);
+                    }
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+        });
+
         loop {
             let output = tokio::process::Command::new(&bin)
                 .args(&["--data-dir", &data_dir, "ps", "--json"])

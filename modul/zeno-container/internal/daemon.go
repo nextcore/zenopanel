@@ -15,9 +15,18 @@ type DaemonState struct {
 	Failures        int
 }
 
-func StartDaemon(cm *ContainerManager) {
+func StartDaemon(cm *ContainerManager, socketPath string) {
 	fmt.Printf("Starting Zeno Container Daemon...\n")
 	fmt.Printf("Monitoring containers in: %s\n", cm.DataDir)
+
+	if socketPath != "" {
+		go func() {
+			server := NewAPIServer(cm)
+			if err := server.Start(socketPath); err != nil {
+				fmt.Fprintf(os.Stderr, "Daemon API Server failed to start: %v\n", err)
+			}
+		}()
+	}
 
 	daemonStates := make(map[string]*DaemonState)
 

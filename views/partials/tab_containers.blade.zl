@@ -9,6 +9,12 @@
             <button class="sub-tab-btn" id="subtab-compose-btn" onclick="switchContainerSubTab('compose')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500;">
                 <i class="fa-solid fa-layer-group"></i> Compose
             </button>
+            <button class="sub-tab-btn" id="subtab-volumes-btn" onclick="switchContainerSubTab('volumes')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500;">
+                <i class="fa-solid fa-database"></i> Volumes
+            </button>
+            <button class="sub-tab-btn" id="subtab-networks-btn" onclick="switchContainerSubTab('networks')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500;">
+                <i class="fa-solid fa-network-wired"></i> Networks
+            </button>
         </div>
 
         <!-- Containers Sub-tab -->
@@ -84,6 +90,62 @@ services:
                 </div>
             </div>
             <div id="compose-result" style="display:none; padding:15px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.5); font-family:var(--font-code); font-size:0.85rem; white-space:pre-wrap; max-height:350px; overflow-y:auto; line-height:1.6;"></div>
+        </div>
+
+        <!-- Volumes Sub-tab -->
+        <div id="subtab-volumes" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-database" style="color:var(--accent-primary);"></i> Volumes
+                </h3>
+                <button class="btn-primary-action" onclick="openAddVolumeModal()">
+                    <i class="fa-solid fa-plus"></i> Create Volume
+                </button>
+            </div>
+            <div class="table-container" style="min-height:260px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Driver</th>
+                            <th>Mountpoint</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="volume-table-body">
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Networks Sub-tab -->
+        <div id="subtab-networks" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-network-wired" style="color:var(--accent-primary);"></i> Networks
+                </h3>
+                <button class="btn-primary-action" onclick="openAddNetworkModal()">
+                    <i class="fa-solid fa-plus"></i> Create Network
+                </button>
+            </div>
+            <div class="table-container" style="min-height:260px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Driver</th>
+                            <th>Subnet</th>
+                            <th>Gateway</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="network-table-body">
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -268,6 +330,46 @@ services:
             <button class="btn-primary-action" onclick="submitContainerProxy()">
                 <i class="fa-solid fa-network-wired"></i> Create Proxy Rule
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Create Volume Modal -->
+<div class="modal-overlay" id="add-volume-modal">
+    <div class="modal-card" style="max-width:450px;">
+        <div class="modal-header">
+            <div class="modal-title">Create Volume</div>
+            <div class="modal-close" onclick="closeAddVolumeModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Volume Name</label>
+                <input type="text" id="volume-name" placeholder="e.g. db-data-volume" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddVolumeModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitAddVolume()">Create Volume</button>
+        </div>
+    </div>
+</div>
+
+<!-- Create Network Modal -->
+<div class="modal-overlay" id="add-network-modal">
+    <div class="modal-card" style="max-width:450px;">
+        <div class="modal-header">
+            <div class="modal-title">Create Network</div>
+            <div class="modal-close" onclick="closeAddNetworkModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Network Name</label>
+                <input type="text" id="network-name" placeholder="e.g. custom-bridge" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddNetworkModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitAddNetwork()">Create Network</button>
         </div>
     </div>
 </div>

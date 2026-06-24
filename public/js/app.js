@@ -154,6 +154,16 @@ import {
   openEditContainerResources,
   closeEditContainerResourcesModal,
   submitEditContainerResources,
+  loadVolumes,
+  openAddVolumeModal,
+  closeAddVolumeModal,
+  submitAddVolume,
+  deleteVolume,
+  loadNetworks,
+  openAddNetworkModal,
+  closeAddNetworkModal,
+  submitAddNetwork,
+  deleteNetwork,
 } from "./containers.js";
 import {
   openPortCheckModal,
@@ -455,6 +465,16 @@ const functionsToBind = {
   openEditContainerResources,
   closeEditContainerResourcesModal,
   submitEditContainerResources,
+  loadVolumes,
+  openAddVolumeModal,
+  closeAddVolumeModal,
+  submitAddVolume,
+  deleteVolume,
+  loadNetworks,
+  openAddNetworkModal,
+  closeAddNetworkModal,
+  submitAddNetwork,
+  deleteNetwork,
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {
