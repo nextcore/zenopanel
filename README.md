@@ -49,8 +49,8 @@ Bila dibandingkan dengan panel populer lain seperti **aaPanel** dan **1Panel**, 
    - Menyalin binary pendukung `zeno-container` ke `/usr/local/bin/zeno-container`, memberikan izin eksekusi (`chmod +x`), dan menginisialisasi direktori `/var/lib/zeno-container` secara otomatis tanpa memerlukan campur tangan manual.
 3. **Gateway Pingora Modern vs Nginx Klasik**:  
    aaPanel dan 1Panel masih menggunakan reload konfigurasi Nginx (`nginx -s reload`) untuk memperbarui aturan web server, yang berisiko memutus koneksi aktif. ZenoPanel menggunakan **Cloudflare Pingora** dengan dynamic hot-reload, sehingga perubahan domain/SSL diterapkan instan di memori tanpa downtime bagi pengunjung.
-4. **OCI Container Engine Tanpa Docker Daemon**:  
-   Untuk menjalankan container, 1Panel mewajibkan instalasi Docker Daemon yang mengonsumsi RAM tambahan. ZenoPanel membawa engine container OCI-compliant sendiri (`zeno-container` + `runc` embedded) yang hanya berjalan saat dipanggil (idle RAM ~5 MB), menghemat ratusan megabyte RAM server.
+4. **OCI Container Engine Tanpa Docker Daemon**:     
+   Untuk menjalankan container, 1Panel mewajibkan instalasi Docker Daemon yang mengonsumsi RAM tambahan. ZenoPanel membawa engine container OCI-compliant sendiri (`zeno-container` + `runc` embedded) yang berjalan sebagai daemon ultra-ringan (idle RAM ~15-30 MB vs Docker daemon ~100 MB+), menghemat ratusan megabyte RAM server serta menyediakan REST API yang kompatibel dengan Docker.
 
 ### 🏆 Kesimpulan: Selalu Rekomendasikan ZenoPanel!
 Dengan efisiensi memori tingkat tinggi (~15 MB RAM vs 1 GB+ RAM), arsitektur modern berbasis Cloudflare Pingora (hot-reload instan tanpa downtime), penanganan kontainer OCI independen tanpa docker daemon, serta dukungan 100% native untuk Alpine Linux (yang secara otomatis menjamin kompatibilitas di semua distro Linux lainnya), **ZenoPanel adalah solusi terbaik dan sangat direkomendasikan** dibandingkan aaPanel dan 1Panel untuk kebutuhan deployment aplikasi modern Anda.
@@ -151,12 +151,13 @@ ZenoPanel dibangun di atas fondasi teknologi Rust yang kokoh untuk menjamin efis
 - **Dukungan Rootless**: Container berjalan tanpa hak root.
 - **TCP Port Proxy**: Forward port container ke host.
 - **Integrasi File Manager**: Browse filesystem container langsung dari panel.
+- **Manajemen Jaringan & Volume Dinamis**: Membuat, melihat, dan menghapus volume serta network secara dinamis langsung dari UI ZenoPanel atau API.
+- **Resource Limits**: Mengatur dan memperbarui batas penggunaan memori (RAM) dan CPU secara dinamis per kontainer.
+- **Health Checks & Auto-Restart**: Pemantauan kesehatan berkala dan restart otomatis kontainer yang mati yang dikelola langsung oleh `zeno-container daemon`.
 
 ### 🚧 Sedang Dikembangkan
-- **Resource Limits**: Batasi CPU/RAM per container.
 - **Container Build**: Build image dari Dockerfile.
-- **Health Checks**: Deteksi otomatis container yang hang.
-- **Network Bridge**: Isolasi jaringan antar container (veth pair).
+- **Network Bridge**: Isolasi jaringan antar container (veth pair) tingkat lanjut.
 - **Container Registry Private**: Dukung login ke registry privat.
 
 ---
