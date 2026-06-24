@@ -316,6 +316,10 @@ DIST_DIR="dist"
 PKG_NAME="zenopanel-${PKG_VERSION}"
 PKG_PATH="${DIST_DIR}/${PKG_NAME}"
 
+# Bersihkan berkas distribusi lama (*.tar.gz dan *.tar.gz.sha256)
+log_info "Membersihkan berkas distribusi lama di folder ${DIST_DIR}..."
+rm -f "${DIST_DIR}"/zenopanel-*.tar.gz "${DIST_DIR}"/zenopanel-*.tar.gz.sha256 2>/dev/null
+
 # Buat folder target
 mkdir -p "$PKG_PATH"
 log_info "Folder tujuan pengemasan siap: $PKG_PATH"
