@@ -716,6 +716,44 @@ fn main() {
         let data_dir = std::env::var("ZENO_CONTAINER_DATA_DIR")
             .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
         
+        // Sync local zeno-container to /usr/local/bin/zeno-container if running as root
+        unsafe {
+            extern "C" {
+                fn getuid() -> u32;
+            }
+            if getuid() == 0 {
+                let local_path = std::path::Path::new("zeno-container");
+                let dest_path = std::path::Path::new("/usr/local/bin/zeno-container");
+                if local_path.exists() {
+                    let should_copy = if dest_path.exists() {
+                        let local_meta = local_path.metadata();
+                        let dest_meta = dest_path.metadata();
+                        if let (Ok(lm), Ok(dm)) = (local_meta, dest_meta) {
+                            lm.len() != dm.len() || lm.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH) > dm.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    };
+
+                    if should_copy {
+                        println!("[Container] Syncing new zeno-container binary to /usr/local/bin/zeno-container");
+                        if let Err(e) = std::fs::copy(local_path, dest_path) {
+                            eprintln!("[Container] Failed to copy zeno-container to /usr/local/bin: {}", e);
+                        } else {
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = std::fs::set_permissions(dest_path, std::fs::Permissions::from_mode(0o755));
+                            }
+                            let _ = std::fs::create_dir_all("/var/lib/zeno-container");
+                        }
+                    }
+                }
+            }
+        }
+
         // Spawn zeno-container daemon in background with self-healing loop
         let daemon_bin = bin.clone();
         let daemon_data = data_dir.clone();

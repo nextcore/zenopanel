@@ -15,14 +15,14 @@ Cukup jalankan script tanpa argumen tambahan:
 ```
 Script akan menanyakan secara bertahap:
 - Target kompilasi (`musl` sebagai default, atau `gnu`).
-- Versi paket rilis (otomatis mendeteksi versi Git tag terakhir, misal `v0.5.0`).
+- Versi paket rilis (otomatis mendeteksi versi Git tag terakhir, misal `v1.0.0`).
 - Apakah ingin membersihkan cache build (`cargo clean` & `go clean`) terlebih dahulu.
 
 ### 2. Mode Non-Interaktif (Cocok untuk CI/CD atau Scripting)
 Gunakan flag `--non-interactive` atau `-y` bersamaan dengan parameter kustom:
 ```bash
-# Jalankan kompilasi bersih untuk versi v0.5.0 dengan target MUSL secara otomatis
-./compile.sh --non-interactive --target musl --version v0.5.0 --clean
+# Jalankan kompilasi bersih untuk versi v1.0.0 dengan target MUSL secara otomatis
+./compile.sh --non-interactive --target musl --version v1.0.0 --clean
 ```
 
 ---
@@ -33,7 +33,7 @@ Gunakan flag `--non-interactive` atau `-y` bersamaan dengan parameter kustom:
 | :--- | :--- |
 | `--non-interactive`, `-y` | Menjalankan build secara langsung tanpa memicu prompt pertanyaan interaktif. |
 | `--target [musl\|gnu]` | Menentukan target C Runtime (libc) pada Linux:<br>• `musl` (Default): Kompilasi statis penuh murni (cocok untuk Alpine Linux).<br>• `gnu`: Kompilasi kompatibilitas mundur hingga **GLIBC 2.17** (kompatibel dengan CentOS 7/Ubuntu 14.04+). |
-| `--version [versi]` | Mengubah label versi paket tarball dan rilis final (misal: `v0.5.0`). |
+| `--version [versi]` | Mengubah label versi paket tarball dan rilis final (misal: `v1.0.0`). |
 | `--clean` | Menghapus folder `target/` Rust dan cache Go sebelum proses compile untuk menjamin hasil build bersih. |
 | `--no-container` | Melewati proses kompilasi modul pendukung `zeno-container` (hanya mengompilasi Rust ZenoPanel). |
 | `--help`, `-h` | Menampilkan panduan bantuan CLI. |
@@ -62,11 +62,11 @@ Gunakan perintah `file` untuk melihat karakteristik binary yang berada di dalam 
 
 ```bash
 # Mengekstrak sementara untuk verifikasi
-tar -xzf dist/zenopanel-v0.5.0.tar.gz
+tar -xzf dist/zenopanel-v1.0.0.tar.gz
 
 # Periksa status penautan binary
-file zenopanel-v0.5.0/zeno
-file zenopanel-v0.5.0/zeno-container
+file zenopanel-v1.0.0/zeno
+file zenopanel-v1.0.0/zeno-container
 ```
 
 **Output yang Diharapkan:**
