@@ -104,9 +104,8 @@ fn generate_service_content(init_sys: &str) -> String {
             "#!/sbin/openrc-run\n\n\
              name=\"zenopanel\"\n\
              description=\"ZenoPanel Service\"\n\
+             supervisor=\"supervise-daemon\"\n\
              command=\"{}\"\n\
-             command_background=true\n\
-             pidfile=\"/run/zenopanel.pid\"\n\
              directory=\"{}\"\n\n\
              depend() {{\n\
                  need net\n\
