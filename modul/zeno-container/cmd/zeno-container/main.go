@@ -137,8 +137,8 @@ Commands:
   volume create <name>      Create a volume directory
   volume rm <name>          Remove a volume directory
   network list [--json]     List all networks
-  network create <name>     Create a network (mocked)
-  network rm <name>         Remove a network (mocked)
+  network create <name>     Create a network
+  network rm <name>         Remove a network
 
 Global Flags:
   --data-dir <path>         Data directory (default: /var/lib/zeno-container)
