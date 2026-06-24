@@ -1,106 +1,77 @@
 # 🛠️ Panduan Kompilasi ZenoPanel & `zeno-container`
 
-Panduan ini menjelaskan cara mengompilasi ZenoPanel dan runtime `zeno-container` dengan kompatibilitas tinggi (retro-compatible ke GLIBC 2.17) maupun sebagai static binary murni untuk target **MUSL** (misal untuk Alpine Linux atau OS minimalis tanpa libc dinamis).
+Kompilasi ZenoPanel kini telah diotomatisasi secara penuh menggunakan script kompilasi terpadu [compile.sh](./compile.sh). Script ini bertugas membersihkan cache, melakukan kompilasi silang (cross-compilation) untuk Rust dan Go secara statis, mengoptimalkan ukuran binary dengan pemotongan debug symbol (*stripped*), serta mengemas berkas distribusi beserta checksum SHA-256 ke dalam direktori `dist/`.
 
 ---
 
-## I. Kompilasi Kompatibilitas Tinggi (Target GLIBC 2.17)
+## I. Menggunakan Script Kompilasi (`compile.sh`)
 
-Kompilasi bawaan Rust (`cargo build --release`) menghasilkan binary yang bergantung pada versi GLIBC mesin host pembangun (misalnya GLIBC 2.35+ di Ubuntu modern). Jika dijalankan di server lama, hal ini akan memicu error *GLIBC version not found*.
+Anda dapat menjalankan script ini dalam dua mode: **Interaktif** (dengan panduan prompt) atau **Non-Interaktif** (menggunakan parameter baris perintah).
 
-Untuk mengatasinya, kita menggunakan **compiler Zig** sebagai backend linker dan compiler C/C++ agar dapat mengompilasi binary target `x86_64-unknown-linux-gnu` dengan kompatibilitas mundur hingga **GLIBC 2.17** (kompatibel dengan CentOS 7, Ubuntu 14.04+, Debian 8+, dll).
-
-### Langkah-Langkah Kompilasi:
-
-1. **Buat Script Wrapper Compiler**  
-   Buat script-script berikut di dalam folder `zig_wrappers/`:
-   
-   * `zig-wrapper.sh`
-   * `zig-cc.sh`
-   * `zig-cxx.sh`
-   * `zig-ar.sh`
-   * `zig-linker-wrapper.sh`
-
-2. **Berikan Izin Eksekusi**
-   ```bash
-   chmod +x zig_wrappers/*.sh
-   ```
-
-3. **Jalankan Kompilasi GLIBC 2.17**
-   ```bash
-   ZIG_TARGET="x86_64-linux-gnu.2.17" \
-   CC_x86_64_unknown_linux_gnu="$PWD/zig_wrappers/zig-cc.sh" \
-   CXX_x86_64_unknown_linux_gnu="$PWD/zig_wrappers/zig-cxx.sh" \
-   AR_x86_64_unknown_linux_gnu="$PWD/zig_wrappers/zig-ar.sh" \
-   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$PWD/zig_wrappers/zig-linker-wrapper.sh" \
-   cargo build --release --target x86_64-unknown-linux-gnu
-   ```
-
-   Binary hasil kompilasi akan berada di:  
-   `target/x86_64-unknown-linux-gnu/release/zeno`
-
----
-
-## II. Kompilasi Target Static MUSL
-
-Jika Anda ingin menghasilkan static binary murni tanpa ketergantungan dinamis terhadap libc sistem host (sangat cocok untuk Alpine Linux atau container minimalis):
-
-### 1. Kompilasi ZenoPanel (Rust)
-
-Pastikan target target musl terpasang pada Rust:
+### 1. Mode Interaktif (Direkomendasikan untuk Penggunaan Manual)
+Cukup jalankan script tanpa argumen tambahan:
 ```bash
-rustup target add x86_64-unknown-linux-musl
+./compile.sh
+```
+Script akan menanyakan secara bertahap:
+- Target kompilasi (`musl` sebagai default, atau `gnu`).
+- Versi paket rilis (otomatis mendeteksi versi Git tag terakhir, misal `v0.5.0`).
+- Apakah ingin membersihkan cache build (`cargo clean` & `go clean`) terlebih dahulu.
+
+### 2. Mode Non-Interaktif (Cocok untuk CI/CD atau Scripting)
+Gunakan flag `--non-interactive` atau `-y` bersamaan dengan parameter kustom:
+```bash
+# Jalankan kompilasi bersih untuk versi v0.5.0 dengan target MUSL secara otomatis
+./compile.sh --non-interactive --target musl --version v0.5.0 --clean
 ```
 
-Jalankan kompilasi menggunakan Zig wrapper yang diarahkan ke target MUSL, serta menonaktifkan link runtime internal bawaan Rust agar tidak terjadi konflik symbol:
+---
 
-```bash
-RUSTFLAGS="-C link-self-contained=no" \
-ZIG_TARGET="x86_64-linux-musl" \
-CC_x86_64_unknown_linux_musl="$PWD/zig_wrappers/zig-cc.sh" \
-CXX_x86_64_unknown_linux_musl="$PWD/zig_wrappers/zig-cxx.sh" \
-AR_x86_64_unknown_linux_musl="$PWD/zig_wrappers/zig-ar.sh" \
-CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="$PWD/zig_wrappers/zig-linker-wrapper.sh" \
-cargo build --release --target x86_64-unknown-linux-musl
-```
+## II. Daftar Opsi & Argumen CLI yang Didukung
 
-- **`RUSTFLAGS="-C link-self-contained=no"`**: Menginstruksikan Rust untuk tidak menyertakan objek `crt` (C Runtime) bawaan miliknya agar tidak bentrok dengan crt yang disuplai oleh Zig linker (menghindari error *duplicate symbol _start*).
-- **Target-specific env vars (seperti `CC_x86_64_...`)**: Menjamin hanya library target saja yang dikompilasi menggunakan Zig, sementara host proc-macro (seperti `sqlx-macros`) tetap memakai host toolchain bawaan.
-
-Binary hasil kompilasi akan berada di:  
-`target/x86_64-unknown-linux-musl/release/zeno`
+| Opsi / Parameter | Deskripsi |
+| :--- | :--- |
+| `--non-interactive`, `-y` | Menjalankan build secara langsung tanpa memicu prompt pertanyaan interaktif. |
+| `--target [musl\|gnu]` | Menentukan target C Runtime (libc) pada Linux:<br>• `musl` (Default): Kompilasi statis penuh murni (cocok untuk Alpine Linux).<br>• `gnu`: Kompilasi kompatibilitas mundur hingga **GLIBC 2.17** (kompatibel dengan CentOS 7/Ubuntu 14.04+). |
+| `--version [versi]` | Mengubah label versi paket tarball dan rilis final (misal: `v0.5.0`). |
+| `--clean` | Menghapus folder `target/` Rust dan cache Go sebelum proses compile untuk menjamin hasil build bersih. |
+| `--no-container` | Melewati proses kompilasi modul pendukung `zeno-container` (hanya mengompilasi Rust ZenoPanel). |
+| `--help`, `-h` | Menampilkan panduan bantuan CLI. |
 
 ---
 
-### 2. Kompilasi `zeno-container` (Go)
+## III. Detail Target Kompilasi
 
-Bahasa pemrograman Go mempermudah pembuatan static binary dengan menonaktifkan integrasi CGO (`CGO_ENABLED=0`). Saat dinonaktifkan, runtime Go akan memanggil kernel syscall secara langsung melalui bahasa rakitan (assembly) tanpa memerlukan perantara libc dinamis (baik GLIBC maupun MUSL).
+### 1. Target `musl` (Default)
+Mengompilasi binary secara statis murni sehingga tidak bergantung pada library dinamis host pembangun maupun host target. Sangat cocok untuk berjalan langsung di **Alpine Linux** maupun distro Linux modern lainnya (seperti Ubuntu, Debian, Rocky Linux) tanpa kendala pustaka sistem (*zero dependency*).
 
-Jalankan perintah berikut untuk mengompilasi static binary `zeno-container` untuk arsitektur Linux 64-bit:
-
-```bash
-# Masuk ke folder modul
-cd modul/zeno-container
-
-# Kompilasi dengan menonaktifkan CGO dan memotong debug symbol (untuk memperkecil ukuran file)
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o zeno-container ./cmd/zeno-container/
-```
-
-Binary hasil kompilasi static `zeno-container` akan berada langsung di folder tersebut. Anda dapat langsung menggunakannya di server target (GLIBC atau MUSL/Alpine) secara langsung.
+### 2. Target `gnu` (GLIBC 2.17)
+Menggunakan compiler backend **Zig** untuk menghubungkan library sistem target. Memungkinkan binary berjalan di kernel/sistem Linux yang lebih tua yang masih menggunakan sistem operasi berbasis GLIBC lawas (seperti CentOS 7 lama).
 
 ---
 
-## 🔍 Cara Verifikasi Hasil Kompilasi
+## IV. Hasil Akhir & Verifikasi
 
-Untuk memastikan binary benar-benar tertaut secara statis tanpa ketergantungan library luar:
+Setelah kompilasi selesai, direktori [dist/](./dist) akan terisi berkas paket rilis:
+
+1. **Tarball Distribusi**: `dist/zenopanel-<versi>.tar.gz`
+2. **Berkas Checksum**: `dist/zenopanel-<versi>.tar.gz.sha256`
+
+### Uji Integritas & Verifikasi Struktur Binary
+Gunakan perintah `file` untuk melihat karakteristik binary yang berada di dalam paket:
 
 ```bash
-file target/x86_64-unknown-linux-musl/release/zeno
-file modul/zeno-container/zeno-container
+# Mengekstrak sementara untuk verifikasi
+tar -xzf dist/zenopanel-v0.5.0.tar.gz
+
+# Periksa status penautan binary
+file zenopanel-v0.5.0/zeno
+file zenopanel-v0.5.0/zeno-container
 ```
 
 **Output yang Diharapkan:**
 ```text
-statically linked, stripped
+zeno: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
+zeno-container: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
 ```
-Jika file dideskripsikan sebagai `statically linked`, maka binary dipastikan mandiri penuh dan siap didistribusikan ke server Linux mana pun.
+Keterangan `statically linked` dan `stripped` menandakan binary mandiri penuh (tidak membutuhkan library luar) dan ukurannya telah dioptimalkan secara maksimal.

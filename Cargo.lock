@@ -5003,7 +5003,7 @@ dependencies = [
 
 [[package]]
 name = "zeno"
-version = "0.2.4"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "axum",

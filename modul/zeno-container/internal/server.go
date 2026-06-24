@@ -57,7 +57,7 @@ func (s *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "OK",
-			"version": "0.2.4",
+			"version": "0.5.0",
 			"engine":  "zeno-container",
 		})
 		return

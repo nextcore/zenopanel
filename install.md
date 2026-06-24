@@ -23,21 +23,21 @@ Jika Anda ingin mengunduh dan memasang berkas distribusi secara manual:
 1. **Unduh binary ZenoPanel & Checksum**:
    ```bash
    # Unduh berkas rilis
-   wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.2.4.tar.gz
+   wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.5.0.tar.gz
 
    # Unduh berkas checksum untuk verifikasi integritas
-   wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.2.4.tar.gz.sha256
+   wget https://raw.githubusercontent.com/nextcore/zenopanel/main/dist/zenopanel-v0.5.0.tar.gz.sha256
    ```
 
 2. **Verifikasi Berkas & Ekstrak**:
    ```bash
    # Verifikasi integritas berkas tarball
-   sha256sum -c zenopanel-v0.2.4.tar.gz.sha256
-   # Hasil yang diharapkan: zenopanel-v0.2.4.tar.gz: OK
+   sha256sum -c zenopanel-v0.5.0.tar.gz.sha256
+   # Hasil yang diharapkan: zenopanel-v0.5.0.tar.gz: OK
 
    # Ekstrak dan masuk ke folder
-   tar -xzvf zenopanel-v0.2.4.tar.gz
-   cd zenopanel-v0.2.4
+   tar -xzvf zenopanel-v0.5.0.tar.gz
+   cd zenopanel-v0.5.0
    ```
 
 3. **Salin Konfigurasi Environment & Inisialisasi**:
