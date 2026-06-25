@@ -98,6 +98,7 @@ export function renderFileRows(data) {
             <td>${new Date(item.mod_time).toLocaleString()}</td>
             <td style="text-align:right;">
                 ${!item.is_dir ? `<button class="btn-icon" style="color:var(--accent-primary)" onclick="editFile('${itemPath}')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
+                ${!item.is_dir ? `<button class="btn-icon" style="color:var(--info,#38bdf8)" onclick="downloadFile('${itemPath}')" title="Download"><i class="fa-solid fa-cloud-arrow-down"></i></button>` : ''}
                 <button class="btn-icon" style="color:var(--success)" onclick="archiveFile('${itemPath}')" title="Compress to ZIP"><i class="fa-solid fa-file-zipper"></i></button>
                 ${isZip ? `<button class="btn-icon" style="color:var(--warning)" onclick="extractFile('${itemPath}')" title="Extract Archive"><i class="fa-solid fa-folder-open"></i></button>` : ''}
                 <button class="btn-icon" style="color:var(--text-muted)" onclick="changePermissionsPrompt('${itemPath}', '${item.mode}')" title="Ubah Permission"><i class="fa-solid fa-shield-halved"></i></button>
@@ -359,6 +360,18 @@ export function deleteFile(path) {
             }
         });
     }
+}
+
+// Download file — opens the binary download endpoint in a hidden <a> tag
+export function downloadFile(path) {
+    const url = '/api/files/download?path=' + encodeURIComponent(path);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = path.split('/').pop();
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 
 // Compress file

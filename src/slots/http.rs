@@ -59,6 +59,139 @@ pub fn register(engine: &mut Engine) {
         },
     );
 
+    // --- http.download_file ---
+    engine.register(
+        "http.download_file",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut file_path = String::new();
+            let mut download_name = String::new();
+
+            if node.value.is_some() {
+                file_path = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "path" {
+                    file_path = val.to_string_coerce();
+                } else if child.name == "filename" || child.name == "name" {
+                    download_name = val.to_string_coerce();
+                }
+            }
+
+            let response_builder = ctx.get::<HttpResponseBuilder>("response_builder").ok_or_else(|| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "http.download_file: not in HTTP context".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("http.download_file".to_string()),
+                }
+            })?;
+
+            let path = std::path::Path::new(&file_path);
+
+            if !path.exists() || path.is_dir() {
+                *response_builder.status.lock().unwrap() = 404;
+                response_builder.headers.lock().unwrap()
+                    .insert("Content-Type".to_string(), "application/json".to_string());
+                *response_builder.body.lock().unwrap() = Some(
+                    serde_json::json!({"success": false, "message": "File not found"})
+                        .to_string().into_bytes()
+                );
+                return Err(zenocore::Diagnostic {
+                    r#type: "halt".to_string(),
+                    message: "HALT".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("http.download_file".to_string()),
+                });
+            }
+
+            let bytes = std::fs::read(&file_path).map_err(|e| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("http.download_file failed to read file: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("http.download_file".to_string()),
+                }
+            })?;
+
+            // Determine download filename
+            let basename = if download_name.is_empty() {
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("download")
+                    .to_string()
+            } else {
+                download_name
+            };
+
+            // Infer MIME type from extension
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let mime = match ext.as_str() {
+                "html" | "htm" => "text/html",
+                "css"          => "text/css",
+                "js"           => "application/javascript",
+                "json"         => "application/json",
+                "xml"          => "application/xml",
+                "txt"          => "text/plain",
+                "md"           => "text/markdown",
+                "csv"          => "text/csv",
+                "png"          => "image/png",
+                "jpg" | "jpeg" => "image/jpeg",
+                "gif"          => "image/gif",
+                "svg"          => "image/svg+xml",
+                "webp"         => "image/webp",
+                "ico"          => "image/x-icon",
+                "pdf"          => "application/pdf",
+                "zip"          => "application/zip",
+                "tar"          => "application/x-tar",
+                "gz"           => "application/gzip",
+                "7z"           => "application/x-7z-compressed",
+                "rar"          => "application/x-rar-compressed",
+                "sh"           => "text/x-shellscript",
+                "rs"           => "text/x-rust",
+                "go"           => "text/x-go",
+                "py"           => "text/x-python",
+                "rb"           => "text/x-ruby",
+                "php"          => "text/x-php",
+                _              => "application/octet-stream",
+            };
+
+            *response_builder.status.lock().unwrap() = 200;
+            {
+                let mut hdrs = response_builder.headers.lock().unwrap();
+                hdrs.insert("Content-Type".to_string(), mime.to_string());
+                hdrs.insert(
+                    "Content-Disposition".to_string(),
+                    format!("attachment; filename=\"{}\"", basename),
+                );
+                hdrs.insert("Content-Length".to_string(), bytes.len().to_string());
+            }
+            *response_builder.body.lock().unwrap() = Some(bytes);
+
+            Err(zenocore::Diagnostic {
+                r#type: "halt".to_string(),
+                message: "HALT".to_string(),
+                filename: node.filename.clone(),
+                line: node.line,
+                col: node.col,
+                slot: Some("http.download_file".to_string()),
+            })
+        }),
+        SlotMeta {
+            description: "Send a file as a binary download response".to_string(),
+            example: "http.download_file: { path: $file_path }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "nil".to_string(),
+        },
+    );
+
     engine.register(
         "http.download_log",
         Arc::new(|engine, ctx, node, scope| {

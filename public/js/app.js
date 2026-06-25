@@ -67,6 +67,7 @@ import {
   submitChangePermissions,
   updateOctalFromCheckboxes,
   updateCheckboxesFromOctal,
+  downloadFile,
 } from "./filemanager.js";
 import {
   initDatabaseTab,
@@ -355,6 +356,7 @@ const functionsToBind = {
   createFilePrompt,
   createFolderPrompt,
   deleteFile,
+  downloadFile,
   archiveFile,
   extractFile,
   editFile,

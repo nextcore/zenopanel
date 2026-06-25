@@ -139,3 +139,9 @@ http.post: '/api/files/chmod' {
     http.ok: { message: "Permissions berhasil diperbarui" }
 }
 
+# 10f. File Manager - Download File API
+http.get: '/api/files/download' {
+    auth.guard
+    http.query: 'path' { as: $file_path }
+    http.download_file: { path: $file_path }
+}
