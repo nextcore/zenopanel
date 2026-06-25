@@ -17,7 +17,7 @@ fn spawn_update_checker() {
     CHECKER_SPAWNED.call_once(|| {
         tokio::spawn(async move {
             let client = reqwest::Client::builder()
-                .user_agent("ZenoPanel-Update-Checker/1.0.2")
+                .user_agent("ZenoPanel-Update-Checker/1.0.3")
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new());
