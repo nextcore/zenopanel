@@ -1071,15 +1071,20 @@ fn handle_key_generate() {
 }
 
 fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers.get(axum::http::header::COOKIE)
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| {
-            s.split(';')
-                .map(|pair| pair.trim())
-                .find(|pair| pair.starts_with(name))
-                .and_then(|pair| pair.split('=').nth(1))
-                .map(|val| val.to_string())
-        })
+    for cookie_val in headers.get_all(axum::http::header::COOKIE) {
+        if let Ok(cookie_str) = cookie_val.to_str() {
+            for pair in cookie_str.split(';') {
+                let pair = pair.trim();
+                let mut parts = pair.splitn(2, '=');
+                if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+                    if k.trim() == name {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn serde_json_to_value(val: serde_json::Value) -> Value {

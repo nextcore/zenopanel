@@ -42,12 +42,15 @@ pub fn extract_token(headers: &axum::http::HeaderMap) -> Option<String> {
     }
     
     // 2. Check Cookie header for zeno_token
-    if let Some(cookie_val) = headers.get(axum::http::header::COOKIE) {
+    for cookie_val in headers.get_all(axum::http::header::COOKIE) {
         if let Ok(cookie_str) = cookie_val.to_str() {
             for pair in cookie_str.split(';') {
                 let pair = pair.trim();
-                if pair.starts_with("zeno_token=") {
-                    return Some(pair["zeno_token=".len()..].to_string());
+                let mut parts = pair.splitn(2, '=');
+                if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+                    if k.trim() == "zeno_token" {
+                        return Some(v.to_string());
+                    }
                 }
             }
         }

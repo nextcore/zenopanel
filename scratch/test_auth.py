@@ -2,6 +2,7 @@ import urllib.request
 import urllib.parse
 import json
 import sys
+import sqlite3
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     def http_error_302(self, req, fp, code, msg, headers):
@@ -30,6 +31,16 @@ def main():
 
     base_url = 'http://127.0.0.1:3000'
     
+    # Read entrance path from zeno.db
+    conn = sqlite3.connect('zeno.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM settings WHERE key = 'entrance_path'")
+    row = cursor.fetchone()
+    entrance_path = row[0] if row else '/login'
+    if not entrance_path.startswith('/'):
+        entrance_path = '/' + entrance_path
+    print(f"Using entrance path: {entrance_path}")
+    
     # 1. Access root "/" and verify 404 Not Found
     print("\n1. Accessing root '/' unauthenticated...")
     try:
@@ -47,10 +58,10 @@ def main():
             sys.exit(1)
         print("✅ SUCCESS: Root correctly returns 404")
 
-    # 1b. Fetch "/login" page to get the _csrf cookie
-    print("\n1b. Accessing '/login' GET to retrieve CSRF token...")
+    # 1b. Fetch entrance_path page to get the _csrf cookie
+    print(f"\n1b. Accessing '{entrance_path}' GET to retrieve CSRF token...")
     try:
-        req = urllib.request.Request(base_url + '/login')
+        req = urllib.request.Request(base_url + entrance_path)
         res = urllib.request.urlopen(req)
         status = res.getcode()
         cookie_hdr = res.info().get('Set-Cookie')
@@ -59,11 +70,11 @@ def main():
         print(f"Set-Cookie Header: {cookie_hdr}")
         print(f"Extracted CSRF token: {csrf_token}")
         if not csrf_token:
-            print("❌ FAILED: Could not retrieve CSRF token from /login")
+            print(f"❌ FAILED: Could not retrieve CSRF token from {entrance_path}")
             sys.exit(1)
         print("✅ SUCCESS: Extracted CSRF token successfully")
     except Exception as e:
-        print(f"❌ FAILED: Error accessing /login GET: {e}")
+        print(f"❌ FAILED: Error accessing {entrance_path} GET: {e}")
         sys.exit(1)
     
     # 2. Access "/api/stats" without token and verify 401
@@ -90,7 +101,7 @@ def main():
     login_data = json.dumps({"username": "admin", "password": "wrong_password"}).encode('utf-8')
     try:
         req = urllib.request.Request(
-            base_url + '/login',
+            base_url + entrance_path,
             data=login_data,
             headers={
                 'Content-Type': 'application/json',
@@ -124,7 +135,7 @@ def main():
         }
             
         req = urllib.request.Request(
-            base_url + '/login',
+            base_url + entrance_path,
             data=login_data,
             headers=headers
         )
@@ -197,8 +208,8 @@ def main():
         print(f"Redirect Location: {loc}")
         print(f"Set-Cookie: {cookie_header}")
         
-        if status != 303 or loc != '/login':
-            print("❌ FAILED: Logout did not redirect to '/login'")
+        if status != 303 or loc != entrance_path:
+            print(f"❌ FAILED: Logout did not redirect to '{entrance_path}'")
             sys.exit(1)
         
         # Verify token cookie is cleared (has Max-Age=0 or empty value)
