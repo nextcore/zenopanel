@@ -47,7 +47,6 @@ NON_INTERACTIVE=false
 CLEAN_BUILD=false
 TARGET_CHOICE=""
 INPUT_VERSION=""
-INPUT_CONTAINER=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,10 +62,6 @@ while [[ $# -gt 0 ]]; do
             INPUT_VERSION="$2"
             shift 2
             ;;
-        --no-container)
-            INPUT_CONTAINER="n"
-            shift
-            ;;
         --clean)
             CLEAN_BUILD=true
             shift
@@ -77,7 +72,6 @@ while [[ $# -gt 0 ]]; do
             echo "  --non-interactive, -y    Jalankan tanpa prompt interaktif (menggunakan default/argumen)"
             echo "  --target [musl|gnu]      Pilih target kompilasi (default: musl)"
             echo "  --version [versi]        Tentukan versi paket distribusi (default: dari git tag/Cargo.toml)"
-            echo "  --no-container           Jangan kemasi modul zeno-container"
             echo "  --clean                  Lakukan pembersihan cache kompilasi sebelum build"
             echo "  --help, -h               Tampilkan bantuan ini"
             exit 0
@@ -150,30 +144,7 @@ fi
 log_info "Versi paket distribusi: ${BOLD}$PKG_VERSION${NC}"
 
 # ------------------------------------------------------------------------------
-# 5. Penentuan Penyertaan zeno-container
-# ------------------------------------------------------------------------------
-if [ "$NON_INTERACTIVE" = false ]; then
-    echo -n "Kemasi modul zeno-container (Go)? (Y/n, default Y): "
-    read -r CONTAINER_INPUT
-    if [ -n "$CONTAINER_INPUT" ]; then
-        INPUT_CONTAINER="$CONTAINER_INPUT"
-    fi
-fi
-
-if [[ "$INPUT_CONTAINER" =~ ^[nN]$ ]]; then
-    PACK_CONTAINER=false
-else
-    PACK_CONTAINER=true
-fi
-
-if [ "$PACK_CONTAINER" = true ]; then
-    log_info "zeno-container akan dikompilasi dan ikut dikemas."
-else
-    log_info "zeno-container tidak akan ikut dikemas."
-fi
-
-# ------------------------------------------------------------------------------
-# 6. Pembersihan Cache Kompilasi (Clean Build)
+# 5. Pembersihan Cache Kompilasi (Clean Build)
 # ------------------------------------------------------------------------------
 if [ "$NON_INTERACTIVE" = false ] && [ "$CLEAN_BUILD" = false ]; then
     echo -n "Lakukan pembersihan cache kompilasi sebelum build? (y/N, default N): "
@@ -186,11 +157,6 @@ fi
 if [ "$CLEAN_BUILD" = true ]; then
     log_info "Membersihkan cache kompilasi..."
     cargo clean
-    if [ "$PACK_CONTAINER" = true ] && [ -d "modul/zeno-container" ]; then
-        cd modul/zeno-container || exit 1
-        go clean
-        cd - > /dev/null || exit 1
-    fi
     log_success "Pembersihan cache kompilasi berhasil."
 fi
 
@@ -240,15 +206,6 @@ else
     log_success "Target Rust '$TARGET' sudah siap."
 fi
 
-# Cek Go (jika kemas container)
-if [ "$PACK_CONTAINER" = true ]; then
-    if ! command -v go >/dev/null 2>&1; then
-        log_error "Go compiler tidak ditemukan sedangkan opsi zeno-container diaktifkan."
-        exit 1
-    fi
-    log_success "Go compiler terpasang."
-fi
-
 # Set permission wrapper script
 chmod +x zig_wrappers/*.sh 2>/dev/null
 log_success "Izin eksekusi wrapper zig_wrappers/*.sh telah disesuaikan."
@@ -289,24 +246,6 @@ if [ $? -ne 0 ]; then
 fi
 log_success "Kompilasi ZenoPanel berhasil."
 
-# Kompilasi Go (zeno-container)
-if [ "$PACK_CONTAINER" = true ]; then
-    log_info "Mengompilasi modul zeno-container..."
-    if [ ! -d "modul/zeno-container" ]; then
-        log_error "Direktori modul/zeno-container tidak ditemukan!"
-        exit 1
-    fi
-    
-    cd modul/zeno-container || exit 1
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o zeno-container ./cmd/zeno-container/
-    if [ $? -ne 0 ]; then
-        log_error "Kompilasi zeno-container gagal!"
-        exit 1
-    fi
-    cd - > /dev/null || exit 1
-    log_success "Kompilasi zeno-container berhasil."
-fi
-
 # ------------------------------------------------------------------------------
 # 9. Pengemasan ke Folder /dist
 # ------------------------------------------------------------------------------
@@ -335,28 +274,15 @@ cp .env.example "$PKG_PATH/"
 log_info "Menyalin binary zeno..."
 cp "target/${TARGET}/release/zeno" "$PKG_PATH/"
 
-# Salin binary container
-if [ "$PACK_CONTAINER" = true ]; then
-    log_info "Menyalin binary zeno-container..."
-    cp "modul/zeno-container/zeno-container" "$PKG_PATH/"
-fi
-
 # Optimasi ukuran binary dengan strip
 log_info "Mengoptimalkan ukuran binary dengan memotong symbol debug (strip)..."
 strip "$PKG_PATH/zeno" 2>/dev/null
-if [ "$PACK_CONTAINER" = true ]; then
-    strip "$PKG_PATH/zeno-container" 2>/dev/null
-fi
 
 # Verifikasi hasil akhir binary
 log_info "Memverifikasi tipe binary..."
 if command -v file >/dev/null 2>&1; then
     echo -e "${CYAN}${BOLD}[ZenoPanel Binary Info]${NC}"
     file "$PKG_PATH/zeno"
-    if [ "$PACK_CONTAINER" = true ]; then
-        echo -e "${CYAN}${BOLD}[Zeno Container Binary Info]${NC}"
-        file "$PKG_PATH/zeno-container"
-    fi
 else
     log_warn "Utilitas 'file' tidak terpasang di sistem. Melewati verifikasi."
 fi

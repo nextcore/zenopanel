@@ -711,92 +711,23 @@ fn main() {
     let c_tx_clone = container_tx.clone();
     let c_cache_clone = last_container_payload.clone();
     tokio::spawn(async move {
-        let bin = std::env::var("ZENO_CONTAINER_BIN")
-            .unwrap_or_else(|_| "/usr/local/bin/zeno-container".to_string());
         let data_dir = std::env::var("ZENO_CONTAINER_DATA_DIR")
             .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
         
-        // Sync local zeno-container to /usr/local/bin/zeno-container if running as root
-        unsafe {
-            unsafe extern "C" {
-                fn getuid() -> u32;
-            }
-            if getuid() == 0 {
-                let local_path = std::path::Path::new("zeno-container");
-                let dest_path = std::path::Path::new("/usr/local/bin/zeno-container");
-                if local_path.exists() {
-                    let should_copy = if dest_path.exists() {
-                        let local_meta = local_path.metadata();
-                        let dest_meta = dest_path.metadata();
-                        if let (Ok(lm), Ok(dm)) = (local_meta, dest_meta) {
-                            lm.len() != dm.len() || lm.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH) > dm.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                        } else {
-                            true
-                        }
-                    } else {
-                        true
-                    };
-
-                    if should_copy {
-                        println!("[Container] Syncing new zeno-container binary to /usr/local/bin/zeno-container");
-                        if let Err(e) = std::fs::copy(local_path, dest_path) {
-                            eprintln!("[Container] Failed to copy zeno-container to /usr/local/bin: {}", e);
-                        } else {
-                            #[cfg(unix)]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                let _ = std::fs::set_permissions(dest_path, std::fs::Permissions::from_mode(0o755));
-                            }
-                            let _ = std::fs::create_dir_all("/var/lib/zeno-container");
-                        }
-                    }
-                }
-            }
-        }
-
-        // Spawn zeno-container daemon in background with self-healing loop
-        let daemon_bin = bin.clone();
-        let daemon_data = data_dir.clone();
-        tokio::spawn(async move {
-            loop {
-                let mut cmd = tokio::process::Command::new(&daemon_bin);
-                cmd.args(&["--data-dir", &daemon_data, "daemon"]);
-                match cmd.spawn() {
-                    Ok(mut child) => {
-                        let _ = child.wait().await;
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to spawn zeno-container daemon: {}", e);
-                    }
-                }
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            }
-        });
-
         loop {
-            let output = tokio::process::Command::new(&bin)
-                .args(&["--data-dir", &data_dir, "ps", "--json"])
-                .output()
-                .await;
-                
-            match output {
-                Ok(out) => {
-                    if out.status.success() {
-                        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
-                            let payload = serde_json::json!({
-                                "success": true,
-                                "data": parsed
-                            });
-                            if let Ok(payload_str) = serde_json::to_string(&payload) {
-                                *c_cache_clone.lock().unwrap() = Some(payload_str.clone());
-                                let _ = c_tx_clone.send(payload_str);
-                            }
-                        }
+            match crate::slots::box_slot::container_list_internal(&data_dir) {
+                Ok(containers) => {
+                    let payload = serde_json::json!({
+                        "success": true,
+                        "data": containers
+                    });
+                    if let Ok(payload_str) = serde_json::to_string(&payload) {
+                        *c_cache_clone.lock().unwrap() = Some(payload_str.clone());
+                        let _ = c_tx_clone.send(payload_str);
                     }
                 }
                 Err(e) => {
-                    eprintln!("Failed to execute container ps: {}", e);
+                    eprintln!("Failed to execute native container ps: {}", e);
                 }
             }
             

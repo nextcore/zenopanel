@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use zenocore::{Diagnostic, Engine, Node, Scope, Value};
 
 pub mod auth;
-pub mod container;
+pub mod box_slot;
 pub mod db;
 pub mod http;
 pub mod io;
@@ -37,9 +37,40 @@ pub struct HttpResponseBuilder {
 
 pub(crate) fn resolve_node_value(engine: &Engine, node: &Node, scope: &Arc<Scope>) -> Value {
     if let Some(ref val_str) = node.value {
+        let val_str = val_str.trim();
+        if val_str.starts_with('$') {
+            let key = &val_str[1..];
+            if key.contains('.') {
+                let parts: Vec<&str> = key.split('.').collect();
+                if let Some(mut current) = scope.get(parts[0]) {
+                    let mut found = true;
+                    for part in &parts[1..] {
+                        match current {
+                            Value::Map(ref m) => {
+                                if let Some(next_val) = m.get(*part) {
+                                    current = next_val.clone();
+                                } else {
+                                    found = false;
+                                    break;
+                                }
+                            }
+                            _ => {
+                                found = false;
+                                break;
+                            }
+                        }
+                    }
+                    if found {
+                        return current;
+                    }
+                }
+                return Value::Nil;
+            }
+        }
+
         let dummy = Node {
             name: String::new(),
-            value: Some(val_str.clone()),
+            value: Some(val_str.to_string()),
             children: Vec::new(),
             line: node.line,
             col: node.col,
@@ -111,7 +142,7 @@ pub(crate) fn send_json_response(
 
 pub fn register_custom_slots(engine: &mut Engine) {
     auth::register(engine);
-    container::register(engine);
+    box_slot::register(engine);
     db::register(engine);
     http::register(engine);
     io::register(engine);

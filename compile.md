@@ -1,6 +1,6 @@
-# 🛠️ Panduan Kompilasi ZenoPanel & `zeno-container`
+# 🛠️ Panduan Kompilasi ZenoPanel
 
-Kompilasi ZenoPanel kini telah diotomatisasi secara penuh menggunakan script kompilasi terpadu [compile.sh](./compile.sh). Script ini bertugas membersihkan cache, melakukan kompilasi silang (cross-compilation) untuk Rust dan Go secara statis, mengoptimalkan ukuran binary dengan pemotongan debug symbol (*stripped*), serta mengemas berkas distribusi beserta checksum SHA-256 ke dalam direktori `dist/`.
+Kompilasi ZenoPanel kini telah diotomatisasi secara penuh menggunakan script kompilasi terpadu [compile.sh](./compile.sh). Script ini bertugas membersihkan cache, melakukan kompilasi silang (cross-compilation) untuk Rust secara statis, mengoptimalkan ukuran binary dengan pemotongan debug symbol (*stripped*), serta mengemas berkas distribusi beserta checksum SHA-256 ke dalam direktori `dist/`.
 
 ---
 
@@ -16,7 +16,7 @@ Cukup jalankan script tanpa argumen tambahan:
 Script akan menanyakan secara bertahap:
 - Target kompilasi (`musl` sebagai default, atau `gnu`).
 - Versi paket rilis (otomatis mendeteksi versi Git tag terakhir, misal `v1.0.1`).
-- Apakah ingin membersihkan cache build (`cargo clean` & `go clean`) terlebih dahulu.
+- Apakah ingin membersihkan cache build (`cargo clean`) terlebih dahulu.
 
 ### 2. Mode Non-Interaktif (Cocok untuk CI/CD atau Scripting)
 Gunakan flag `--non-interactive` atau `-y` bersamaan dengan parameter kustom:
@@ -34,8 +34,7 @@ Gunakan flag `--non-interactive` atau `-y` bersamaan dengan parameter kustom:
 | `--non-interactive`, `-y` | Menjalankan build secara langsung tanpa memicu prompt pertanyaan interaktif. |
 | `--target [musl\|gnu]` | Menentukan target C Runtime (libc) pada Linux:<br>• `musl` (Default): Kompilasi statis penuh murni (cocok untuk Alpine Linux).<br>• `gnu`: Kompilasi kompatibilitas mundur hingga **GLIBC 2.17** (kompatibel dengan CentOS 7/Ubuntu 14.04+). |
 | `--version [versi]` | Mengubah label versi paket tarball dan rilis final (misal: `v1.0.0`). |
-| `--clean` | Menghapus folder `target/` Rust dan cache Go sebelum proses compile untuk menjamin hasil build bersih. |
-| `--no-container` | Melewati proses kompilasi modul pendukung `zeno-container` (hanya mengompilasi Rust ZenoPanel). |
+| `--clean` | Menghapus folder `target/` Rust sebelum proses compile untuk menjamin hasil build bersih. |
 | `--help`, `-h` | Menampilkan panduan bantuan CLI. |
 
 ---
@@ -66,12 +65,10 @@ tar -xzf dist/zenopanel-v1.0.1.tar.gz
 
 # Periksa status penautan binary
 file zenopanel-v1.0.1/zeno
-file zenopanel-v1.0.1/zeno-container
 ```
 
 **Output yang Diharapkan:**
 ```text
 zeno: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
-zeno-container: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
 ```
 Keterangan `statically linked` dan `stripped` menandakan binary mandiri penuh (tidak membutuhkan library luar) dan ukurannya telah dioptimalkan secara maksimal.

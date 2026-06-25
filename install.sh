@@ -189,7 +189,7 @@ fi
 
 # Generate JWT_SECRET otomatis menggunakan binary zeno jika tersedia
 if [ -f "./zeno" ]; then
-    chmod +x zeno zeno-container 2>/dev/null
+    chmod +x zeno 2>/dev/null
     log_info "Men-generate JWT_SECRET otomatis untuk keamanan..."
     ./zeno key:generate >/dev/null 2>&1
     if [ $? -eq 0 ]; then

@@ -599,7 +599,7 @@ http.post: '/api/database/install-server' {
     var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      ${env_block}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
 
     # Deploy container via compose
-    container.compose: 'up' {
+    box.compose: 'up' {
         yaml: $compose_yaml
         project_name: $name
         as: $compose_result

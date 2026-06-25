@@ -4,14 +4,14 @@
 # ─── List Containers ──────────────────────────────────────────────
 http.get: '/api/containers/list' {
     auth.guard
-    container.list: { as: $containers }
+    box.list: { as: $containers }
     http.ok: { data: $containers }
 }
 
 # ─── List Cached Images ──────────────────────────────────────────
 http.get: '/api/containers/images' {
     auth.guard
-    container.images: { as: $images }
+    box.images: { as: $images }
     http.ok: { data: $images }
 }
 
@@ -19,7 +19,7 @@ http.get: '/api/containers/images' {
 http.post: '/api/containers/pull' {
     auth.guard
     http.json_body: { as: $body }
-    container.pull: $body.image { as: $result }
+    box.pull: $body.image { as: $result }
     if: $result.success {
         then: {
             http.ok: { message: "Image pulled successfully" }
@@ -40,7 +40,7 @@ http.post: '/api/containers/create' {
     auth.guard
     http.json_body: { as: $body }
 
-    container.create: {
+    box.create: {
         name: $body.name
         image: $body.image
         cmd: $body.cmd
@@ -134,7 +134,7 @@ http.post: '/api/containers/add-proxy' {
 http.post: '/api/containers/start' {
     auth.guard
     http.json_body: { as: $body }
-    container.start: $body.id {
+    box.start: $body.id {
         as: $result
     }
     if: $result.success {
@@ -154,7 +154,7 @@ http.post: '/api/containers/start' {
 http.post: '/api/containers/stop' {
     auth.guard
     http.json_body: { as: $body }
-    container.stop: $body.id {
+    box.stop: $body.id {
         as: $result
     }
     if: $result.success {
@@ -174,7 +174,7 @@ http.post: '/api/containers/stop' {
 http.post: '/api/containers/delete' {
     auth.guard
     http.json_body: { as: $body }
-    container.delete: $body.id {
+    box.delete: $body.id {
         as: $result
     }
     if: $result.success {
@@ -194,7 +194,7 @@ http.post: '/api/containers/delete' {
 http.get: '/api/containers/inspect' {
     auth.guard
     http.query: 'id' { as: $container_id }
-    container.inspect: $container_id {
+    box.inspect: $container_id {
         as: $result
     }
     if: $result.success {
@@ -214,7 +214,7 @@ http.get: '/api/containers/inspect' {
 http.get: '/api/containers/logs' {
     auth.guard
     http.query: 'id' { as: $container_id }
-    container.logs: $container_id {
+    box.logs: $container_id {
         as: $result
     }
     if: $result.success {
@@ -231,7 +231,7 @@ http.get: '/api/containers/logs' {
 http.post: '/api/containers/rmi' {
     auth.guard
     http.json_body: { as: $body }
-    container.rmi: $body.image { as: $result }
+    box.rmi: $body.image { as: $result }
     if: $result.success {
         then: {
             http.ok: { message: "Image removed" }
@@ -249,7 +249,7 @@ http.post: '/api/containers/rmi' {
 http.get: '/api/containers/compose/yaml' {
     auth.guard
     http.query: 'project_name' { as: $project_name }
-    container.compose_get_yaml: {
+    box.compose_get_yaml: {
         project_name: $project_name
         as: $result
     }
@@ -262,7 +262,7 @@ http.post: '/api/containers/compose' {
     http.json_body: { as: $body }
 
     # Call structured compose slot securely
-    container.compose: $body.action {
+    box.compose: $body.action {
         yaml: $body.yaml
         project_name: $body.project_name
         as: $result
@@ -284,7 +284,7 @@ http.post: '/api/containers/compose' {
 http.get: '/api/containers/rootfs-path' {
     auth.guard
     http.query: 'id' { as: $container_id }
-    container.rootfs_path: $container_id { as: $path }
+    box.rootfs_path: $container_id { as: $path }
     http.ok: { path: $path }
 }
 
@@ -292,7 +292,7 @@ http.get: '/api/containers/rootfs-path' {
 http.post: '/api/containers/update' {
     auth.guard
     http.json_body: { as: $body }
-    container.update: $body.id {
+    box.update: $body.id {
         memory: $body.memory
         cpus: $body.cpus
         as: $result
@@ -313,7 +313,7 @@ http.post: '/api/containers/update' {
 # ─── List Volumes ───────────────────────────────────────────────────
 http.get: '/api/volumes/list' {
     auth.guard
-    container.volume_list: { as: $volumes }
+    box.volume_list: { as: $volumes }
     http.ok: { data: $volumes }
 }
 
@@ -321,7 +321,7 @@ http.get: '/api/volumes/list' {
 http.post: '/api/volumes/create' {
     auth.guard
     http.json_body: { as: $body }
-    container.volume_create: {
+    box.volume_create: {
         name: $body.name
         as: $result
     }
@@ -342,7 +342,7 @@ http.post: '/api/volumes/create' {
 http.post: '/api/volumes/delete' {
     auth.guard
     http.json_body: { as: $body }
-    container.volume_delete: {
+    box.volume_delete: {
         name: $body.name
         as: $result
     }
@@ -362,7 +362,7 @@ http.post: '/api/volumes/delete' {
 # ─── List Networks ──────────────────────────────────────────────────
 http.get: '/api/networks/list' {
     auth.guard
-    container.network_list: { as: $networks }
+    box.network_list: { as: $networks }
     http.ok: { data: $networks }
 }
 
@@ -370,7 +370,7 @@ http.get: '/api/networks/list' {
 http.post: '/api/networks/create' {
     auth.guard
     http.json_body: { as: $body }
-    container.network_create: {
+    box.network_create: {
         name: $body.name
         as: $result
     }
@@ -391,7 +391,7 @@ http.post: '/api/networks/create' {
 http.post: '/api/networks/delete' {
     auth.guard
     http.json_body: { as: $body }
-    container.network_delete: {
+    box.network_delete: {
         name: $body.name
         as: $result
     }
