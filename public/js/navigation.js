@@ -3,6 +3,8 @@ import {
   loadSystemStats,
   startStatsPolling,
   stopStatsPolling,
+  initPerformanceChart,
+  initTrafficChart,
 } from "./dashboard.js";
 import { loadFilesList, initFileManager } from "./filemanager.js";
 import { initDatabaseTab } from "./database.js";
@@ -48,6 +50,8 @@ export function runTabInit(tab) {
 
   // Manage all pollers (stop pollers of other tabs, start pollers of active tab)
   if (tab === "dashboard") {
+    initPerformanceChart();
+    initTrafficChart();
     loadSystemStats();
     startStatsPolling();
   } else {
