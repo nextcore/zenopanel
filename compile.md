@@ -15,14 +15,14 @@ Cukup jalankan script tanpa argumen tambahan:
 ```
 Script akan menanyakan secara bertahap:
 - Target kompilasi (`musl` sebagai default, atau `gnu`).
-- Versi paket rilis (otomatis mendeteksi versi Git tag terakhir, misal `v1.0.0`).
+- Versi paket rilis (otomatis mendeteksi versi Git tag terakhir, misal `v1.0.1`).
 - Apakah ingin membersihkan cache build (`cargo clean` & `go clean`) terlebih dahulu.
 
 ### 2. Mode Non-Interaktif (Cocok untuk CI/CD atau Scripting)
 Gunakan flag `--non-interactive` atau `-y` bersamaan dengan parameter kustom:
 ```bash
 # Jalankan kompilasi bersih untuk versi v1.0.0 dengan target MUSL secara otomatis
-./compile.sh --non-interactive --target musl --version v1.0.0 --clean
+./compile.sh --non-interactive --target musl --version v1.0.1 --clean
 ```
 
 ---
@@ -62,11 +62,11 @@ Gunakan perintah `file` untuk melihat karakteristik binary yang berada di dalam 
 
 ```bash
 # Mengekstrak sementara untuk verifikasi
-tar -xzf dist/zenopanel-v1.0.0.tar.gz
+tar -xzf dist/zenopanel-v1.0.1.tar.gz
 
 # Periksa status penautan binary
-file zenopanel-v1.0.0/zeno
-file zenopanel-v1.0.0/zeno-container
+file zenopanel-v1.0.1/zeno
+file zenopanel-v1.0.1/zeno-container
 ```
 
 **Output yang Diharapkan:**

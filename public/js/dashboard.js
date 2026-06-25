@@ -315,6 +315,18 @@ export function loadStaticSystemInfo() {
                 if (cpuModelEl) cpuModelEl.innerText = d.cpu_model;
                 if (cpuArchEl) cpuArchEl.innerText = d.arch;
                 if (sysHostEl) sysHostEl.innerText = d.hostname;
+
+                // Update alert banner for new versions
+                const bannerEl = document.getElementById('update-alert-banner');
+                const latestVerStrEl = document.getElementById('latest-ver-str');
+                const currentVerStrEl = document.getElementById('current-ver-str');
+                if (bannerEl && d.update_available && d.latest_version) {
+                    if (latestVerStrEl) latestVerStrEl.innerText = 'v' + d.latest_version;
+                    if (currentVerStrEl) currentVerStrEl.innerText = 'v' + d.version;
+                    bannerEl.style.display = 'flex';
+                } else if (bannerEl) {
+                    bannerEl.style.display = 'none';
+                }
             }
         })
         .catch(err => console.error(err));

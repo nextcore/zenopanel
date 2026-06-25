@@ -1350,11 +1350,20 @@ async fn wildcard_handler(
     let mut new_cookie = None;
     let mut csrf_token = String::new();
     if state.csrf_enabled {
+        let is_https = headers.get("X-Forwarded-Proto")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.eq_ignore_ascii_case("https"))
+            .unwrap_or(false);
+
         csrf_token = match get_cookie_value(&headers, "_csrf") {
             Some(token) => token,
             None => {
                 let token = generate_random_token();
-                new_cookie = Some(format!("_csrf={}; Path=/; SameSite=Lax", token));
+                new_cookie = Some(format!(
+                    "_csrf={}; Path=/; SameSite=Lax{}",
+                    token,
+                    if is_https { "; Secure" } else { "" }
+                ));
                 token
             }
         };

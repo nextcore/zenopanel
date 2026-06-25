@@ -308,6 +308,7 @@ pub fn register(engine: &mut Engine) {
             let mut value = String::new();
             let mut path = "/".to_string();
             let mut httponly = false;
+            let mut secure = false;
             let mut max_age: Option<i64> = None;
             let mut samesite = "Lax".to_string();
 
@@ -319,6 +320,8 @@ pub fn register(engine: &mut Engine) {
                     path = val.to_string_coerce();
                 } else if child.name == "httponly" {
                     httponly = val.to_bool();
+                } else if child.name == "secure" {
+                    secure = val.to_bool();
                 } else if child.name == "max_age" {
                     max_age = Some(val.to_int());
                 } else if child.name == "samesite" {
@@ -337,9 +340,21 @@ pub fn register(engine: &mut Engine) {
                 }
             })?;
 
+            let is_https = if let Some(headers) = ctx.get::<axum::http::HeaderMap>("request_headers") {
+                headers.get("X-Forwarded-Proto")
+                    .and_then(|h| h.to_str().ok())
+                    .map(|s| s.eq_ignore_ascii_case("https"))
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
             let mut cookie_str = format!("{}={}; Path={}; SameSite={}", cookie_name, value, path, samesite);
             if httponly {
                 cookie_str.push_str("; HttpOnly");
+            }
+            if secure || is_https {
+                cookie_str.push_str("; Secure");
             }
             if let Some(age) = max_age {
                 cookie_str.push_str(&format!("; Max-Age={}", age));
@@ -362,12 +377,15 @@ pub fn register(engine: &mut Engine) {
         Arc::new(|engine, ctx, node, scope| {
             let cookie_name = resolve_node_value(engine, node, scope).to_string_coerce();
             let mut path = "/".to_string();
+            let mut secure = false;
             let mut samesite = "Lax".to_string();
 
             for child in &node.children {
                 let val = engine.resolve_shorthand_value(child, scope);
                 if child.name == "path" {
                     path = val.to_string_coerce();
+                } else if child.name == "secure" {
+                    secure = val.to_bool();
                 } else if child.name == "samesite" {
                     samesite = val.to_string_coerce();
                 }
@@ -384,7 +402,19 @@ pub fn register(engine: &mut Engine) {
                 }
             })?;
 
-            let cookie_str = format!("{}={}; Path={}; Max-Age=0; SameSite={}", cookie_name, "", path, samesite);
+            let is_https = if let Some(headers) = ctx.get::<axum::http::HeaderMap>("request_headers") {
+                headers.get("X-Forwarded-Proto")
+                    .and_then(|h| h.to_str().ok())
+                    .map(|s| s.eq_ignore_ascii_case("https"))
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            let mut cookie_str = format!("{}={}; Path={}; Max-Age=0; SameSite={}", cookie_name, "", path, samesite);
+            if secure || is_https {
+                cookie_str.push_str("; Secure");
+            }
             response_builder.cookies.lock().unwrap().push(cookie_str);
             Ok(())
         }),

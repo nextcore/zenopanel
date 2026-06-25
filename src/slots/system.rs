@@ -3,6 +3,52 @@ use super::resolve_node_value;
 use sysinfo::{System, Disks, Networks, Pid};
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+
+static LATEST_VERSION: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static CHECKER_SPAWNED: std::sync::Once = std::sync::Once::new();
+
+fn get_latest_version_cache() -> &'static Mutex<Option<String>> {
+    LATEST_VERSION.get_or_init(|| Mutex::new(None))
+}
+
+fn spawn_update_checker() {
+    CHECKER_SPAWNED.call_once(|| {
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .user_agent("ZenoPanel-Update-Checker/1.0.1")
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+
+            loop {
+                // Query Raw Cargo.toml from GitHub
+                match client.get("https://raw.githubusercontent.com/nextcore/zenopanel/main/Cargo.toml")
+                    .send()
+                    .await
+                {
+                    Ok(resp) => {
+                        if let Ok(text) = resp.text().await {
+                            if let Some(line) = text.lines().find(|l| l.trim().starts_with("version =")) {
+                                if let Some(ver) = line.split('"').nth(1) {
+                                    let ver_str = ver.to_string();
+                                    *get_latest_version_cache().lock().unwrap() = Some(ver_str);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[Update Checker] Failed to check for updates: {}", e);
+                    }
+                }
+                
+                // Sleep for 12 hours
+                tokio::time::sleep(tokio::time::Duration::from_secs(12 * 3600)).await;
+            }
+        });
+    });
+}
 
 fn format_uptime(seconds: u64) -> String {
     let days = seconds / 86400;
@@ -43,6 +89,10 @@ pub fn register(engine: &mut Engine) {
                 .or_else(|_| std::env::var("USERNAME"))
                 .unwrap_or_else(|_| "zeno".to_string());
 
+            spawn_update_checker();
+            let latest_ver = get_latest_version_cache().lock().unwrap().clone();
+            let current_ver = env!("CARGO_PKG_VERSION").to_string();
+
             let mut info = HashMap::new();
             info.insert("hostname".to_string(), Value::String(hostname));
             info.insert("cores".to_string(), Value::Int(cores));
@@ -52,6 +102,15 @@ pub fn register(engine: &mut Engine) {
             info.insert("platform".to_string(), Value::String(platform));
             info.insert("arch".to_string(), Value::String(arch));
             info.insert("username".to_string(), Value::String(username));
+            info.insert("version".to_string(), Value::String(current_ver.clone()));
+
+            if let Some(latest) = latest_ver {
+                info.insert("latest_version".to_string(), Value::String(latest.clone()));
+                let update_available = latest != current_ver;
+                info.insert("update_available".to_string(), Value::Bool(update_available));
+            } else {
+                info.insert("update_available".to_string(), Value::Bool(false));
+            }
 
             scope.set(&target, Value::Map(info));
             Ok(())

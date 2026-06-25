@@ -437,7 +437,7 @@ impl ProxyHttp for ZenoGateway {
 
     async fn upstream_request_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()> {
@@ -483,7 +483,8 @@ impl ProxyHttp for ZenoGateway {
             upstream_request.insert_header("X-Forwarded-For", &ip_str)?;
         }
 
-        let proto = "http";
+        let is_tls = session.digest().and_then(|d| d.ssl_digest.as_ref()).is_some();
+        let proto = if is_tls { "https" } else { "http" };
         upstream_request.insert_header("X-Forwarded-Proto", proto)?;
 
         Ok(())
