@@ -143,6 +143,26 @@ else
 fi
 log_info "Versi paket distribusi: ${BOLD}$PKG_VERSION${NC}"
 
+# Sinkronisasi versi ke file konfigurasi dan source code
+CLEAN_VERSION=$(echo "$PKG_VERSION" | sed 's/^v//')
+V_VERSION="v$CLEAN_VERSION"
+log_info "Menyelaraskan versi ZenoPanel ke ${BOLD}${V_VERSION}${NC}..."
+
+if [ -f "Cargo.toml" ]; then
+    sed -i 's/^version = "[^"]*"/version = "'"$CLEAN_VERSION"'"/' Cargo.toml
+    log_success "Versi di Cargo.toml diperbarui menjadi: $CLEAN_VERSION"
+fi
+
+if [ -f "install.sh" ]; then
+    sed -i 's/^DEFAULT_VERSION="[^"]*"/DEFAULT_VERSION="'"$V_VERSION"'"/' install.sh
+    log_success "Versi default di install.sh diperbarui menjadi: $V_VERSION"
+fi
+
+if [ -f "views/partials/sidebar.blade.zl" ]; then
+    sed -i 's/ZenoPanel v[0-9a-zA-Z.-]*/ZenoPanel '"$V_VERSION"'/' views/partials/sidebar.blade.zl
+    log_success "Versi di views/partials/sidebar.blade.zl diperbarui menjadi: $V_VERSION"
+fi
+
 # ------------------------------------------------------------------------------
 # 5. Pembersihan Cache Kompilasi (Clean Build)
 # ------------------------------------------------------------------------------
