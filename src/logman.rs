@@ -114,7 +114,7 @@ impl LogManager {
 
         if table_exists.is_some() {
             let cutoff = (chrono::Utc::now() - chrono::Duration::days(waf_retention_days)).to_rfc3339();
-            match sqlx::query("DELETE FROM waf_logs WHERE created_at < ?")
+            match sqlx::query("DELETE FROM waf_logs WHERE timestamp < ?")
                 .bind(&cutoff)
                 .execute(&self.pool)
                 .await

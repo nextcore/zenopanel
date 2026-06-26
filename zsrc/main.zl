@@ -1,7 +1,5 @@
 log: "🚀 ZenoEngine Started..."
-var: $test_var { val: "hello" }
-log: "TEST 1: ${test_var}"
-log: "TEST 2: \n${test_var}"
+
 
 view.root: 'views'
 
