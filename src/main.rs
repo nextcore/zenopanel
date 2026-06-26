@@ -836,6 +836,7 @@ fn main() {
 
     // Bind internal Axum server to localhost dynamic management port
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", mgmt_port)).await.unwrap();
+    println!("Internal Axum server running on http://127.0.0.1:{}", mgmt_port);
 
     // Initialize shared certificate resolver
     let cert_resolver = Arc::new(sslman::ZenoCertResolver::new(proxy_manager.clone(), "./certs"));
@@ -874,6 +875,7 @@ fn main() {
 
     // Configure HTTP listener
     proxy_service.add_tcp(&format!("0.0.0.0:{}", port));
+    println!("Pingora Reverse Proxy Gateway listening on http://0.0.0.0:{}", port);
 
     // Configure HTTPS/TLS listener
     let default_cert_path = "./certs/default.crt";
@@ -909,6 +911,7 @@ fn main() {
         });
 
         proxy_service.add_tls_with_settings(&format!("0.0.0.0:{}", tls_port), None, tls_settings);
+        println!("Pingora Reverse Proxy Gateway listening on https://0.0.0.0:{}", tls_port);
     } else {
         eprintln!("[SSL] Failed to initialize dynamic TLS settings for Pingora");
     }
