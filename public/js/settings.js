@@ -298,7 +298,7 @@ export async function loadSecuritySettings() {
 export async function submitSaveSecurity() {
     const wafEnabled = document.getElementById('settings-waf-enabled').checked;
     const rateLimitEnabled = document.getElementById('settings-rl-enabled').checked;
-    const rateLimitMax = parseInt(document.getElementById('settings-rl-max').value.trim(), 10) || 100;
+    const rateLimitMax = parseInt(document.getElementById('settings-rl-max').value.trim(), 10) || 1000;
     const rateLimitWindow = parseInt(document.getElementById('settings-rl-window').value.trim(), 10) || 60;
 
     const csrfToken = getCSRFToken();

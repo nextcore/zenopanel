@@ -498,7 +498,7 @@ pub fn register(engine: &mut Engine) {
             let mut target = "backup_result".to_string();
 
             for child in &node.children {
-                let val = engine.resolve_shorthand_value(child, scope);
+                let val = resolve_node_value(engine, child, scope);
                 match child.name.as_str() {
                     "driver" => driver = val.to_string_coerce(),
                     "host" => host = val.to_string_coerce(),
@@ -666,7 +666,7 @@ pub fn register(engine: &mut Engine) {
             let mut target = "restore_result".to_string();
 
             for child in &node.children {
-                let val = engine.resolve_shorthand_value(child, scope);
+                let val = resolve_node_value(engine, child, scope);
                 match child.name.as_str() {
                     "driver" => driver = val.to_string_coerce(),
                     "host" => host = val.to_string_coerce(),

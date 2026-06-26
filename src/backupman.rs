@@ -15,7 +15,6 @@ impl BackupManager {
 
     pub fn start(self: Arc<Self>) {
         tokio::spawn(async move {
-            println!("[BackupManager] Starting background loop...");
             // Initial delay before first check
             sleep(Duration::from_secs(15)).await;
             loop {

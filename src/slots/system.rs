@@ -656,7 +656,7 @@ pub fn register(engine: &mut Engine) {
             let mut target = "success".to_string();
             let mut waf_enabled = true;
             let mut rate_limit_enabled = true;
-            let mut rate_limit_max = 100;
+            let mut rate_limit_max = 1000;
             let mut rate_limit_window = 60;
 
             for child in &node.children {

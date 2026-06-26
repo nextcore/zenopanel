@@ -350,9 +350,21 @@ fn log_path(data_dir: &str, id: &str) -> PathBuf {
     container_dir(data_dir, id).join("console.log")
 }
 
+fn is_overlay_mounted(mount_point: &str) -> bool {
+    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+    mounts.lines().any(|line| {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        parts.len() >= 3 && parts[2] == "overlay" && parts[1] == mount_point
+    })
+}
+
 fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> {
     let dst_rootfs = rootfs_dir(data_dir, id);
-    if dst_rootfs.exists() {
+
+    // Check /proc/mounts to verify the overlay is actually mounted (not just that
+    // the directory exists — dst_rootfs is created before mount, so existence alone
+    // does not mean the mount succeeded on a prior attempt).
+    if is_overlay_mounted(&dst_rootfs.to_string_lossy()) {
         return Ok(());
     }
 
@@ -386,9 +398,12 @@ fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> 
     fs::create_dir_all(&dst_rootfs).map_err(|e| e.to_string())?;
 
     let opts = format!("lowerdir={},upperdir={},workdir={}", lowerdir_str, upperdir.to_string_lossy(), workdir.to_string_lossy());
+    let dst_rootfs_str = dst_rootfs.to_string_lossy().to_string();
 
-    let status = Command::new("mount")
-        .args(&["-t", "overlay", "overlay", "-o", &opts, &dst_rootfs.to_string_lossy().to_string()])
+    // Use sudo so the mount command succeeds regardless of whether the zeno
+    // process itself was started with root privileges.
+    let status = Command::new("sudo")
+        .args(&["mount", "-t", "overlay", "overlay", "-o", &opts, &dst_rootfs_str])
         .status()
         .map_err(|e| format!("Failed to run mount command: {}", e))?;
 
@@ -1037,7 +1052,7 @@ fn container_delete(id: &str) -> Result<(), String> {
 
     let dst_rootfs = rootfs_dir(&data_dir, id);
     if dst_rootfs.exists() {
-        let _ = Command::new("umount").args(&["-l", &dst_rootfs.to_string_lossy().to_string()]).status();
+        let _ = Command::new("sudo").args(&["umount", "-l", &dst_rootfs.to_string_lossy().to_string()]).status();
     }
 
     let cont_p = container_dir(&data_dir, id);
@@ -2516,6 +2531,7 @@ fn register_box_compose(engine: &mut Engine) {
             let mut action = String::new();
             let mut yaml = String::new();
             let mut target = "compose_result".to_string();
+            let mut project_name = String::new();
 
             if node.value.is_some() {
                 action = resolve_node_value(_engine, node, scope).to_string_coerce();
@@ -2525,6 +2541,7 @@ fn register_box_compose(engine: &mut Engine) {
                 match child.name.as_str() {
                     "action" => action = resolve_node_value(_engine, child, scope).to_string_coerce(),
                     "yaml" => yaml = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
                     "as" => {
                         if let Some(ref val) = child.value {
                             target = val.trim_start_matches('$').to_string();
@@ -2535,20 +2552,32 @@ fn register_box_compose(engine: &mut Engine) {
             }
 
             let data_dir = get_data_dir();
-            let compose_dir = Path::new(&data_dir).join("compose");
+            let compose_dir = if project_name.is_empty() {
+                Path::new(&data_dir).join("compose")
+            } else {
+                Path::new(&data_dir).join("compose").join(&project_name)
+            };
             let compose_path = compose_dir.join("docker-compose.yml");
 
+            let mut write_err = None;
             if !yaml.is_empty() {
-                let _ = fs::create_dir_all(&compose_dir);
-                let _ = fs::write(&compose_path, yaml);
+                if let Err(e) = fs::create_dir_all(&compose_dir) {
+                    write_err = Some(format!("Failed to create compose directory '{}': {}", compose_dir.display(), e));
+                } else if let Err(e) = fs::write(&compose_path, yaml) {
+                    write_err = Some(format!("Failed to write compose file '{}': {}", compose_path.display(), e));
+                }
             }
 
-            let compose_path_str = compose_path.to_string_lossy();
-            let res = match action.as_str() {
-                "up" => compose_up(&compose_path_str),
-                "down" => compose_down(&compose_path_str),
-                "ps" => compose_ps(&compose_path_str),
-                _ => Err(format!("Unknown compose action: {}", action)),
+            let res = if let Some(err) = write_err {
+                Err(err)
+            } else {
+                let compose_path_str = compose_path.to_string_lossy();
+                match action.as_str() {
+                    "up" => compose_up(&compose_path_str),
+                    "down" => compose_down(&compose_path_str),
+                    "ps" => compose_ps(&compose_path_str),
+                    _ => Err(format!("Unknown compose action: {}", action)),
+                }
             };
 
             let mut result = HashMap::new();
@@ -2583,16 +2612,26 @@ fn register_box_compose_get_yaml(engine: &mut Engine) {
         "box.compose_get_yaml",
         Arc::new(|_engine, _ctx, node, scope| {
             let mut target = "result".to_string();
+            let mut project_name = String::new();
             for child in &node.children {
-                if child.name == "as" {
-                    if let Some(ref val) = child.value {
-                        target = val.trim_start_matches('$').to_string();
+                match child.name.as_str() {
+                    "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
                     }
+                    _ => {}
                 }
             }
 
             let data_dir = get_data_dir();
-            let compose_path = Path::new(&data_dir).join("compose").join("docker-compose.yml");
+            let compose_dir = if project_name.is_empty() {
+                Path::new(&data_dir).join("compose")
+            } else {
+                Path::new(&data_dir).join("compose").join(&project_name)
+            };
+            let compose_path = compose_dir.join("docker-compose.yml");
             let yaml = fs::read_to_string(compose_path).unwrap_or_default();
 
             let mut result = HashMap::new();

@@ -13,7 +13,6 @@ impl LogManager {
 
     pub fn start(self: Arc<Self>) {
         tokio::spawn(async move {
-            println!("[LogManager] Starting background log rotation loop...");
             // Initial delay
             sleep(Duration::from_secs(30)).await;
             loop {

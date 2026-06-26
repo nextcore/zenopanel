@@ -595,8 +595,14 @@ http.post: '/api/database/install-server' {
         }
     }
 
-    # Build Docker Compose YAML — $data_volume is already set per driver above
-    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      ${env_block}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+    # Build Docker Compose YAML — format environment as YAML list items
+    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${root_password}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+        }
+    }
 
     # Deploy container via compose
     box.compose: 'up' {

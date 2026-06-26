@@ -1,5 +1,3 @@
-log: "🚀 ZenoEngine Started..."
-
 view.root: 'views'
 
 # Main Page UI

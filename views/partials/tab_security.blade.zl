@@ -46,7 +46,7 @@
                     <label style="display:block; margin-bottom:8px; font-weight:600; font-size:0.85rem; color:var(--text-main);">
                         Maksimum Request
                     </label>
-                    <input type="number" id="settings-rl-max" placeholder="100" style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.9rem;">
+                    <input type="number" id="settings-rl-max" placeholder="1000" style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.9rem;">
                 </div>
                 <div class="form-group">
                     <label style="display:block; margin-bottom:8px; font-weight:600; font-size:0.85rem; color:var(--text-main);">

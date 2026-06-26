@@ -35,8 +35,66 @@ pub struct HttpResponseBuilder {
     pub body: Mutex<Option<Vec<u8>>>,
 }
 
+fn resolve_scope_path(path: &str, scope: &Arc<Scope>) -> Option<Value> {
+    if path.contains('.') {
+        let parts: Vec<&str> = path.split('.').collect();
+        if let Some(mut current) = scope.get(parts[0]) {
+            for part in &parts[1..] {
+                match current {
+                    Value::Map(ref m) => {
+                        if let Some(next_val) = m.get(*part) {
+                            current = next_val.clone();
+                        } else {
+                            return None;
+                        }
+                    }
+                    _ => return None,
+                }
+            }
+            Some(current)
+        } else {
+            None
+        }
+    } else {
+        scope.get(path)
+    }
+}
+
+fn interpolate_string(s: &str, scope: &Arc<Scope>) -> String {
+    let mut current = s.to_string();
+    let mut iterations = 0;
+    while iterations < 10 && current.contains("${") {
+        let mut result = String::new();
+        let mut last_idx = 0;
+        let mut replaced = false;
+        while let Some(start_idx) = current[last_idx..].find("${") {
+            let absolute_start = last_idx + start_idx;
+            result.push_str(&current[last_idx..absolute_start]);
+            if let Some(end_idx) = current[absolute_start..].find('}') {
+                let absolute_end = absolute_start + end_idx;
+                let key = current[absolute_start + 2..absolute_end].trim();
+                let clean_key = if key.starts_with('$') { &key[1..] } else { key };
+                if let Some(val) = resolve_scope_path(clean_key, scope) {
+                    result.push_str(&val.to_string_coerce());
+                }
+                last_idx = absolute_end + 1;
+                replaced = true;
+            } else {
+                break;
+            }
+        }
+        result.push_str(&current[last_idx..]);
+        current = result;
+        if !replaced {
+            break;
+        }
+        iterations += 1;
+    }
+    current
+}
+
 pub(crate) fn resolve_node_value(engine: &Engine, node: &Node, scope: &Arc<Scope>) -> Value {
-    if let Some(ref val_str) = node.value {
+    let raw_val = if let Some(ref val_str) = node.value {
         let val_str = val_str.trim();
         if val_str.starts_with('$') {
             let key = &val_str[1..];
@@ -61,24 +119,44 @@ pub(crate) fn resolve_node_value(engine: &Engine, node: &Node, scope: &Arc<Scope
                         }
                     }
                     if found {
-                        return current;
+                        current
+                    } else {
+                        Value::Nil
                     }
+                } else {
+                    Value::Nil
                 }
-                return Value::Nil;
+            } else {
+                let dummy = Node {
+                    name: String::new(),
+                    value: Some(val_str.to_string()),
+                    children: Vec::new(),
+                    line: node.line,
+                    col: node.col,
+                    filename: node.filename.clone(),
+                };
+                engine.resolve_shorthand_value(&dummy, scope)
             }
+        } else {
+            let dummy = Node {
+                name: String::new(),
+                value: Some(val_str.to_string()),
+                children: Vec::new(),
+                line: node.line,
+                col: node.col,
+                filename: node.filename.clone(),
+            };
+            engine.resolve_shorthand_value(&dummy, scope)
         }
-
-        let dummy = Node {
-            name: String::new(),
-            value: Some(val_str.to_string()),
-            children: Vec::new(),
-            line: node.line,
-            col: node.col,
-            filename: node.filename.clone(),
-        };
-        engine.resolve_shorthand_value(&dummy, scope)
     } else {
         Value::Nil
+    };
+
+    match raw_val {
+        Value::String(s) => {
+            Value::String(interpolate_string(&s, scope))
+        }
+        other => other,
     }
 }
 
