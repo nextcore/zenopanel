@@ -35,7 +35,7 @@ pub struct HttpResponseBuilder {
     pub body: Mutex<Option<Vec<u8>>>,
 }
 
-fn resolve_scope_path(path: &str, scope: &Arc<Scope>) -> Option<Value> {
+pub(crate) fn resolve_scope_path(path: &str, scope: &Arc<Scope>) -> Option<Value> {
     if path.contains('.') {
         let parts: Vec<&str> = path.split('.').collect();
         if let Some(mut current) = scope.get(parts[0]) {

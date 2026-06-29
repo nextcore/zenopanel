@@ -111,6 +111,7 @@ pub(crate) struct AppState {
     pub(crate) last_container_payload: Arc<Mutex<Option<String>>>,
     pub(crate) managed_tx: tokio::sync::broadcast::Sender<String>,
     pub(crate) last_managed_payload: Arc<Mutex<Option<String>>>,
+    pub(crate) terminal_sessions: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::mpsc::Sender<String>>>>,
 }
 
 fn kill_process_on_port(port: u16) {
@@ -715,7 +716,7 @@ fn main() {
             .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
         
         loop {
-            match crate::slots::box_slot::container_list_internal(&data_dir) {
+            match crate::slots::box_slot::container_list_internal(&data_dir, true) {
                 Ok(containers) => {
                     let payload = serde_json::json!({
                         "success": true,
@@ -806,6 +807,7 @@ fn main() {
         last_container_payload,
         managed_tx,
         last_managed_payload,
+        terminal_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     });
 
     let static_service = ServeDir::new("public");
@@ -815,6 +817,8 @@ fn main() {
         .route("/api/containers/stream", axum::routing::get(containers_stream_handler))
         .route("/api/managed/stream", axum::routing::get(managed_stream_handler))
         .route("/api/managed/logs/stream", axum::routing::get(managed_logs_stream_handler))
+        .route("/api/terminal/stream", axum::routing::get(terminal_stream_handler))
+        .route("/api/terminal/write", axum::routing::post(terminal_write_handler))
         .nest_service("/public", static_service)
         .fallback(any(wildcard_handler))
         .layer(axum::middleware::from_fn_with_state(state.clone(), waf::waf_middleware))
@@ -1879,6 +1883,101 @@ async fn managed_logs_stream_handler(
         .chain(broadcast_stream);
         
     Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+#[derive(serde::Deserialize)]
+struct StreamParams {
+    session_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct WriteParams {
+    session_id: String,
+    input: String,
+}
+
+async fn terminal_stream_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<StreamParams>,
+) -> Result<axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, StatusCode> {
+    let session_id = params.session_id;
+
+    // Spawn a persistent bash shell for this session
+    let mut child = tokio::process::Command::new("bash")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
+
+    let (tx_in, mut rx_in) = tokio::sync::mpsc::channel::<String>(100);
+
+    // Keep track of the stdin sender globally
+    state.terminal_sessions.lock().await.insert(session_id.clone(), tx_in);
+
+    // Stdin writer task
+    tokio::spawn(async move {
+        use tokio::io::AsyncWriteExt;
+        while let Some(msg) = rx_in.recv().await {
+            if stdin.write_all(msg.as_bytes()).await.is_err() {
+                break;
+            }
+            let _ = stdin.flush().await;
+        }
+    });
+
+    let (tx_out, rx_out) = tokio::sync::mpsc::channel::<Result<axum::response::sse::Event, std::convert::Infallible>>(1000);
+
+    // Stdout reader task
+    let tx_out_1 = tx_out.clone();
+    tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = stdout.read(&mut buf).await {
+            if n == 0 { break; }
+            let text = String::from_utf8_lossy(&buf[..n]).to_string();
+            let _ = tx_out_1.send(Ok(axum::response::sse::Event::default().data(text))).await;
+        }
+    });
+
+    // Stderr reader task
+    let tx_out_2 = tx_out.clone();
+    tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = stderr.read(&mut buf).await {
+            if n == 0 { break; }
+            let text = String::from_utf8_lossy(&buf[..n]).to_string();
+            let _ = tx_out_2.send(Ok(axum::response::sse::Event::default().data(text))).await;
+        }
+    });
+
+    // Cleanup task on child exit
+    let state_clone = state.clone();
+    let session_id_clone = session_id.clone();
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+        state_clone.terminal_sessions.lock().await.remove(&session_id_clone);
+    });
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx_out);
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+async fn terminal_write_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Json(payload): axum::Json<WriteParams>,
+) -> Result<axum::response::Json<serde_json::Value>, StatusCode> {
+    if let Some(tx) = state.terminal_sessions.lock().await.get(&payload.session_id) {
+        if tx.send(payload.input).await.is_ok() {
+            return Ok(axum::response::Json(serde_json::json!({ "success": true })));
+        }
+    }
+    Err(StatusCode::NOT_FOUND)
 }
 
 

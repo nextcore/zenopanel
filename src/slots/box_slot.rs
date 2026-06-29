@@ -393,12 +393,28 @@ fn is_overlay_mounted(mount_point: &str) -> bool {
 fn run_privileged_status(cmd: &str, args: &[&str]) -> io::Result<std::process::ExitStatus> {
     let is_root = unsafe { libc::getuid() == 0 };
     if is_root {
-        Command::new(cmd).args(args).status()
+        Command::new(cmd)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
     } else {
         let mut all_args = vec![cmd];
         all_args.extend_from_slice(args);
-        Command::new("sudo").args(&all_args).status()
+        Command::new("sudo")
+            .args(&all_args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
     }
+}
+
+fn run_cmd_status_silent(cmd: &str, args: &[&str]) -> io::Result<std::process::ExitStatus> {
+    Command::new(cmd)
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
 }
 
 fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> {
@@ -616,10 +632,70 @@ fn generate_config_json(
             ],
             "capabilities": if is_rootless { serde_json::Value::Null } else {
                 json!({
-                    "bounding": ["CAP_NET_BIND_SERVICE", "CAP_KILL"],
-                    "effective": ["CAP_NET_BIND_SERVICE", "CAP_KILL"],
-                    "inheritable": ["CAP_NET_BIND_SERVICE", "CAP_KILL"],
-                    "permitted": ["CAP_NET_BIND_SERVICE", "CAP_KILL"]
+                    "bounding": [
+                        "CAP_AUDIT_WRITE",
+                        "CAP_CHOWN",
+                        "CAP_DAC_OVERRIDE",
+                        "CAP_FOWNER",
+                        "CAP_FSETID",
+                        "CAP_KILL",
+                        "CAP_MKNOD",
+                        "CAP_NET_BIND_SERVICE",
+                        "CAP_NET_RAW",
+                        "CAP_SETGID",
+                        "CAP_SETFCAP",
+                        "CAP_SETUID",
+                        "CAP_SETPCAP",
+                        "CAP_SYS_CHROOT"
+                    ],
+                    "effective": [
+                        "CAP_AUDIT_WRITE",
+                        "CAP_CHOWN",
+                        "CAP_DAC_OVERRIDE",
+                        "CAP_FOWNER",
+                        "CAP_FSETID",
+                        "CAP_KILL",
+                        "CAP_MKNOD",
+                        "CAP_NET_BIND_SERVICE",
+                        "CAP_NET_RAW",
+                        "CAP_SETGID",
+                        "CAP_SETFCAP",
+                        "CAP_SETUID",
+                        "CAP_SETPCAP",
+                        "CAP_SYS_CHROOT"
+                    ],
+                    "inheritable": [
+                        "CAP_AUDIT_WRITE",
+                        "CAP_CHOWN",
+                        "CAP_DAC_OVERRIDE",
+                        "CAP_FOWNER",
+                        "CAP_FSETID",
+                        "CAP_KILL",
+                        "CAP_MKNOD",
+                        "CAP_NET_BIND_SERVICE",
+                        "CAP_NET_RAW",
+                        "CAP_SETGID",
+                        "CAP_SETFCAP",
+                        "CAP_SETUID",
+                        "CAP_SETPCAP",
+                        "CAP_SYS_CHROOT"
+                    ],
+                    "permitted": [
+                        "CAP_AUDIT_WRITE",
+                        "CAP_CHOWN",
+                        "CAP_DAC_OVERRIDE",
+                        "CAP_FOWNER",
+                        "CAP_FSETID",
+                        "CAP_KILL",
+                        "CAP_MKNOD",
+                        "CAP_NET_BIND_SERVICE",
+                        "CAP_NET_RAW",
+                        "CAP_SETGID",
+                        "CAP_SETFCAP",
+                        "CAP_SETUID",
+                        "CAP_SETPCAP",
+                        "CAP_SYS_CHROOT"
+                    ]
                 })
             }
         },
@@ -772,16 +848,12 @@ fn setup_bridge() -> Result<(), String> {
         return Ok(());
     }
 
-    let _ = Command::new("ip").args(&["link", "add", "name", "zenobr0", "type", "bridge"]).status();
-    let _ = Command::new("ip").args(&["addr", "add", "172.20.0.1/16", "dev", "zenobr0"]).status();
-    let _ = Command::new("ip").args(&["link", "set", "zenobr0", "up"]).status();
+    let _ = run_cmd_status_silent("ip", &["link", "add", "name", "zenobr0", "type", "bridge"]);
+    let _ = run_cmd_status_silent("ip", &["addr", "add", "172.20.0.1/16", "dev", "zenobr0"]);
+    let _ = run_cmd_status_silent("ip", &["link", "set", "zenobr0", "up"]);
 
-    let _ = Command::new("iptables")
-        .args(&["-t", "nat", "-C", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"])
-        .status();
-    let _ = Command::new("iptables")
-        .args(&["-t", "nat", "-A", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"])
-        .status();
+    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"]);
+    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"]);
 
     Ok(())
 }
@@ -796,7 +868,7 @@ fn find_available_ip(data_dir: &str, subnet: &str, gateway: &str) -> Result<Stri
     let mut taken_ips = std::collections::HashSet::new();
     taken_ips.insert(gateway.to_string());
 
-    if let Ok(containers) = container_list_internal(data_dir) {
+    if let Ok(containers) = container_list_internal(data_dir, false) {
         for c in containers {
             if c.status == "running" {
                 if let Some(env) = c.env {
@@ -857,32 +929,28 @@ fn configure_container_network(
     if veth_host.len() > 15 { veth_host.truncate(15); }
     if veth_guest.len() > 15 { veth_guest.truncate(15); }
 
-    let _ = Command::new("ip").args(&["link", "delete", &veth_host]).status();
+    let _ = run_cmd_status_silent("ip", &["link", "delete", &veth_host]);
 
-    let status = Command::new("ip")
-        .args(&["link", "add", &veth_host, "type", "veth", "peer", "name", &veth_guest])
-        .status()
+    let status = run_cmd_status_silent("ip", &["link", "add", &veth_host, "type", "veth", "peer", "name", &veth_guest])
         .map_err(|e| format!("Failed to create veth pair: {}", e))?;
     if !status.success() {
         return Err("Failed to create veth pair".to_string());
     }
 
-    let _ = Command::new("ip").args(&["link", "set", &veth_host, "master", &bridge_id]).status();
-    let _ = Command::new("ip").args(&["link", "set", &veth_host, "up"]).status();
+    let _ = run_cmd_status_silent("ip", &["link", "set", &veth_host, "master", &bridge_id]);
+    let _ = run_cmd_status_silent("ip", &["link", "set", &veth_host, "up"]);
 
     let pid_str = pid.to_string();
-    let status = Command::new("ip")
-        .args(&["link", "set", &veth_guest, "netns", &pid_str])
-        .status()
+    let status = run_cmd_status_silent("ip", &["link", "set", &veth_guest, "netns", &pid_str])
         .map_err(|e| format!("Failed to move guest veth: {}", e))?;
     if !status.success() {
         return Err("Failed to move guest interface to container netns".to_string());
     }
 
-    let _ = Command::new("nsenter").args(&["-t", &pid_str, "-n", "ip", "link", "set", &veth_guest, "name", "eth0"]).status();
-    let _ = Command::new("nsenter").args(&["-t", &pid_str, "-n", "ip", "addr", "add", &format!("{}/16", ip), "dev", "eth0"]).status();
-    let _ = Command::new("nsenter").args(&["-t", &pid_str, "-n", "ip", "link", "set", "eth0", "up"]).status();
-    let _ = Command::new("nsenter").args(&["-t", &pid_str, "-n", "ip", "route", "add", "default", "via", &gateway_ip]).status();
+    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "link", "set", &veth_guest, "name", "eth0"]);
+    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "addr", "add", &format!("{}/16", ip), "dev", "eth0"]);
+    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "link", "set", "eth0", "up"]);
+    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "route", "add", "default", "via", &gateway_ip]);
 
     let resolv_path = rootfs_dir(data_dir, container_id).join("etc/resolv.conf");
     let _ = fs::write(resolv_path, "nameserver 8.8.8.8\nnameserver 1.1.1.1\n");
@@ -892,8 +960,8 @@ fn configure_container_network(
         if parts.len() == 2 {
             let host_port = parts[0];
             let container_port = parts[1];
-            let _ = Command::new("iptables").args(&["-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]).status();
-            let _ = Command::new("iptables").args(&["-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]).status();
+            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
+            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
         }
     }
 
@@ -906,17 +974,17 @@ fn clean_container_network(container_id: &str, ip: &str, ports: &[String]) {
         if parts.len() == 2 {
             let host_port = parts[0];
             let container_port = parts[1];
-            let _ = Command::new("iptables").args(&["-t", "nat", "-D", "PREROUTING", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]).status();
-            let _ = Command::new("iptables").args(&["-t", "nat", "-D", "OUTPUT", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]).status();
+            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "PREROUTING", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
+            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "OUTPUT", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
         }
     }
     let mut veth_host = format!("veth-h-{}", container_id);
     if veth_host.len() > 15 { veth_host.truncate(15); }
-    let _ = Command::new("ip").args(&["link", "delete", &veth_host]).status();
+    let _ = run_cmd_status_silent("ip", &["link", "delete", &veth_host]);
 }
 
 fn sync_hosts_entries(data_dir: &str) -> Result<(), String> {
-    let containers = container_list_internal(data_dir)?;
+    let containers = container_list_internal(data_dir, false)?;
     
     let mut running_ips = HashMap::new();
     let mut running_nets = HashMap::new();
@@ -964,7 +1032,7 @@ fn sync_hosts_entries(data_dir: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn container_list_internal(data_dir: &str) -> Result<Vec<ContainerState>, String> {
+pub(crate) fn container_list_internal(data_dir: &str, auto_restart: bool) -> Result<Vec<ContainerState>, String> {
     let containers_dir = Path::new(data_dir).join("containers");
     if !containers_dir.exists() {
         return Ok(Vec::new());
@@ -1003,7 +1071,8 @@ pub(crate) fn container_list_internal(data_dir: &str) -> Result<Vec<ContainerSta
                     }
 
                     // Enforce container restart policy (auto-restart on crash)
-                    if (state.status == "stopped" || state.status == "failed")
+                    if auto_restart
+                        && (state.status == "stopped" || state.status == "failed")
                         && state.desired_status.as_deref() == Some("running")
                     {
                         if let Some(ref policy) = state.restart_policy {
@@ -1038,12 +1107,22 @@ fn container_start(id: &str) -> Result<(), String> {
 
     let _ = runc_exec(&["delete", "--force", id]);
 
-    let run_create = runc_exec(&["create", "-b", &bundle_p.to_string_lossy(), id])
+    let log_p = log_path(&data_dir, id);
+    let log_file = File::create(&log_p).map_err(|e| format!("Failed to create log file: {}", e))?;
+
+    let runc_bin = get_runc_bin();
+    let root = format!("{}/runc", get_data_dir());
+    let run_create_status = Command::new(&runc_bin)
+        .args(&["--root", &root, "create", "-b", &bundle_p.to_string_lossy(), id])
+        .stdout(log_file.try_clone().map_err(|e| e.to_string())?)
+        .stderr(log_file)
+        .status()
         .map_err(|e| format!("runc create process failed: {}", e))?;
-    if !run_create.status.success() {
+
+    if !run_create_status.success() {
         state.status = "failed".to_string();
         let _ = save_container_state(&state);
-        let err_msg = String::from_utf8_lossy(&run_create.stderr);
+        let err_msg = fs::read_to_string(&log_p).unwrap_or_default();
         return Err(format!("runc create failed: {}", err_msg));
     }
 
@@ -1238,11 +1317,11 @@ fn create_bridge_network(data_dir: &str, name: &str) -> Result<String, String> {
     let subnet = format!("172.{}.0.0/16", selected_x);
     let gateway = format!("172.{}.0.1", selected_x);
 
-    let _ = Command::new("ip").args(&["link", "add", "name", &bridge_id, "type", "bridge"]).status();
-    let _ = Command::new("ip").args(&["addr", "add", &format!("{}/16", gateway), "dev", &bridge_id]).status();
-    let _ = Command::new("ip").args(&["link", "set", &bridge_id, "up"]).status();
+    let _ = run_cmd_status_silent("ip", &["link", "add", "name", &bridge_id, "type", "bridge"]);
+    let _ = run_cmd_status_silent("ip", &["addr", "add", &format!("{}/16", gateway), "dev", &bridge_id]);
+    let _ = run_cmd_status_silent("ip", &["link", "set", &bridge_id, "up"]);
 
-    let _ = Command::new("iptables").args(&["-t", "nat", "-A", "POSTROUTING", "-s", &subnet, "!", "-o", &bridge_id, "-j", "MASQUERADE"]).status();
+    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", &subnet, "!", "-o", &bridge_id, "-j", "MASQUERADE"]);
 
     let new_net = NetworkConfig {
         id: bridge_id.clone(),
@@ -1270,16 +1349,16 @@ fn delete_bridge_network(data_dir: &str, name: &str) -> Result<(), String> {
     let idx = found_idx.ok_or_else(|| format!("Network {} not found", name))?;
     let net = &networks[idx];
 
-    let containers = container_list_internal(data_dir)?;
+    let containers = container_list_internal(data_dir, false)?;
     for c in containers {
         if c.network.as_ref().map(|s| s == name || s == &net.id).unwrap_or(false) && c.status == "running" {
             return Err(format!("Network is in use by running container {}", c.id));
         }
     }
 
-    let _ = Command::new("ip").args(&["link", "set", &net.id, "down"]).status();
-    let _ = Command::new("ip").args(&["link", "delete", &net.id]).status();
-    let _ = Command::new("iptables").args(&["-t", "nat", "-D", "POSTROUTING", "-s", &net.subnet, "!", "-o", &net.id, "-j", "MASQUERADE"]).status();
+    let _ = run_cmd_status_silent("ip", &["link", "set", &net.id, "down"]);
+    let _ = run_cmd_status_silent("ip", &["link", "delete", &net.id]);
+    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "POSTROUTING", "-s", &net.subnet, "!", "-o", &net.id, "-j", "MASQUERADE"]);
 
     networks.remove(idx);
     save_networks(data_dir, &networks)?;
@@ -1454,7 +1533,8 @@ fn register_box_create(engine: &mut Engine) {
         Arc::new(|_engine, _ctx, node, scope| {
             let mut name = String::new();
             let mut image = String::new();
-            let mut cmd = String::new();
+            let mut cmd_vec = Vec::new();
+            let mut cmd_specified = false;
             let mut ports = Vec::new();
             let mut volumes = Vec::new();
             let mut env_map = HashMap::new();
@@ -1475,7 +1555,17 @@ fn register_box_create(engine: &mut Engine) {
                     match child.name.as_str() {
                         "name" => name = resolved.to_string_coerce(),
                         "image" => image = resolved.to_string_coerce(),
-                        "cmd" => cmd = resolved.to_string_coerce(),
+                        "cmd" => {
+                            cmd_specified = true;
+                            if let Value::List(ref list) = resolved {
+                                cmd_vec = list.iter().map(|v| v.to_string_coerce()).collect();
+                            } else {
+                                let val_str = resolved.to_string_coerce();
+                                if !val_str.is_empty() {
+                                    cmd_vec = val_str.split_whitespace().map(|s| s.to_string()).collect();
+                                }
+                            }
+                        }
                         "host_net" => host_net = resolved.to_bool(),
                         "memory" => memory = resolved.to_string_coerce(),
                         "cpus" => cpus = resolved.to_string_coerce(),
@@ -1526,10 +1616,10 @@ fn register_box_create(engine: &mut Engine) {
             let cpu_limit = cpus.parse::<f64>().unwrap_or(0.0);
             let oom_score_adj = oom_score_adj_str.parse::<i32>().ok();
 
-            let cmd_vec = if cmd.is_empty() {
+            let cmd_vec = if !cmd_specified || cmd_vec.is_empty() {
                 get_image_default_cmd(&image)
             } else {
-                cmd.split_whitespace().map(|s| s.to_string()).collect()
+                cmd_vec
             };
 
             let res = container_create(
@@ -1713,7 +1803,7 @@ fn register_box_list(engine: &mut Engine) {
 
             let data_dir = get_data_dir();
             let mut list_value = Vec::new();
-            if let Ok(containers) = container_list_internal(&data_dir) {
+            if let Ok(containers) = container_list_internal(&data_dir, false) {
                 for c in containers {
                     let mut m = HashMap::new();
                     m.insert("id".to_string(), Value::String(c.id.clone()));
@@ -2455,24 +2545,21 @@ fn compose_up(path: &str) -> Result<String, String> {
             .replace('/', "_")
             .replace(':', "_");
         let cache_dir = Path::new(&data_dir).join("images").join(&cache_dir_name);
-        let mut default_cmd = Vec::new();
-        if !cache_dir.exists() {
+        let default_cmd = if !cache_dir.exists() {
             output.push_str(&format!("  ▶ Image {} not found locally. Pulling...\n", image));
             let rt = tokio::runtime::Handle::current();
             let pull_res = tokio::task::block_in_place(|| {
                 rt.block_on(async { pull_image_rust(image).await })
             });
             match pull_res {
-                Ok(cmd) => {
-                    default_cmd = cmd;
-                }
+                Ok(cmd) => cmd,
                 Err(e) => {
                     return Err(format!("Failed to pull image {}: {}", image, e));
                 }
             }
         } else {
-            default_cmd = get_image_default_cmd(image);
-        }
+            get_image_default_cmd(image)
+        };
 
         let container_name = svc.container_name.as_ref().unwrap_or(&name);
 
@@ -2580,7 +2667,7 @@ fn compose_ps(path: &str) -> Result<String, String> {
     let f = File::open(path).map_err(|e| format!("Failed to read compose file: {}", e))?;
     let cf: ComposeFile = serde_yaml::from_reader(f).map_err(|e| format!("Failed to parse YAML: {}", e))?;
 
-    let containers = container_list_internal(&data_dir)?;
+    let containers = container_list_internal(&data_dir, false)?;
     
     let mut expected = HashMap::new();
     for (svc_name, svc) in &cf.services {

@@ -317,10 +317,25 @@ http.get: '/api/database/tables' {
         as: $server_meta
     }
     coalesce: $server_meta {
-        default: { driver: 'sqlite' }
+        default: { driver: 'not_found' }
         as: $meta
     }
     var: $driver { val: $meta.driver }
+
+    if: "$driver == 'not_found'" {
+        then: {
+            db.select: "SELECT s.driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" {
+                bind: [$connection]
+                first: true
+                as: $db_meta
+            }
+            coalesce: $db_meta {
+                default: { driver: 'sqlite' }
+                as: $meta2
+            }
+            var: $driver { val: $meta2.driver }
+        }
+    }
 
     var: $query { val: "SHOW TABLES" }
     if: "$driver == 'sqlite'" {
@@ -629,11 +644,14 @@ http.post: '/api/database/install-server' {
                 bind: [$name, $driver, $port, $admin_user, $root_password]
             }
 
+            db.select: "SELECT id, name, driver, host, port, admin_user FROM db_servers" { as: $debug_servers }
+
             http.created: {
                 message: "Database engine deployed and registered successfully"
                 server_name: $name
                 driver: $driver
                 connected: $test_conn
+                debug_servers: $debug_servers
             }
         }
         else: {

@@ -21,9 +21,18 @@ export function loadContainers() {
     });
 }
 
+let lastContainersJson = "";
+
 export function renderContainers(containers) {
   const tbody = document.getElementById("container-table-body");
   if (!tbody) return;
+
+  const currentJson = JSON.stringify(containers);
+  if (currentJson === lastContainersJson) {
+    return; // Skip redundant DOM updates if container data is identical
+  }
+  lastContainersJson = currentJson;
+
   tbody.innerHTML = "";
 
   if (!containers || containers.length === 0) {
@@ -61,9 +70,16 @@ export function renderContainers(containers) {
       container.ports && container.ports.length > 0
         ? container.ports.join(", ")
         : "-";
-    const created = container.created_at
-      ? new Date(container.created_at + "Z").toLocaleString()
-      : "-";
+    let created = "-";
+    if (container.created_at) {
+      let dateStr = container.created_at;
+      // Append Z only if no timezone indicator is present
+      if (!dateStr.endsWith("Z") && !dateStr.includes("+") && (dateStr.match(/-/g) || []).length < 3) {
+        dateStr += "Z";
+      }
+      const d = new Date(dateStr);
+      created = isNaN(d.getTime()) ? container.created_at : d.toLocaleString();
+    }
 
     tr.innerHTML = `
             <td style="font-weight:600; color:var(--text-main);">${escapeHtml(container.id)}</td>
@@ -106,22 +122,25 @@ export function renderContainers(containers) {
                         <button class="action-dropdown-item" onclick="browseContainerFiles('${container.id}')">
                             <i class="fa-solid fa-folder-open" style="color:#f59e0b;"></i> Browse Files
                         </button>
-                        <button class="action-dropdown-item" onclick="viewContainerLogs('${container.id}')">
-                            <i class="fa-solid fa-terminal" style="color:var(--text-main);"></i> Logs
-                        </button>
-                        <button class="action-dropdown-item" onclick="openEditContainerResources('${container.id}')">
-                            <i class="fa-solid fa-sliders" style="color:var(--accent-primary);"></i> Edit Resources
-                        </button>
-                        <hr style="border:none; border-top:1px solid var(--card-border); margin:4px 0;">
-                        <button class="action-dropdown-item danger" onclick="deleteContainer('${container.id}')">
-                            <i class="fa-solid fa-trash-can"></i> Delete
-                        </button>
-                    </div>
-                </div>
-            </td>
-        `;
-    tbody.appendChild(tr);
-  });
+                         <button class="action-dropdown-item" onclick="viewContainerLogs('${container.id}')">
+                             <i class="fa-solid fa-terminal" style="color:var(--text-main);"></i> Logs
+                         </button>
+                         <button class="action-dropdown-item" onclick="openContainerTerminal('${container.id}')">
+                             <i class="fa-solid fa-code" style="color:var(--success);"></i> Terminal
+                         </button>
+                         <button class="action-dropdown-item" onclick="openEditContainerResources('${container.id}')">
+                             <i class="fa-solid fa-sliders" style="color:var(--accent-primary);"></i> Edit Resources
+                         </button>
+                         <hr style="border:none; border-top:1px solid var(--card-border); margin:4px 0;">
+                         <button class="action-dropdown-item danger" onclick="deleteContainer('${container.id}')">
+                             <i class="fa-solid fa-trash-can"></i> Delete
+                         </button>
+                     </div>
+                 </div>
+             </td>
+         `;
+     tbody.appendChild(tr);
+   });
 }
 
 export function startContainerPolling() {
@@ -226,7 +245,13 @@ export function inspectContainer(id) {
     .then((res) => res.json())
     .then((res) => {
       if (res.success && res.data) {
-        showToast("info", JSON.stringify(res.data, null, 2), 8000);
+        let parsedData = res.data;
+        if (typeof res.data === "string") {
+          try {
+            parsedData = JSON.parse(res.data);
+          } catch (e) {}
+        }
+        showToast("info", `<pre style="margin:0; font-family:var(--font-code); font-size:0.8rem; line-height:1.4; color:var(--text-main); white-space:pre-wrap;">${escapeHtml(JSON.stringify(parsedData, null, 2))}</pre>`, 8000);
       } else {
         showToast("error", "Failed to inspect container");
       }
@@ -1018,5 +1043,26 @@ export function deleteNetwork(name) {
       }
     })
     .catch(() => showToast("error", "Network error"));
+}
+
+export function openContainerTerminal(id) {
+  window.switchTab("terminal");
+  setTimeout(() => {
+    const input = document.getElementById("terminal-stdin");
+    if (input) {
+      input.value = `runc --root /var/lib/zeno-container/runc exec ${id} sh`;
+      input.focus();
+      
+      // Simulate pressing Enter to execute the command instantly
+      const event = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true
+      });
+      input.dispatchEvent(event);
+    }
+  }, 300);
 }
 

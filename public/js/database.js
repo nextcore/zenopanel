@@ -164,8 +164,8 @@ export function deleteDatabaseServer(id, name) {
         return;
     }
 
-    fetch('/api/database/servers', {
-        method: 'DELETE',
+    fetch('/api/database/servers/delete', {
+        method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': getCSRFToken()

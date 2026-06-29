@@ -1,8 +1,49 @@
 use zenocore::{Engine, SlotMeta, Value, Diagnostic};
 use crate::db::DBManager;
-use super::resolve_node_value;
+use super::{resolve_node_value, resolve_scope_path};
 use std::sync::Arc;
 use std::collections::HashMap;
+
+fn parse_raw_bind_list(val_str: &str, scope: &Arc<zenocore::Scope>) -> Vec<Value> {
+    let trimmed = val_str.trim();
+    if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        let content = &trimmed[1..trimmed.len() - 1];
+        let mut list = Vec::new();
+        for item in content.split(',') {
+            let item_trimmed = item.trim();
+            if item_trimmed.is_empty() {
+                continue;
+            }
+            if item_trimmed.starts_with('$') {
+                let var_name = item_trimmed.trim_start_matches('$');
+                if let Some(val) = resolve_scope_path(var_name, scope) {
+                    list.push(val);
+                } else {
+                    list.push(Value::Nil);
+                }
+            } else {
+                if (item_trimmed.starts_with('\'') && item_trimmed.ends_with('\'')) || 
+                   (item_trimmed.starts_with('"') && item_trimmed.ends_with('"')) {
+                    list.push(Value::String(item_trimmed[1..item_trimmed.len() - 1].to_string()));
+                } else if let Ok(i) = item_trimmed.parse::<i64>() {
+                    list.push(Value::Int(i));
+                } else if let Ok(f) = item_trimmed.parse::<f64>() {
+                    list.push(Value::Float(f));
+                } else if item_trimmed == "true" {
+                    list.push(Value::Bool(true));
+                } else if item_trimmed == "false" {
+                    list.push(Value::Bool(false));
+                } else if item_trimmed == "nil" || item_trimmed == "null" {
+                    list.push(Value::Nil);
+                } else {
+                    list.push(Value::String(item_trimmed.to_string()));
+                }
+            }
+        }
+        return list;
+    }
+    Vec::new()
+}
 
 pub fn register(engine: &mut Engine) {
     engine.register(
@@ -40,9 +81,15 @@ pub fn register(engine: &mut Engine) {
                 } else if child.name == "first" {
                     only_first = val.to_bool();
                 } else if child.name == "bind" {
-                    for bind_child in &child.children {
-                        let bind_val = engine.resolve_shorthand_value(bind_child, scope);
-                        bind_args.push(bind_val);
+                    if child.children.is_empty() {
+                        if let Some(ref val_str) = child.value {
+                            bind_args = parse_raw_bind_list(val_str, scope);
+                        }
+                    } else {
+                        for bind_child in &child.children {
+                            let bind_val = engine.resolve_shorthand_value(bind_child, scope);
+                            bind_args.push(bind_val);
+                        }
                     }
                 }
             }
@@ -289,9 +336,15 @@ pub fn register(engine: &mut Engine) {
                 } else if child.name == "db" || child.name == "connection" {
                     db_name = val.to_string_coerce();
                 } else if child.name == "bind" {
-                    for bind_child in &child.children {
-                        let bind_val = engine.resolve_shorthand_value(bind_child, scope);
-                        bind_args.push(bind_val);
+                    if child.children.is_empty() {
+                        if let Some(ref val_str) = child.value {
+                            bind_args = parse_raw_bind_list(val_str, scope);
+                        }
+                    } else {
+                        for bind_child in &child.children {
+                            let bind_val = engine.resolve_shorthand_value(bind_child, scope);
+                            bind_args.push(bind_val);
+                        }
                     }
                 }
             }
@@ -354,6 +407,7 @@ pub fn register(engine: &mut Engine) {
                     }
                 })
             }).map_err(|e| {
+                println!("[DB DEBUG] Execute failed: {}", e);
                 Diagnostic {
                     r#type: "error".to_string(),
                     message: e,
@@ -363,7 +417,7 @@ pub fn register(engine: &mut Engine) {
                     slot: Some("db.execute".to_string()),
                 }
             })?;
-
+ 
             scope.set("db_affected", Value::Int(affected));
             scope.set("db_last_id", Value::Int(last_id));
             Ok(())

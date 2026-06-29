@@ -3,9 +3,40 @@ import { getCSRFToken, escapeHtml } from './utils.js';
 export const terminalHistory = [];
 export let terminalHistoryIndex = -1;
 
+export let terminalCwd = "";
+let terminalUsername = "root";
+let terminalHostname = "control-panel";
+let terminalSessionId = "";
+let terminalEventSource = null;
+
 export function focusTerminalInput() {
     const input = document.getElementById('terminal-stdin');
     if (input) input.focus();
+}
+
+export function closeTerminal() {
+    if (terminalEventSource) {
+        terminalEventSource.close();
+        terminalEventSource = null;
+    }
+}
+
+function updatePrompt(cwd) {
+    const promptNode = document.getElementById('terminal-prompt-node');
+    if (!promptNode) return;
+    
+    const symbol = terminalUsername === 'root' ? '#' : '$';
+    
+    // Normalize home directory path to tilde (~)
+    let displayDir = cwd;
+    const homePath = terminalUsername === 'root' ? '/root' : `/home/${terminalUsername}`;
+    if (displayDir === homePath) {
+        displayDir = "~";
+    } else if (displayDir.startsWith(homePath + "/")) {
+        displayDir = "~" + displayDir.slice(homePath.length);
+    }
+    
+    promptNode.innerText = `${terminalUsername}@${terminalHostname}:${displayDir}${symbol}`;
 }
 
 export function handleTerminalCommand(event) {
@@ -39,35 +70,25 @@ export function handleTerminalCommand(event) {
             return;
         }
 
-        // Send request to execute command
-        fetch('/api/terminal/run', {
+        // Send input to the persistent bash session's stdin
+        // Append CWD tracking command dynamically
+        const payloadInput = `${command}\necho -n "___CWD_DELIMITER___"; pwd\n`;
+        
+        fetch('/api/terminal/write', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': getCSRFToken()
             },
-            body: JSON.stringify({ command: command })
-        })
-        .then(res => res.json())
-        .then(res => {
-            const resultContainer = document.createElement('div');
-            resultContainer.className = 'terminal-output';
-            
-            if (res.success) {
-                const outText = res.stdout || 'Command completed with exit code 0';
-                resultContainer.innerText = outText;
-            } else {
-                const errText = res.stderr || `Command failed with exit code ${res.exit_code}`;
-                resultContainer.innerHTML = `<span class="terminal-error">${escapeHtml(errText)}</span>`;
-            }
-            viewport.insertBefore(resultContainer, inputField.parentElement);
-            
-            viewport.scrollTop = viewport.scrollHeight;
+            body: JSON.stringify({
+                session_id: terminalSessionId,
+                input: payloadInput
+            })
         })
         .catch(err => {
             const errLine = document.createElement('div');
             errLine.className = 'terminal-output terminal-error';
-            errLine.innerText = 'Gagal memanggil shell execution: ' + err.toString();
+            errLine.innerText = 'Failed to send input: ' + err.toString();
             viewport.insertBefore(errLine, inputField.parentElement);
             viewport.scrollTop = viewport.scrollHeight;
         });
@@ -106,16 +127,69 @@ export function initTerminal() {
         .then(res => res.json())
         .then(res => {
             if (res.success && res.data) {
-                const username = res.data.username || 'max';
-                const hostname = res.data.hostname || 'control-panel';
-                // root uses '#', non-root uses '$'
-                const symbol = username === 'root' ? '#' : '$';
-                const promptString = `${username}@${hostname}:~${symbol}`;
-
-                const promptNode = document.getElementById('terminal-prompt-node');
-                if (promptNode) {
-                    promptNode.innerText = promptString;
+                terminalUsername = res.data.username || 'max';
+                terminalHostname = res.data.hostname || 'control-panel';
+                
+                // Initialize unique session ID and SSE connection
+                terminalSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                
+                if (terminalEventSource) {
+                    terminalEventSource.close();
                 }
+                
+                terminalEventSource = new EventSource(`/api/terminal/stream?session_id=${terminalSessionId}`);
+                
+                // Current output buffer/element
+                let currentOutputElement = null;
+                
+                terminalEventSource.onmessage = (event) => {
+                    const viewport = document.getElementById('terminal-viewport');
+                    if (!viewport) return;
+                    
+                    let data = event.data;
+                    
+                    // Parse out dynamic CWD changes
+                    if (data.includes("___CWD_DELIMITER___")) {
+                        const parts = data.split("___CWD_DELIMITER___");
+                        data = parts[0];
+                        terminalCwd = parts[1].trim();
+                        updatePrompt(terminalCwd);
+                    }
+                    
+                    if (data !== "") {
+                        if (!currentOutputElement) {
+                            currentOutputElement = document.createElement('pre');
+                            currentOutputElement.className = 'terminal-output';
+                            currentOutputElement.style.cssText = "margin: 0; white-space: pre-wrap; font-family: var(--font-code); font-size: 0.85rem; color: #f1f5f9; line-height: 1.5; padding: 4px 0;";
+                            viewport.insertBefore(currentOutputElement, input.parentElement);
+                        }
+                        
+                        currentOutputElement.textContent += data;
+                        viewport.scrollTop = viewport.scrollHeight;
+                    } else {
+                        // Reset output element for new command outputs
+                        currentOutputElement = null;
+                    }
+                };
+                
+                terminalEventSource.onerror = () => {
+                    console.warn("Terminal stream disconnected, attempting reconnect...");
+                };
+                
+                // Trigger initial CWD retrieval
+                setTimeout(() => {
+                    fetch('/api/terminal/write', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': getCSRFToken()
+                        },
+                        body: JSON.stringify({
+                            session_id: terminalSessionId,
+                            input: 'echo -n "___CWD_DELIMITER___"; pwd\n'
+                        })
+                    }).catch(() => {});
+                }, 500);
             }
         })
         .catch(err => console.error(err));

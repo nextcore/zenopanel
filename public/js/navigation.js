@@ -8,7 +8,7 @@ import {
 } from "./dashboard.js";
 import { loadFilesList, initFileManager } from "./filemanager.js";
 import { initDatabaseTab } from "./database.js";
-import { focusTerminalInput, initTerminal } from "./terminal.js";
+import { focusTerminalInput, initTerminal, closeTerminal } from "./terminal.js";
 import {
   loadManagedProcesses,
   startManagedPolling,
@@ -71,6 +71,8 @@ export function runTabInit(tab) {
   if (tab === "terminal") {
     initTerminal();
     setTimeout(focusTerminalInput, 50);
+  } else {
+    closeTerminal();
   }
 
   if (tab === "managed") {

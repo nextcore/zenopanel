@@ -1,43 +1,62 @@
 import requests
-import re
 import json
+import re
 
 session = requests.Session()
 
-# 1. Get login page to extract CSRF token (connecting directly to port 80)
-res = session.get("http://127.0.0.1/login")
-csrf_match = re.search(r"csrfToken = '([^']+)';", res.text)
-if not csrf_match:
-    print("Failed to find CSRF token in page")
-    exit(1)
-csrf_token = csrf_match.group(1)
-print(f"Extracted CSRF token: {csrf_token}")
+# 1. Get CSRF Token
+login_url = "http://127.0.0.1:3002/login"
+print("Fetching login page for CSRF token...")
+r_get = session.get(login_url)
+
+csrf_token = ""
+match = re.search(r"const\s+csrfToken\s*=\s*'([^']+)';", r_get.text)
+if match:
+    csrf_token = match.group(1)
+    print("Found CSRF Token:", csrf_token)
+else:
+    print("Could not find CSRF token in HTML!")
+    print(r_get.text[:1000])
 
 # 2. Login
-login_payload = {"username": "admin", "password": "admin"}
-res = session.post(
-    "http://127.0.0.1/login",
-    headers={"X-CSRF-Token": csrf_token},
-    json=login_payload
-)
-print("Login status:", res.status_code)
-
-# 3. Post to install-server
-install_payload = {
-    "engine": "mysql:8.4",
-    "name": "mysql-84",
-    "port": 3308,
-    "root_password": "zenopanel",
-    "data_dir": "/var/lib/zenopanel/db/mysql-84"
+payload = {
+    "username": "admin",
+    "password": "admin"
 }
-res = session.post(
-    "http://127.0.0.1/api/database/install-server",
-    headers={"X-CSRF-Token": csrf_token},
-    json=install_payload
-)
-print("Install status:", res.status_code)
-print("Install response:")
+headers = {
+    "Content-Type": "application/json",
+    "X-CSRF-Token": csrf_token
+}
+
+print("\nLogging in...")
+r_login = session.post(login_url, json=payload, headers=headers)
+print("Login status:", r_login.status_code)
+print("Login response:", r_login.text)
+
+# 3. Deploy & Register Database Engine
+install_url = "http://127.0.0.1:3002/api/database/install-server"
+db_payload = {
+    "engine": "mysql:5.7",
+    "name": "mysql-test-9",
+    "port": 3316,
+    "root_password": "Veteran31",
+    "data_dir": "/var/lib/zenopanel/db/mysql-test-9"
+}
+
+headers_api = {
+    "Content-Type": "application/json",
+    "X-CSRF-Token": csrf_token
+}
+
+print("\nDeploying database server...")
 try:
-    print(json.dumps(res.json(), indent=2))
-except Exception:
-    print(res.text)
+    r_install = session.post(install_url, json=db_payload, headers=headers_api, timeout=120)
+    print("Install status:", r_install.status_code)
+    print("Install response:")
+    try:
+        print(json.dumps(r_install.json(), indent=2))
+    except Exception as e:
+        print("Failed to parse JSON:", e)
+        print("Raw text response:", r_install.text)
+except Exception as e:
+    print("Request failed:", e)

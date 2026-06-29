@@ -52,9 +52,9 @@ fn configure_peer(peer: &mut HttpPeer, is_realtime: bool) {
         peer.options.read_timeout = Some(std::time::Duration::from_secs(3600));
         peer.options.write_timeout = Some(std::time::Duration::from_secs(3600));
     } else {
-        // Fast timeouts for standard HTTP requests
-        peer.options.read_timeout = Some(std::time::Duration::from_secs(15));
-        peer.options.write_timeout = Some(std::time::Duration::from_secs(15));
+        // Allow up to 120 seconds for standard HTTP requests (needed for DB installs, backups, etc.)
+        peer.options.read_timeout = Some(std::time::Duration::from_secs(120));
+        peer.options.write_timeout = Some(std::time::Duration::from_secs(120));
     }
 }
 
