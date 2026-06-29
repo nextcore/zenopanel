@@ -326,6 +326,38 @@ async fn pull_image_rust(image: &str) -> Result<Vec<String>, String> {
     Ok(final_cmd)
 }
 
+fn get_image_default_cmd(image: &str) -> Vec<String> {
+    let data_dir = get_data_dir();
+    let img_ref = parse_image_ref(image);
+    let cache_dir_name = format!("{}_{}", img_ref.repository, img_ref.tag)
+        .replace('/', "_")
+        .replace(':', "_");
+    let cache_dir = Path::new(&data_dir).join("images").join(&cache_dir_name);
+    let config_path = cache_dir.join("image-config.json");
+    let mut default_cmd = Vec::new();
+    if config_path.exists() {
+        if let Ok(file) = File::open(&config_path) {
+            if let Ok(image_config_json) = serde_json::from_reader::<_, serde_json::Value>(file) {
+                if let Some(entrypoint) = image_config_json.get("config").and_then(|c| c.get("Entrypoint")).and_then(|e| e.as_array()) {
+                    for val in entrypoint {
+                        if let Some(s) = val.as_str() {
+                            default_cmd.push(s.to_string());
+                        }
+                    }
+                }
+                if let Some(cmd) = image_config_json.get("config").and_then(|c| c.get("Cmd")).and_then(|e| e.as_array()) {
+                    for val in cmd {
+                        if let Some(s) = val.as_str() {
+                            default_cmd.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    default_cmd
+}
+
 fn get_data_dir() -> String {
     std::env::var("ZENO_CONTAINER_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string())
 }
@@ -1445,7 +1477,9 @@ fn register_box_create(engine: &mut Engine) {
             let cpu_limit = cpus.parse::<f64>().unwrap_or(0.0);
             let oom_score_adj = oom_score_adj_str.parse::<i32>().ok();
 
-            let cmd_vec = if cmd.is_empty() { Vec::new() } else {
+            let cmd_vec = if cmd.is_empty() {
+                get_image_default_cmd(&image)
+            } else {
                 cmd.split_whitespace().map(|s| s.to_string()).collect()
             };
 
@@ -2372,15 +2406,23 @@ fn compose_up(path: &str) -> Result<String, String> {
             .replace('/', "_")
             .replace(':', "_");
         let cache_dir = Path::new(&data_dir).join("images").join(&cache_dir_name);
+        let mut default_cmd = Vec::new();
         if !cache_dir.exists() {
             output.push_str(&format!("  ▶ Image {} not found locally. Pulling...\n", image));
             let rt = tokio::runtime::Handle::current();
             let pull_res = tokio::task::block_in_place(|| {
                 rt.block_on(async { pull_image_rust(image).await })
             });
-            if let Err(e) = pull_res {
-                return Err(format!("Failed to pull image {}: {}", image, e));
+            match pull_res {
+                Ok(cmd) => {
+                    default_cmd = cmd;
+                }
+                Err(e) => {
+                    return Err(format!("Failed to pull image {}: {}", image, e));
+                }
             }
+        } else {
+            default_cmd = get_image_default_cmd(image);
         }
 
         let container_name = svc.container_name.as_ref().unwrap_or(&name);
@@ -2395,7 +2437,7 @@ fn compose_up(path: &str) -> Result<String, String> {
         let cmd_args = if let Some(ref command) = svc.command {
             command.split_whitespace().map(|s| s.to_string()).collect()
         } else {
-            Vec::new()
+            default_cmd
         };
 
         let env = if let Some(ref e) = svc.environment {

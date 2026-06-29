@@ -167,6 +167,7 @@ tar -xzf "$TARBALL_FILE" -C "$TEMP_EXTRACT_DIR"
 EXTRACTED_SUBFOLDER=$(ls "$TEMP_EXTRACT_DIR")
 if [ -n "$EXTRACTED_SUBFOLDER" ]; then
     cp -r "$TEMP_EXTRACT_DIR/$EXTRACTED_SUBFOLDER"/* ./
+    cp -r "$TEMP_EXTRACT_DIR/$EXTRACTED_SUBFOLDER"/.env.example ./ 2>/dev/null
 fi
 
 # Bersihkan sisa ekstraksi dan berkas tarball
