@@ -524,6 +524,13 @@ fn generate_config_json(
         if parts.len() == 2 {
             let host_path = parts[0];
             let container_path = parts[1];
+
+            // Auto-create host path directory if it doesn't exist
+            let path = Path::new(host_path);
+            if !path.exists() {
+                let _ = fs::create_dir_all(path);
+            }
+
             let abs_host = fs::canonicalize(host_path)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| host_path.to_string());
