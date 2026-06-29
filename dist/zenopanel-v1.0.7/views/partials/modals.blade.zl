@@ -1,0 +1,746 @@
+<!-- Modal Code Editor Dialog -->
+<div class="modal-overlay" id="editor-modal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title" id="editor-modal-filename">Editing File</div>
+            <div class="modal-close" onclick="closeEditorModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <textarea class="editor-textarea" id="editor-textarea-field" autocomplete="off"></textarea>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-action" onclick="closeEditorModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="saveActiveFile()">
+                <i class="fa-solid fa-save"></i>
+                <span>Save Changes</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Process Modal -->
+<div class="modal-overlay" id="add-proc-modal">
+    <div class="modal-card" style="max-width:550px;">
+        <div class="modal-header">
+            <div class="modal-title" id="modal-proc-title">Add Managed Process</div>
+            <div class="modal-close" onclick="closeAddProcessModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="proc-id-val" value="">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Process Name</label>
+                <input type="text" id="proc-name" placeholder="e.g. node-app" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Command</label>
+                <input type="text" id="proc-command" placeholder="e.g. node server.js" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Working Directory</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="proc-cwd" placeholder="e.g. /home/user/app (default: .)" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="openDirPicker()" style="padding:0 15px; display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-folder-open"></i> Browse
+                    </button>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Port (Optional)</label>
+                <input type="number" id="proc-port" placeholder="e.g. 8080" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;" min="1" max="65535">
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                <input type="checkbox" id="proc-autorestart" checked style="cursor:pointer; width:16px; height:16px;">
+                <label for="proc-autorestart" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Auto Restart on Crash / Exit</label>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddProcessModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-proc-submit" onclick="submitAddProcess()">Add Process</button>
+        </div>
+    </div>
+</div>
+
+<!-- Directory Picker Modal -->
+<div class="modal-overlay" id="dir-picker-modal" style="z-index: 1000;">
+    <div class="modal-card" style="max-width:500px; display:flex; flex-direction:column; max-height:80vh;">
+        <div class="modal-header">
+            <div class="modal-title">Select Working Directory</div>
+            <div class="modal-close" onclick="closeDirPicker()">&times;</div>
+        </div>
+        <div class="modal-body" style="overflow-y:auto; flex-grow:1; padding:15px 0;">
+            <!-- Breadcrumb -->
+            <div id="dp-breadcrumb" style="padding:0 20px 10px 20px; border-bottom:1px solid var(--card-border); font-size:0.85rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+            </div>
+            <!-- Dir List -->
+            <div id="dp-dir-list" style="margin-top:10px;">
+                <!-- Rows will be injected here -->
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <div style="font-size:0.85rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">
+                Selected: <span id="dp-selected-path" style="color:var(--text-main); font-weight:bold;">.</span>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-action" onclick="closeDirPicker()">Cancel</button>
+                <button class="btn-primary-action" onclick="confirmDirSelection()">Select Directory</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Process Logs Modal -->
+<div class="modal-overlay" id="proc-logs-modal">
+    <div class="modal-card" style="max-width:850px; width:90%; padding:0; display:flex; flex-direction:column; overflow:hidden;">
+        <div class="modal-header" style="padding:15px 20px; border-bottom:1px solid var(--card-border);">
+            <div class="modal-title" id="proc-logs-title">Process Logs</div>
+            <div class="modal-close" onclick="closeProcLogsModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="padding:0; background:#0f172a; flex-grow:1; display:flex; flex-direction:column;">
+            <div class="terminal-body" id="proc-logs-viewport" style="height:450px; overflow-y:auto; font-family:var(--font-code); padding:20px; color:#f1f5f9; white-space:pre-wrap; font-size:0.85rem; line-height:1.5;">
+            </div>
+        </div>
+        <div class="modal-footer" style="padding:15px 20px; background:#0b0f19; border-top:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:8px; color:#94a3b8; font-size:0.8rem;">
+                <span class="pulse-indicator" id="log-polling-indicator"></span>
+                <span>Polling logs active</span>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-primary-action" onclick="downloadProcessLogs()" style="display:flex; align-items:center; gap:6px; font-size:0.8rem; padding:6px 12px;"><i class="fa-solid fa-download"></i> Download Full Logs</button>
+                <button class="btn-action" onclick="closeProcLogsModal()" style="border-color:#2e3c54; color:#94a3b8;">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Proxy Modal --> 
+<div class="modal-overlay" id="add-proxy-modal">
+    <div class="modal-card" style="max-width:550px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="modal-header">
+            <div class="modal-title" id="modal-proxy-title">Add Reverse Proxy Rule</div>
+            <div class="modal-close" onclick="closeAddProxyModal()">&times;</div>
+        </div>
+        
+        <div class="modal-body" style="flex-grow: 1; overflow-y: auto; padding-right: 5px;">
+            <input type="hidden" id="proxy-id-val" value="">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Routing Type</label>
+                <select id="proxy-rule-type" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="proxy">Reverse Proxy (Forward to local port/URL)</option>
+                    <option value="static">Static HTML Directory (Serve folder directly)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Rule Name</label>
+                <input type="text" id="proxy-name" placeholder="e.g. My Node App" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Domain / Host</label>
+                <input type="text" id="proxy-domain" placeholder="e.g. app.local or * (any domain)" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Alternative Domain / Host (Optional)</label>
+                <input type="text" id="proxy-alternative-domain" placeholder="e.g. 192.168.1.100 or another domain" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Source Path Prefix</label>
+                <input type="text" id="proxy-path" placeholder="e.g. /api or /" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" id="proxy-group-managed-process" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Linked Managed Process (Optional)</label>
+                <select id="proxy-managed-process-id" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="">None</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label id="proxy-target-label" style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Destination URL</label>
+                <input type="text" id="proxy-target" placeholder="e.g. http://127.0.0.1:8000" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" id="proxy-group-strip-path" style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                <input type="checkbox" id="proxy-strip-path" style="cursor:pointer; width:16px; height:16px;">
+                <label for="proxy-strip-path" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Strip path prefix before forwarding</label>
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                <input type="checkbox" id="proxy-enabled" checked style="cursor:pointer; width:16px; height:16px;">
+                <label for="proxy-enabled" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Enable this proxy rule immediately</label>
+            </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                <input type="checkbox" id="proxy-ssl-enabled" style="cursor:pointer; width:16px; height:16px;">
+                <label for="proxy-ssl-enabled" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Enable Automatic SSL / HTTPS (Let's Encrypt / Local)</label>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddProxyModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-proxy-submit" onclick="submitAddProxy()">Add Rule</button>
+        </div>
+    </div>
+</div>
+
+<!-- Port Check Modal -->
+<div class="modal-overlay" id="port-check-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:15px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;" id="modal-port-title">
+                <i class="fa-solid fa-circle-question" style="color:var(--accent-primary);"></i> Check Port in Use
+            </h3>
+            <button onclick="closePortCheckModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.2rem;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Port Number</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="number" id="check-port-num" placeholder="e.g. 3000, 8080, 80" min="1" max="65535" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-primary-action" onclick="submitPortCheck()" style="padding:0 20px; display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-magnifying-glass"></i> Check
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Result Panel -->
+            <div id="port-check-result" style="display:none; margin-top:20px; padding:15px; border-radius:8px; border:1px solid var(--card-border); background:rgba(255,255,255,0.02);">
+                <!-- Populated dynamically by JS -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit User Modal -->
+<div class="modal-overlay" id="add-user-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title" id="modal-user-title">Add User</div>
+            <div class="modal-close" onclick="closeAddUserModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="user-mode" value="create">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Username</label>
+                <input type="text" id="user-username" placeholder="e.g. admin_secondary" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Password <span id="pwd-help-text" style="color:var(--text-muted); font-size:0.8rem; font-weight:normal;"></span></label>
+                <input type="password" id="user-password" placeholder="••••••••" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Role</label>
+                <select id="user-role" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="admin">Admin</option>
+                    <option value="editor">Editor</option>
+                    <option value="viewer">Viewer</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddUserModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-user-submit" onclick="submitAddUser()">Save User</button>
+        </div>
+    </div>
+</div>
+
+<!-- Change Permissions Modal -->
+<div class="modal-overlay" id="permissions-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title" id="permissions-modal-title">Ubah Permission</div>
+            <div class="modal-close" onclick="closePermissionsModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="perm-path-val" value="">
+            
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Path</label>
+                <input type="text" id="perm-path-display" readonly style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.05); color:var(--text-muted); outline:none; font-family:var(--font-code); font-size:0.85rem;">
+            </div>
+
+            <!-- 3x3 Grid of Checkboxes -->
+            <div style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:10px; font-weight:500; font-size:0.9rem;">Hak Akses (Permissions)</label>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center; align-items: center; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border: 1px solid var(--card-border);">
+                    <div></div>
+                    <div style="font-weight:600; font-size:0.8rem; color:var(--text-muted);">Read (r)</div>
+                    <div style="font-weight:600; font-size:0.8rem; color:var(--text-muted);">Write (w)</div>
+                    <div style="font-weight:600; font-size:0.8rem; color:var(--text-muted);">Execute (x)</div>
+
+                    <div style="font-weight:600; font-size:0.85rem; text-align: left; padding-left: 5px;">Owner</div>
+                    <div><input type="checkbox" id="perm-owner-r" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+                    <div><input type="checkbox" id="perm-owner-w" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+                    <div><input type="checkbox" id="perm-owner-x" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+
+                    <div style="font-weight:600; font-size:0.85rem; text-align: left; padding-left: 5px;">Group</div>
+                    <div><input type="checkbox" id="perm-group-r" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+                    <div><input type="checkbox" id="perm-group-w" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+                    <div><input type="checkbox" id="perm-group-x" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+
+                    <div style="font-weight:600; font-size:0.85rem; text-align: left; padding-left: 5px;">Others</div>
+                    <div><input type="checkbox" id="perm-others-r" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+                    <div><input type="checkbox" id="perm-others-w" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+                    <div><input type="checkbox" id="perm-others-x" onchange="updateOctalFromCheckboxes()" style="width:18px; height:18px; cursor:pointer;"></div>
+                </div>
+            </div>
+
+            <!-- Octal Notation input -->
+            <div class="form-group" style="margin-bottom:15px; display:flex; gap:12px; align-items:center;">
+                <div style="flex:1;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Notasi Oktal</label>
+                    <input type="text" id="perm-octal-val" oninput="updateCheckboxesFromOctal()" placeholder="e.g. 755" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family:var(--font-code); font-size:0.9rem; text-align:center;">
+                </div>
+                <div style="flex:2; padding-top:24px;" id="perm-recursive-container">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="perm-recursive" style="cursor:pointer; width:16px; height:16px;">
+                        <label for="perm-recursive" style="cursor:pointer; font-weight:500; font-size:0.85rem; user-select:none; margin:0; color:var(--text-muted);">Terapkan secara rekursif</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closePermissionsModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-perm-submit" onclick="submitChangePermissions()">Ubah Permission</button>
+        </div>
+    </div>
+</div>
+
+<!-- Register Database Server Modal -->
+<div class="modal-overlay" id="add-db-server-modal">
+    <div class="modal-card" style="max-width:500px;">
+        <div class="modal-header">
+            <div class="modal-title">Register Database Server</div>
+            <div class="modal-close" onclick="closeAddDbServerModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Server Alias Name</label>
+                <input type="text" id="db-server-name" placeholder="e.g. MySQL-Container" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Driver</label>
+                <select id="db-server-driver" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="mysql">MySQL / MariaDB</option>
+                    <option value="postgres">PostgreSQL</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px; display:flex; gap:12px;">
+                <div style="flex:2;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Host Address / IP</label>
+                    <input type="text" id="db-server-host" placeholder="e.g. 127.0.0.1 or mysql-service" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+                <div style="flex:1;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Port</label>
+                    <input type="number" id="db-server-port" placeholder="3306" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Admin Username</label>
+                <input type="text" id="db-server-admin-user" placeholder="root" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Admin Password</label>
+                <input type="password" id="db-server-admin-password" placeholder="••••••••" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddDbServerModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitAddDbServer()">Register Server</button>
+        </div>
+    </div>
+</div>
+
+<!-- Create User Database Modal -->
+<div class="modal-overlay" id="create-db-modal">
+    <div class="modal-card" style="max-width:500px;">
+        <div class="modal-header">
+            <div class="modal-title">Create Database & User</div>
+            <div class="modal-close" onclick="closeAddDatabaseModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target DB Server</label>
+                <select id="db-create-server-select" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <!-- Populated dynamically -->
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Name</label>
+                <input type="text" id="db-create-name" placeholder="e.g. erp_prod" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Username</label>
+                <input type="text" id="db-create-user" placeholder="e.g. erp_user" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Password</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="db-create-password" placeholder="Password" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="generateRandomDbPassword()" style="white-space:nowrap; padding:0 12px;">Generate</button>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Access Type</label>
+                <select id="db-create-access" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="local">Local Host Only (127.0.0.1)</option>
+                    <option value="external">Any Host (%)</option>
+                </select>
+            </div>
+            <!-- Charset & Collation (MySQL only, hidden for Postgres) -->
+            <div id="db-create-charset-group">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:15px;">
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Character Set</label>
+                        <select id="db-create-charset" onchange="onDbCharsetChange()" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                            <option value="utf8mb4">utf8mb4 (Recommended)</option>
+                            <option value="utf8">utf8</option>
+                            <option value="latin1">latin1</option>
+                            <option value="ascii">ascii</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Collation</label>
+                        <select id="db-create-collation" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                            <option value="utf8mb4_unicode_ci">utf8mb4_unicode_ci</option>
+                            <option value="utf8mb4_general_ci">utf8mb4_general_ci</option>
+                            <option value="utf8mb4_0900_ai_ci">utf8mb4_0900_ai_ci</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <!-- PostgreSQL encoding (hidden by default) -->
+            <div id="db-create-encoding-group" style="display:none; margin-bottom:15px;">
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Encoding</label>
+                    <select id="db-create-encoding" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                        <option value="UTF8">UTF8 (Recommended)</option>
+                        <option value="LATIN1">LATIN1</option>
+                        <option value="SQL_ASCII">SQL_ASCII</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Description / Remarks</label>
+                <input type="text" id="db-create-desc" placeholder="e.g. Database for ERP Next tenant 1" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddDatabaseModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitCreateDatabase()">Create Database</button>
+        </div>
+    </div>
+</div>
+
+<!-- Change DB User Password Modal -->
+<div class="modal-overlay" id="change-db-password-modal">
+    <div class="modal-card" style="max-width:450px;">
+        <div class="modal-header">
+            <div class="modal-title">Change Database Password</div>
+            <div class="modal-close" onclick="closeChangeDbPasswordModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="change-db-id" value="">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">New Password</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="change-db-password-field" placeholder="Enter new password" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="generateRandomDbPasswordChange()" style="white-space:nowrap; padding:0 12px;">Generate</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeChangeDbPasswordModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitChangeDbPassword()">Update Password</button>
+        </div>
+    </div>
+</div>
+
+<!-- Manage DB Users Modal -->
+<div class="modal-overlay" id="manage-db-users-modal">
+    <div class="modal-card" style="max-width:660px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-users" style="color:var(--accent-primary); margin-right:8px;"></i>Manage Users — <span id="manage-db-users-dbname" style="color:var(--accent-primary);"></span></div>
+            <div class="modal-close" onclick="closeManageDbUsersModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="manage-db-users-dbid">
+            <!-- User list table -->
+            <div style="margin-bottom:20px;">
+                <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; letter-spacing:0.05em;">Active Users</div>
+                <div class="table-container" style="max-height:220px; overflow-y:auto;">
+                    <table class="data-table" style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Access</th>
+                                <th>Privileges</th>
+                                <th style="text-align:right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="db-users-table-body">
+                            <tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-muted);">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- Add new user form -->
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:16px;">
+                <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:14px; letter-spacing:0.05em;"><i class="fa-solid fa-plus"></i> Add New User</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem;">Username</label>
+                        <input type="text" id="new-db-user-name" placeholder="e.g. erp_readonly" style="width:100%; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;">
+                    </div>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem;">Password</label>
+                        <div style="display:flex; gap:6px;">
+                            <input type="text" id="new-db-user-password" placeholder="Password" style="flex-grow:1; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;">
+                            <button class="btn-action" onclick="generateNewDbUserPassword()" style="padding:0 10px; font-size:0.75rem;">Gen</button>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem;">Access Type</label>
+                        <select id="new-db-user-access" style="width:100%; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; font-size:0.85rem;">
+                            <option value="local">Local Only (127.0.0.1)</option>
+                            <option value="external">Any Host (%)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem;">Privilege Level</label>
+                        <select id="new-db-user-privileges" style="width:100%; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; font-size:0.85rem;">
+                            <option value="ALL">Full Access (ALL)</option>
+                            <option value="SELECT">Read Only (SELECT)</option>
+                            <option value="SELECT,INSERT,UPDATE,DELETE">Read/Write (no DDL)</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <button class="btn-primary-action" onclick="submitAddDbUser()" style="padding:8px 20px; font-size:0.85rem;">
+                        <i class="fa-solid fa-user-plus"></i> Add User
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeManageDbUsersModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Change DB User Password (individual user) Modal -->
+<div class="modal-overlay" id="change-dbuser-password-modal">
+    <div class="modal-card" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title">Change User Password</div>
+            <div class="modal-close" onclick="closeChangeDbUserPasswordModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="change-dbuser-id">
+            <p style="margin:0 0 14px; font-size:0.85rem; color:var(--text-muted);">Changing password for user: <strong id="change-dbuser-name-label" style="color:var(--text-main);"></strong></p>
+            <div class="form-group">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">New Password</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="change-dbuser-password-field" placeholder="New password" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="generateChangeDbUserPassword()" style="white-space:nowrap; padding:0 12px;">Generate</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeChangeDbUserPasswordModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitChangeDbUserPassword()">Update Password</button>
+        </div>
+    </div>
+</div>
+
+<!-- Install DB Engine via Container Modal -->
+<div class="modal-overlay" id="install-db-engine-modal">
+    <div class="modal-card" style="max-width:520px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-rocket" style="color:var(--accent-primary); margin-right:8px;"></i>Install Database Engine</div>
+            <div class="modal-close" onclick="closeInstallDbEngineModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px 14px; margin-bottom:18px; font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
+                <i class="fa-solid fa-circle-info" style="color:var(--accent-primary); margin-right:6px;"></i>
+                Akan men-deploy container database baru via z-c dan otomatis mendaftarkannya ke panel.
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Engine</label>
+                    <select id="install-db-engine" onchange="onInstallDbEngineChange()" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                        <optgroup label="── MySQL">
+                            <option value="mysql:8.4">MySQL 8.4 (LTS)</option>
+                            <option value="mysql:8.0">MySQL 8.0</option>
+                            <option value="mysql:5.7">MySQL 5.7 (Legacy)</option>
+                            <option value="mysql:5.6">MySQL 5.6 (Legacy)</option>
+                        </optgroup>
+                        <optgroup label="── MariaDB">
+                            <option value="mariadb:11.4">MariaDB 11.4 (LTS)</option>
+                            <option value="mariadb:11">MariaDB 11.1</option>
+                            <option value="mariadb:10.11">MariaDB 10.11 (LTS)</option>
+                            <option value="mariadb:10.6">MariaDB 10.6</option>
+                            <option value="mariadb:10.5">MariaDB 10.5</option>
+                            <option value="mariadb:10.4">MariaDB 10.4 (Legacy)</option>
+                            <option value="mariadb:10.3">MariaDB 10.3 (Legacy)</option>
+                        </optgroup>
+                        <optgroup label="── PostgreSQL">
+                            <option value="postgres:17">PostgreSQL 17</option>
+                            <option value="postgres:16">PostgreSQL 16 (LTS)</option>
+                            <option value="postgres:15">PostgreSQL 15</option>
+                            <option value="postgres:14">PostgreSQL 14</option>
+                            <option value="postgres:13">PostgreSQL 13</option>
+                            <option value="postgres:12">PostgreSQL 12 (Legacy)</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Port</label>
+                    <input type="number" id="install-db-port" value="3306" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Container / Server Name</label>
+                <input type="text" id="install-db-name" placeholder="e.g. mysql-main" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Root / Admin Password</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="install-db-root-password" placeholder="Root password" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" onclick="generateInstallDbRootPassword()" style="white-space:nowrap; padding:0 12px;">Generate</button>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:4px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Data Directory</label>
+                <input type="text" id="install-db-data-dir" placeholder="/var/lib/zenopanel/db/mysql-main" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Data akan di-mount ke path ini pada host.</div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeInstallDbEngineModal()">Cancel</button>
+            <button class="btn-primary-action" id="install-db-submit-btn" onclick="submitInstallDbEngine()">
+                <i class="fa-solid fa-rocket"></i> Deploy & Register
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Create DB Backup Modal -->
+<div class="modal-overlay" id="create-db-backup-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-database" style="color:var(--accent-primary); margin-right:8px;"></i>Create Database Backup</div>
+            <div class="modal-close" onclick="closeCreateBackupModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <!-- Info banner -->
+            <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px 14px; margin-bottom:16px; font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
+                <i class="fa-solid fa-circle-info" style="color:var(--accent-primary); margin-right:6px;"></i>
+                File backup akan disimpan di <strong style="color:var(--text-main);">/var/lib/zenopanel/backups/db/</strong>
+            </div>
+
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Database</label>
+                <select id="db-backup-select" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                    <!-- Populated dynamically -->
+                </select>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">SQLite (Panel DB) menggunakan <code>VACUUM INTO</code>. MySQL/PostgreSQL menggunakan <code>mysqldump</code> / <code>pg_dump</code>.</div>
+            </div>
+
+            <!-- Progress indicator (hidden until submitted) -->
+            <div id="backup-progress-banner" style="display:none; background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:12px 14px; font-size:0.82rem; color:#34d399; line-height:1.5;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="margin-right:6px;"></i>
+                <span>Creating backup, please wait…</span>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeCreateBackupModal()">Cancel</button>
+            <button class="btn-primary-action" id="create-db-backup-submit-btn" onclick="submitCreateBackup()">
+                <i class="fa-solid fa-floppy-disk"></i> Create Backup
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Restore DB Backup Modal -->
+<div class="modal-overlay" id="confirm-restore-db-backup-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-rotate-left" style="color:#f59e0b; margin-right:8px;"></i>Confirm Restore</div>
+            <div class="modal-close" onclick="closeConfirmRestoreModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="restore-backup-id-val" value="">
+
+            <!-- Warning -->
+            <div style="background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+                <div style="display:flex; align-items:center; gap:8px; font-weight:600; color:#f87171; margin-bottom:6px;">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Destructive Operation
+                </div>
+                <p style="margin:0; font-size:0.85rem; color:var(--text-muted); line-height:1.6;">
+                    This will <strong style="color:#f87171;">overwrite the current database</strong> with the selected backup.
+                    All data created after the backup timestamp will be lost. This action cannot be undone.
+                </p>
+            </div>
+
+            <!-- Backup details summary -->
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:14px 16px; margin-bottom:6px;">
+                <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">Backup Details</div>
+                <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:0.85rem;">
+                    <span style="color:var(--text-muted);">Database</span> <span id="restore-detail-db" style="color:var(--text-main); font-weight:500; font-family:var(--font-code);"></span>
+                    <span style="color:var(--text-muted);">Filename</span> <span id="restore-detail-label" style="color:var(--text-main); font-weight:500; font-family:var(--font-code); word-break:break-all;"></span>
+                    <span style="color:var(--text-muted);">Created</span>  <span id="restore-detail-date" style="color:var(--text-main);"></span>
+                    <span style="color:var(--text-muted);">Size</span>     <span id="restore-detail-size" style="color:var(--text-main);"></span>
+                </div>
+            </div>
+
+            <!-- Progress indicator (hidden until submitted) -->
+            <div id="restore-progress-banner" style="display:none; background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:12px 14px; margin-top:14px; font-size:0.82rem; color:#fbbf24; line-height:1.5;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="margin-right:6px;"></i>
+                <span>Restoring database, please wait…</span>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeConfirmRestoreModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-restore-submit" onclick="confirmRestoreDatabaseBackup()" style="background:linear-gradient(135deg,#b45309,#92400e); border-color:#b45309;">
+                <i class="fa-solid fa-rotate-left"></i> Yes, Restore Now
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Container Resources Modal -->
+<div class="modal-overlay" id="edit-container-resources-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-sliders" style="color:var(--accent-primary); margin-right:8px;"></i>Edit Container Resources</div>
+            <div class="modal-close" onclick="closeEditContainerResourcesModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="edit-container-resources-id" value="">
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+                <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">Container Details</div>
+                <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:0.85rem;">
+                    <span style="color:var(--text-muted);">Container ID / Name:</span> <span id="edit-container-resources-name" style="color:var(--text-main); font-weight:500; font-family:var(--font-code);"></span>
+                </div>
+            </div>
+            
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">CPU Limit</label>
+                <input type="text" id="edit-container-resources-cpus" placeholder="e.g. 0.5, 1.5, or empty for unlimited" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                <small style="display:block; margin-top:4px; font-size:0.75rem; color:var(--text-muted);">Allocation in fraction of CPU cores (e.g. 1.0 = 1 full core).</small>
+            </div>
+            
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Memory Limit</label>
+                <input type="text" id="edit-container-resources-memory" placeholder="e.g. 256m, 512m, 1g, or empty for unlimited" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                <small style="display:block; margin-top:4px; font-size:0.75rem; color:var(--text-muted);">Format: number followed by unit (m = megabytes, g = gigabytes).</small>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeEditContainerResourcesModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-update-resources-submit" onclick="submitEditContainerResources()">
+                <i class="fa-solid fa-save"></i> Save Changes
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Toasts -->
+<div class="toast-container" id="toast-bin"></div>
+
+

@@ -440,7 +440,25 @@ fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> 
         .map_err(|e| format!("Failed to run mount command: {}", e))?;
 
     if !status.success() {
-        return Err(format!("mount command failed with status: {:?}", status.code()));
+        // Fallback: Mirror Docker's VFS driver by copying layer files recursively
+        // when overlayfs mount is unsupported (e.g. on OpenVZ / Virtuozzo VPS)
+        for layer in &layers {
+            let src_rootfs = layers_dir.join(layer).join("rootfs");
+            if src_rootfs.exists() {
+                let src_str = format!("{}/.", src_rootfs.to_string_lossy());
+                let dst_str = dst_rootfs.to_string_lossy().to_string();
+                let cp_status = Command::new("sudo")
+                    .args(&["cp", "-a", &src_str, &dst_str])
+                    .status()
+                    .map_err(|e| format!("Failed to run cp command for VFS fallback: {}", e))?;
+                if !cp_status.success() {
+                    return Err(format!(
+                        "Overlay mount failed, and VFS copy fallback failed for layer: {}",
+                        layer
+                    ));
+                }
+            }
+        }
     }
 
     Ok(())
@@ -976,6 +994,23 @@ pub(crate) fn container_list_internal(data_dir: &str) -> Result<Vec<ContainerSta
                             }
                         }
                     }
+
+                    // Enforce container restart policy (auto-restart on crash)
+                    if (state.status == "stopped" || state.status == "failed")
+                        && state.desired_status.as_deref() == Some("running")
+                    {
+                        if let Some(ref policy) = state.restart_policy {
+                            if policy == "always" || policy == "unless-stopped" {
+                                eprintln!("🔄 [BoxSlot] Container {} is stopped but desired_status is 'running'. Policy: '{}'. Auto-restarting...", id, policy);
+                                if let Err(e) = container_start(&id) {
+                                    eprintln!("  ⚠ Auto-restart failed for container {}: {}", id, e);
+                                } else if let Ok(new_state) = load_container_state(&id) {
+                                    state = new_state;
+                                }
+                            }
+                        }
+                    }
+
                     list.push(state);
                 }
             }
