@@ -56,7 +56,7 @@ fi
 # ------------------------------------------------------------------------------
 # 2. Definisikan Versi Default & Direktori Tujuan
 # ------------------------------------------------------------------------------
-DEFAULT_VERSION="v1.0.8"
+DEFAULT_VERSION="v1.0.9"
 DEFAULT_INSTALL_DIR="/opt/zenopanel"
 
 # Baca parameter argumen jika ada

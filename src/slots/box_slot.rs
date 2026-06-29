@@ -390,6 +390,17 @@ fn is_overlay_mounted(mount_point: &str) -> bool {
     })
 }
 
+fn run_privileged_status(cmd: &str, args: &[&str]) -> io::Result<std::process::ExitStatus> {
+    let is_root = unsafe { libc::getuid() == 0 };
+    if is_root {
+        Command::new(cmd).args(args).status()
+    } else {
+        let mut all_args = vec![cmd];
+        all_args.extend_from_slice(args);
+        Command::new("sudo").args(&all_args).status()
+    }
+}
+
 fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> {
     let dst_rootfs = rootfs_dir(data_dir, id);
 
@@ -432,11 +443,9 @@ fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> 
     let opts = format!("lowerdir={},upperdir={},workdir={}", lowerdir_str, upperdir.to_string_lossy(), workdir.to_string_lossy());
     let dst_rootfs_str = dst_rootfs.to_string_lossy().to_string();
 
-    // Use sudo so the mount command succeeds regardless of whether the zeno
+    // Use sudo only if not already root, so the mount command succeeds regardless of whether the zeno
     // process itself was started with root privileges.
-    let status = Command::new("sudo")
-        .args(&["mount", "-t", "overlay", "overlay", "-o", &opts, &dst_rootfs_str])
-        .status()
+    let status = run_privileged_status("mount", &["-t", "overlay", "overlay", "-o", &opts, &dst_rootfs_str])
         .map_err(|e| format!("Failed to run mount command: {}", e))?;
 
     if !status.success() {
@@ -447,9 +456,7 @@ fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> 
             if src_rootfs.exists() {
                 let src_str = format!("{}/.", src_rootfs.to_string_lossy());
                 let dst_str = dst_rootfs.to_string_lossy().to_string();
-                let cp_status = Command::new("sudo")
-                    .args(&["cp", "-a", &src_str, &dst_str])
-                    .status()
+                let cp_status = run_privileged_status("cp", &["-a", &src_str, &dst_str])
                     .map_err(|e| format!("Failed to run cp command for VFS fallback: {}", e))?;
                 if !cp_status.success() {
                     return Err(format!(
@@ -1126,7 +1133,7 @@ fn container_delete(id: &str) -> Result<(), String> {
 
     let dst_rootfs = rootfs_dir(&data_dir, id);
     if dst_rootfs.exists() {
-        let _ = Command::new("sudo").args(&["umount", "-l", &dst_rootfs.to_string_lossy().to_string()]).status();
+        let _ = run_privileged_status("umount", &["-l", &dst_rootfs.to_string_lossy().to_string()]);
     }
 
     let cont_p = container_dir(&data_dir, id);
