@@ -91,3 +91,42 @@ Menghadirkan fitur manajemen database setara aaPanel / 1Panel — langsung dari 
     *   `POST /api/database/delete` — drop database + user
     *   `GET /api/database/tables` — list tabel dari koneksi aktif
     *   `POST /api/database/query` — eksekusi raw SQL (SELECT atau command)
+
+---
+
+### Fase 6: Manajemen Firewall Native (iptables-based) (TERENCANA)
+Menghadirkan fitur keamanan jaringan terintegrasi menggunakan `iptables` bawaan Linux tanpa dependensi aplikasi pihak ketiga (seperti `ufw` atau `firewalld`), menjamin kompatibilitas penuh dengan Alpine Linux.
+
+#### 🔑 Detail Teknis & Desain Keamanan:
+- **Zero-Dependency**: Menggunakan perintah `iptables` tingkat rendah langsung dari backend Rust untuk mengelola tabel `FILTER` (rantai `INPUT`).
+- **Safety comments**: Setiap aturan ditambahkan dengan komentar khusus `-m comment --comment "ZenoPanel: <Nama Aturan>"` agar panel hanya mendeteksi dan mengelola aturan buatannya sendiri secara aman tanpa merusak aturan sistem OS.
+- **Lockout Protection**: Validasi otomatis untuk memblokir penutupan port SSH (`22`) dan port utama panel (`3000`/`8443`) secara tidak sengaja untuk mencegah pengguna terkunci dari luar.
+
+#### 🛠️ Rincian Perubahan Kode:
+
+##### 1. Backend Slots (`src/slots/system.rs`)
+Dua slot baru akan didaftarkan ke ZenoEngine:
+- `system.firewall_status`: Menjalankan perintah `iptables -S INPUT` (atau `iptables -L INPUT --line-numbers`) untuk melacak aturan aktif, lalu menyaring baris yang memiliki komentar `"ZenoPanel:"` untuk dikembalikan ke scope sebagai JSON list.
+- `system.firewall_rule_add` / `system.firewall_rule_delete`:
+  - Menambah aturan: `iptables -A INPUT -p <proto> --dport <port> -j <action> -m comment --comment "ZenoPanel: <name>"`
+  - Menghapus aturan: `iptables -D INPUT -p <proto> --dport <port> -j <action> -m comment --comment "ZenoPanel: <name>"`
+
+##### 2. ZenoLang Routing (`zsrc/routes/firewall.zl`)
+Berkas rute baru untuk API endpoint:
+- `GET /api/security/firewall` -> Mengembalikan daftar aturan aktif lewat pemanggilan slot `system.firewall_status`.
+- `POST /api/security/firewall/add` -> Menerima parameter `{ name, port, protocol, action }` untuk mendaftarkan port.
+- `POST /api/security/firewall/delete` -> Menerima parameter signature aturan yang akan dicocokkan dan dihapus dari kernel.
+
+##### 3. Frontend UI (`views/partials/tab_security.blade.zl`)
+- Menambahkan kartu antarmuka **Firewall Rules Manager** di bawah form pengaturan WAF.
+- Tabel daftar aturan: Kolom **Rule Name**, **Port / Service**, **Protocol (TCP/UDP)**, **Action (ACCEPT/DROP)**, dan tombol **Delete Rule**.
+- Modal popup untuk menambahkan aturan baru dengan formulir port, protokol, aksi, dan nama komentar.
+- Script handler di `public/js/settings.js` untuk load, add, dan delete aturan secara asinkron (AJAX fetch).
+
+---
+
+#### 🧪 Rencana Verifikasi (Testing):
+1. **Manual check**: Buka tab **Security**, pastikan tabel Firewall Rules Manager terload kosong (atau berisi aturan bawaan jika ada).
+2. **Add Rule Test**: Tambahkan port MySQL `3316` TCP. Verifikasi di terminal host via `sudo iptables -S INPUT` apakah aturan `"ZenoPanel: MySQL External"` telah terdaftar.
+3. **Connectivity Test**: Coba akses MySQL `3316` dari luar server. Pastikan terhubung saat status rule `ACCEPT`.
+4. **Delete Rule Test**: Hapus rule dari UI, verifikasi aturan terhapus dari output `iptables` dan akses eksternal kembali diblokir.
