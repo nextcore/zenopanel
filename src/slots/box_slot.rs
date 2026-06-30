@@ -116,8 +116,31 @@ fn look_path(name: &str) -> Option<PathBuf> {
             }
         }
     }
+    #[cfg(unix)]
+    {
+        let common_dirs = [
+            "/usr/sbin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/usr/local/bin",
+            "/sbin",
+            "/bin",
+        ];
+        for dir in common_dirs {
+            let full_path = Path::new(dir).join(name);
+            if full_path.is_file() {
+                use std::os::unix::fs::MetadataExt;
+                if let Ok(metadata) = full_path.metadata() {
+                    if metadata.mode() & 0o111 != 0 {
+                        return Some(full_path);
+                    }
+                }
+            }
+        }
+    }
     None
 }
+
 
 fn runc_exec(args: &[&str]) -> io::Result<std::process::Output> {
     let runc_bin = get_runc_bin();
