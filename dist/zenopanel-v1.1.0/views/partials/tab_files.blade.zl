@@ -1,0 +1,79 @@
+<!-- 2. FILE MANAGER TAB -->
+<div class="viewport" id="tab-files">
+    <div class="glass-card" style="min-height: calc(100vh - 200px); display:flex; flex-direction:column;">
+        <!-- Toolbar -->
+        <div class="fm-toolbar">
+            <div class="fm-breadcrumb" id="file-breadcrumb">
+                <span>/</span>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; flex:1; margin-right:10px;">
+                <button class="btn-action" onclick="goUpDirectory()" title="Up">
+                    <i class="fa-solid fa-arrow-turn-up"></i>
+                </button>
+                <button class="btn-action" onclick="loadFilesList('/')" title="Root System">
+                    <i class="fa-solid fa-server"></i>
+                    <span>Root</span>
+                </button>
+                <button class="btn-action" onclick="loadFilesList('.')" title="Working Directory">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <span>CWD</span>
+                </button>
+                <form onsubmit="event.preventDefault(); loadFilesList(document.getElementById('fm-path-input').value.trim() || '.');" style="display:flex; flex:1; gap:6px;">
+                    <input id="fm-path-input" type="text" value="." placeholder="/path/to/directory" style="flex:1; background:var(--glass-bg); border:1px solid var(--border-color); color:var(--text-primary); padding:6px 12px; border-radius:8px; font-size:0.85rem; outline:none;">
+                    <button type="submit" class="btn-action">
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </form>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-primary-action" onclick="triggerFileUpload()" style="display:flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                    <span>Upload File</span>
+                </button>
+                <input type="file" id="file-upload-input" multiple style="display:none;" onchange="handleFileUpload(event)">
+                <button class="btn-action" onclick="createFilePrompt()">
+                    <i class="fa-solid fa-file-circle-plus"></i>
+                    <span>New File</span>
+                </button>
+                <button class="btn-action" onclick="createFolderPrompt()">
+                    <i class="fa-solid fa-folder-plus"></i>
+                    <span>New Folder</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Bulk Action Bar (hidden by default, shown when items are selected) -->
+        <div id="fm-bulk-bar" style="display:none; align-items:center; gap:12px; padding:10px 16px; background:rgba(var(--accent-rgb,99,102,241),0.12); border-radius:10px; margin-bottom:10px; border:1px solid rgba(99,102,241,0.25);">
+            <span id="fm-bulk-count" style="font-size:0.85rem; color:var(--text-secondary); font-weight:600;">0 dipilih</span>
+            <button class="btn-action" style="background:rgba(239,68,68,0.15); color:var(--danger); border-color:rgba(239,68,68,0.3);" onclick="bulkDelete()">
+                <i class="fa-solid fa-trash-can"></i><span>Hapus Terpilih</span>
+            </button>
+            <button class="btn-action" style="background:rgba(34,197,94,0.15); color:var(--success); border-color:rgba(34,197,94,0.3);" onclick="bulkArchive()">
+                <i class="fa-solid fa-file-zipper"></i><span>Kompres Terpilih</span>
+            </button>
+            <button class="btn-action" style="margin-left:auto; background:transparent; color:var(--text-muted);" onclick="clearSelection()">
+                <i class="fa-solid fa-xmark"></i><span>Batal Pilih</span>
+            </button>
+        </div>
+
+        <!-- Files Table List -->
+        <div class="table-container" style="flex-grow:1;">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:36px;"><input type="checkbox" id="fm-select-all" title="Pilih Semua" onchange="toggleSelectAll(this.checked)"></th>
+                        <th class="sortable" id="th-name" onclick="setSortBy('name')">Name <i class="fa-solid fa-sort sort-icon"></i></th>
+                        <th class="sortable" id="th-size" onclick="setSortBy('size')">Size <i class="fa-solid fa-sort sort-icon"></i></th>
+                        <th class="sortable" id="th-type" onclick="setSortBy('type')">Type <i class="fa-solid fa-sort sort-icon"></i></th>
+                        <th class="sortable" id="th-mode" onclick="setSortBy('mode')">Permissions <i class="fa-solid fa-sort sort-icon"></i></th>
+                        <th class="sortable" id="th-mod" onclick="setSortBy('mod_time')">Modified <i class="fa-solid fa-sort sort-icon"></i></th>
+                        <th style="text-align:right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="files-table-body">
+                    <!-- Dynamic File list -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

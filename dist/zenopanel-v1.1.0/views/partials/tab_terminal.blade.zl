@@ -1,0 +1,14 @@
+<!-- 5. TERMINAL TAB -->
+<div class="viewport" id="tab-terminal">
+    <div class="terminal-container">
+        <div class="terminal-header">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+            <div class="terminal-title">Terminal Shell — bash</div>
+        </div>
+        <div class="terminal-body" id="terminal-viewport" style="padding: 0; overflow: hidden; background: #05070c;">
+            <div id="terminal" style="width: 100%; height: 100%; box-sizing: border-box; padding: 10px;"></div>
+        </div>
+    </div>
+</div>

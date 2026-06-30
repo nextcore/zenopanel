@@ -898,7 +898,8 @@ fn main() {
     }
 
     if let Ok(mut tls_settings) = pingora::listeners::tls::TlsSettings::intermediate(default_cert_path, default_key_path) {
-        tls_settings.enable_h2();
+        // Disable HTTP/2 to prevent WebSocket protocol mismatch issues with the Axum backend
+        // tls_settings.enable_h2();
 
         let cert_resolver_clone = cert_resolver.clone();
         tls_settings.set_servername_callback(move |ssl, _alert| {
