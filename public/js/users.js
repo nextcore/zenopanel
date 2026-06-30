@@ -57,6 +57,38 @@ export function renderUsers() {
     }).join('');
 }
 
+function resetPasswordVisibility() {
+    const pwdInput = document.getElementById('user-password');
+    const toggleIcon = document.getElementById('toggle-user-password-icon');
+    if (pwdInput && toggleIcon) {
+        pwdInput.type = 'password';
+        pwdInput.placeholder = '••••••••';
+        toggleIcon.classList.remove('fa-eye-slash');
+        toggleIcon.classList.add('fa-eye');
+    }
+}
+
+export function toggleUserPasswordVisibility() {
+    const pwdInput = document.getElementById('user-password');
+    const toggleIcon = document.getElementById('toggle-user-password-icon');
+    const mode = document.getElementById('user-mode').value;
+    if (pwdInput && toggleIcon) {
+        if (pwdInput.type === 'password') {
+            pwdInput.type = 'text';
+            toggleIcon.classList.remove('fa-eye');
+            toggleIcon.classList.add('fa-eye-slash');
+            if (pwdInput.value === '') {
+                pwdInput.placeholder = mode === 'edit' ? '(leave blank to keep current)' : 'Enter password';
+            }
+        } else {
+            pwdInput.type = 'password';
+            toggleIcon.classList.remove('fa-eye-slash');
+            toggleIcon.classList.add('fa-eye');
+            pwdInput.placeholder = '••••••••';
+        }
+    }
+}
+
 export function openAddUserModal() {
     document.getElementById('modal-user-title').innerText = 'Add User';
     document.getElementById('user-mode').value = 'create';
@@ -66,6 +98,7 @@ export function openAddUserModal() {
     usernameInput.disabled = false;
     
     document.getElementById('user-password').value = '';
+    resetPasswordVisibility();
     document.getElementById('pwd-help-text').innerText = '';
     document.getElementById('user-role').value = 'admin';
     
@@ -81,6 +114,7 @@ export function openEditUserModal(username, role) {
     usernameInput.disabled = true;
     
     document.getElementById('user-password').value = '';
+    resetPasswordVisibility();
     document.getElementById('pwd-help-text').innerText = ' (leave blank to keep current)';
     document.getElementById('user-role').value = role;
     
@@ -88,6 +122,7 @@ export function openEditUserModal(username, role) {
 }
 
 export function closeAddUserModal() {
+    resetPasswordVisibility();
     document.getElementById('add-user-modal').classList.remove('active');
 }
 

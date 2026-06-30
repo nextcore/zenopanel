@@ -5,7 +5,7 @@
 # List Database Servers
 http.get: '/api/database/servers' {
     auth.guard
-    db.select: "SELECT id, name, driver, host, port, admin_user FROM db_servers ORDER BY id DESC" { as: $servers }
+    db.select: "SELECT id, name, driver, host, port, admin_user, is_remote FROM db_servers ORDER BY id DESC" { as: $servers }
     http.ok: { data: $servers }
 }
 
@@ -586,6 +586,10 @@ http.post: '/api/database/install-server' {
     var: $port   { val: $body.port }
     var: $root_password { val: $body.root_password }
     var: $data_dir { val: $body.data_dir }
+    coalesce: $body.is_remote {
+        default: 0
+        as: $is_remote
+    }
 
     # Determine driver from engine string
     # mariadb:* and mysql:* → driver 'mysql' (protocol-compatible)
@@ -610,12 +614,19 @@ http.post: '/api/database/install-server' {
         }
     }
 
+    var: $bind_prefix { val: '127.0.0.1' }
+    if: "$is_remote == 1" {
+        then: {
+            var: $bind_prefix { val: '0.0.0.0' }
+        }
+    }
+
     # Build Docker Compose YAML — format environment as YAML list items
-    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${root_password}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
 
     if: "$driver == 'postgres'" {
         then: {
-            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
         }
     }
 
@@ -640,11 +651,11 @@ http.post: '/api/database/install-server' {
             }
 
             # Register the server regardless (it may need a few seconds; user can verify)
-            db.execute: "INSERT OR IGNORE INTO db_servers (name, driver, host, port, admin_user, admin_password) VALUES (?, ?, '127.0.0.1', ?, ?, ?)" {
-                bind: [$name, $driver, $port, $admin_user, $root_password]
+            db.execute: "INSERT OR IGNORE INTO db_servers (name, driver, host, port, admin_user, admin_password, is_remote) VALUES (?, ?, '127.0.0.1', ?, ?, ?, ?)" {
+                bind: [$name, $driver, $port, $admin_user, $root_password, $is_remote]
             }
 
-            db.select: "SELECT id, name, driver, host, port, admin_user FROM db_servers" { as: $debug_servers }
+            db.select: "SELECT id, name, driver, host, port, admin_user, is_remote FROM db_servers" { as: $debug_servers }
 
             http.created: {
                 message: "Database engine deployed and registered successfully"
@@ -660,7 +671,6 @@ http.post: '/api/database/install-server' {
                 error: $compose_result.stderr
             }
         }
-    }
     }
 }
 
@@ -932,6 +942,119 @@ http.post: '/api/database/backups/delete' {
         }
         else: {
             http.bad_request: { success: false, message: "Record backup tidak ditemukan" }
+        }
+    }
+}
+
+# ==========================================
+# 7. 1Panel Competitive Upgrades
+# ==========================================
+
+# Toggle Database Server Remote Access (ports binding and firewall sync)
+http.post: '/api/database/servers/toggle-remote' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+    var: $is_remote { val: $body.is_remote }
+
+    db.select: "SELECT name, driver, host, port, admin_user, admin_password FROM db_servers WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $server
+    }
+
+    if: $server {
+        then: {
+            var: $name { val: $server.name }
+            var: $port { val: $server.port }
+            var: $driver { val: $server.driver }
+            var: $admin_password { val: $server.admin_password }
+
+            # Retrieve current compose config
+            box.compose_get_yaml: {
+                project_name: $name
+                as: $yaml_res
+            }
+            var: $old_yaml { val: $yaml_res.yaml }
+
+            if: { not_empty: $old_yaml } {
+                then: {
+                    var: $db_port_internal { val: 3306 }
+                    var: $data_volume { val: '/var/lib/mysql' }
+                    var: $env_var_name { val: 'MYSQL_ROOT_PASSWORD' }
+                    var: $engine_image { val: 'mysql:latest' }
+
+                    if: "$driver == 'postgres'" {
+                        then: {
+                            var: $db_port_internal { val: 5432 }
+                            var: $data_volume { val: '/var/lib/postgresql/data' }
+                            var: $env_var_name { val: 'POSTGRES_PASSWORD' }
+                            var: $engine_image { val: 'postgres:latest' }
+                        }
+                    }
+
+                    var: $bind_prefix { val: '127.0.0.1' }
+                    if: "$is_remote == 1" {
+                        then: {
+                            var: $bind_prefix { val: '0.0.0.0' }
+                        }
+                    }
+
+                    # Reconstruct compose YAML with new bind prefix
+                    var: $new_compose { val: "services:\n  ${name}:\n    image: ${engine_image}\n    container_name: ${name}\n    environment:\n      - ${env_var_name}=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - /var/lib/zenopanel/volumes/${name}:${data_volume}\n    restart: unless-stopped\n" }
+
+                    box.compose: 'up' {
+                        yaml: $new_compose
+                        project_name: $name
+                        as: $rebuild_res
+                    }
+                }
+            }
+
+            # Update Host Firewall iptables Rules
+            if: "$is_remote == 1" {
+                then: {
+                    system.firewall_rule_add: {
+                        name: "DB Server: ${name}"
+                        port: $port
+                        protocol: "tcp"
+                        action: "ACCEPT"
+                    }
+                }
+                else: {
+                    system.firewall_rule_delete: {
+                        name: "DB Server: ${name}"
+                        port: $port
+                        protocol: "tcp"
+                        action: "ACCEPT"
+                    }
+                }
+            }
+
+            # Update SQLite state
+            db.execute: "UPDATE db_servers SET is_remote = ? WHERE id = ?" {
+                bind: [$is_remote, $id]
+            }
+
+            http.ok: { success: true, message: "Akses remote server database berhasil diperbarui." }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Server database tidak ditemukan." }
+        }
+    }
+}
+
+# Get Database Server Container Logs
+http.get: '/api/database/servers/logs' {
+    auth.guard
+    http.query: 'name' { as: $container_name }
+    box.logs: $container_name { as: $logs_res }
+    if: $logs_res.success {
+        then: {
+            http.ok: { success: true, logs: $logs_res.stdout }
+        }
+        else: {
+            http.ok: { success: true, logs: "Belum ada log kontainer yang tersedia." }
         }
     }
 }

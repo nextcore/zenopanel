@@ -289,6 +289,7 @@ export async function loadSecuritySettings() {
                     `).join('');
                 }
             }
+            await loadFirewallRules();
         }
     } catch (err) {
         showToast('error', 'Error loading security settings: ' + err.message);
@@ -585,6 +586,137 @@ export async function triggerLogRotation() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
+    }
+}
+
+export function openAddFirewallRuleModal() {
+    const modal = document.getElementById('add-firewall-modal');
+    if (modal) modal.classList.add('active');
+}
+
+export function closeAddFirewallRuleModal() {
+    const modal = document.getElementById('add-firewall-modal');
+    if (modal) modal.classList.remove('active');
+    
+    // Clear inputs
+    document.getElementById('fw-rule-name').value = '';
+    document.getElementById('fw-rule-port').value = '';
+    document.getElementById('fw-rule-protocol').value = 'tcp';
+    document.getElementById('fw-rule-action').value = 'ACCEPT';
+}
+
+export async function submitAddFirewallRule() {
+    const name = document.getElementById('fw-rule-name').value.trim();
+    const port = document.getElementById('fw-rule-port').value.trim();
+    const protocol = document.getElementById('fw-rule-protocol').value;
+    const action = document.getElementById('fw-rule-action').value;
+    
+    if (!name || !port) {
+        showToast('error', 'Semua kolom wajib diisi');
+        return;
+    }
+    
+    const portNum = parseInt(port, 10);
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        showToast('error', 'Port harus berupa angka antara 1 s/d 65535');
+        return;
+    }
+    
+    const csrfToken = getCSRFToken();
+    try {
+        const response = await fetch('/api/security/firewall/add', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ name, port: portNum.toString(), protocol, action })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Aturan firewall berhasil disimpan');
+            closeAddFirewallRuleModal();
+            await loadFirewallRules();
+        } else {
+            showToast('error', data.message || 'Gagal menyimpan aturan firewall');
+        }
+    } catch (err) {
+        showToast('error', 'Error: ' + err.message);
+    }
+}
+
+export async function deleteFirewallRule(name, port, protocol, action) {
+    if (!confirm(`Apakah Anda yakin ingin menghapus aturan "${name}" (${protocol}/${port})?`)) return;
+    
+    const csrfToken = getCSRFToken();
+    try {
+        const response = await fetch('/api/security/firewall/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ name, port: port.toString(), protocol, action })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Aturan firewall berhasil dihapus');
+            await loadFirewallRules();
+        } else {
+            showToast('error', data.message || 'Gagal menghapus aturan firewall');
+        }
+    } catch (err) {
+        showToast('error', 'Error: ' + err.message);
+    }
+}
+
+export async function loadFirewallRules() {
+    try {
+        const tbody = document.getElementById('firewall-rules-tbody');
+        if (!tbody) return;
+        
+        const response = await fetch('/api/security/firewall');
+        if (!response.ok) {
+            throw new Error('Failed to fetch firewall rules');
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            const rules = data.data || [];
+            if (rules.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Belum ada aturan firewall terdaftar.</td></tr>';
+            } else {
+                tbody.innerHTML = rules.map(rule => {
+                    const actionBadge = rule.action === 'ACCEPT' 
+                        ? `<span class="badge badge-running">ACCEPT</span>`
+                        : `<span class="badge badge-stopped">DROP</span>`;
+                        
+                    // Escape arguments for the delete action
+                    const safeName = escapeHtml(rule.name);
+                    const safePort = escapeHtml(rule.port);
+                    const safeProtocol = escapeHtml(rule.protocol);
+                    const safeAction = escapeHtml(rule.action);
+                    
+                    return `
+                        <tr>
+                            <td><strong>${safeName}</strong></td>
+                            <td><span style="font-family:var(--font-code); color:var(--accent-primary);">${safePort}</span></td>
+                            <td><span class="badge" style="background:rgba(168, 85, 247, 0.12); color:var(--accent-secondary); border:1px solid rgba(168, 85, 247, 0.1);">${safeProtocol.toUpperCase()}</span></td>
+                            <td>${actionBadge}</td>
+                            <td style="text-align: right;">
+                                <button class="btn-icon" onclick="deleteFirewallRule('${safeName}', '${safePort}', '${safeProtocol}', '${safeAction}')" title="Delete Rule">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+    } catch (err) {
+        console.error('Error loading firewall rules:', err);
     }
 }
 

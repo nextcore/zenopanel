@@ -182,6 +182,7 @@ import {
   closeAddUserModal,
   submitAddUser,
   deleteUser,
+  toggleUserPasswordVisibility,
 } from "./users.js";
 import {
   loadSettings,
@@ -200,6 +201,11 @@ import {
   loadLogSettings,
   submitSaveLogSettings,
   triggerLogRotation,
+  openAddFirewallRuleModal,
+  closeAddFirewallRuleModal,
+  submitAddFirewallRule,
+  deleteFirewallRule,
+  loadFirewallRules,
 } from "./settings.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
@@ -416,6 +422,7 @@ const functionsToBind = {
   closeAddUserModal,
   submitAddUser,
   deleteUser,
+  toggleUserPasswordVisibility,
   loadSettings,
   submitSaveSettings,
   loadServiceStatus,
@@ -432,6 +439,11 @@ const functionsToBind = {
   loadLogSettings,
   submitSaveLogSettings,
   triggerLogRotation,
+  openAddFirewallRuleModal,
+  closeAddFirewallRuleModal,
+  submitAddFirewallRule,
+  deleteFirewallRule,
+  loadFirewallRules,
   refreshContainerLog,
   loadContainerList,
   loadContainers,

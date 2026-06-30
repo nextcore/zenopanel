@@ -72,7 +72,7 @@ function renderDatabaseServers() {
     if (registeredServers.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="5" style="text-align:center; padding:32px; color:var(--text-muted);">
+                <td colspan="6" style="text-align:center; padding:32px; color:var(--text-muted);">
                     No database servers registered. Register one to manage databases.
                 </td>
             </tr>
@@ -86,10 +86,20 @@ function renderDatabaseServers() {
             <td><span class="badge ${server.driver === 'postgres' ? 'badge-running' : 'badge-starting'}">${server.driver.toUpperCase()}</span></td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(server.host)}:${server.port}</td>
             <td>${escapeHtml(server.admin_user)}</td>
+            <td>
+                <span class="badge ${server.is_remote === 1 ? 'badge-running' : 'badge-sleeping'}" style="cursor:pointer; user-select:none;" onclick="toggleDatabaseRemoteAccess(${server.id}, ${server.is_remote === 1 ? 0 : 1})">
+                    <i class="fa-solid ${server.is_remote === 1 ? 'fa-globe' : 'fa-lock'}"></i> ${server.is_remote === 1 ? 'Remote' : 'Local Only'}
+                </span>
+            </td>
             <td style="text-align:right;">
-                <button class="btn-action" onclick="deleteDatabaseServer(${server.id}, '${escapeHtml(server.name)}')" style="color:#ef4444; border-color:rgba(239,68,68,0.2);">
-                    <i class="fa-solid fa-trash"></i> Delete
-                </button>
+                <div style="display:flex; justify-content:flex-end; gap:6px;">
+                    <button class="btn-action" onclick="openDatabaseLogsModal('${escapeHtml(server.name)}')" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2);">
+                        <i class="fa-solid fa-terminal"></i> Logs
+                    </button>
+                    <button class="btn-action" onclick="deleteDatabaseServer(${server.id}, '${escapeHtml(server.name)}')" style="color:#ef4444; border-color:rgba(239,68,68,0.2);">
+                        <i class="fa-solid fa-trash"></i> Delete
+                    </button>
+                </div>
             </td>
         </tr>
     `).join('');
@@ -973,6 +983,9 @@ export function loadDatabaseBackups() {
                             <td style="text-align:right;">
                                 <div style="display:flex; justify-content:flex-end; gap:6px;">
                                     ${item.status === 'success' ? `
+                                        <button class="btn-action" onclick="downloadDatabaseBackup('${escapeHtml(item.filename)}')" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2);">
+                                            <i class="fa-solid fa-download"></i> Unduh
+                                        </button>
                                         <button class="btn-action" onclick="triggerRestoreDatabaseBackup(${item.id}, '${escapeHtml(item.database_name)}', '${escapeHtml(item.filename)}', '${item.created_at}', ${item.size || 0})" style="color:#10b981; border-color:rgba(16,185,129,0.2);">
                                             <i class="fa-solid fa-rotate-left"></i> Restore
                                         </button>
@@ -1226,4 +1239,58 @@ window.triggerRestoreDatabaseBackup = triggerRestoreDatabaseBackup;
 window.closeConfirmRestoreModal = closeConfirmRestoreModal;
 window.confirmRestoreDatabaseBackup = confirmRestoreDatabaseBackup;
 window.deleteDatabaseBackup = deleteDatabaseBackup;
+
+// New competitive features
+export function toggleDatabaseRemoteAccess(serverId, makeRemote) {
+    showToast('info', 'Mengubah konfigurasi akses remote database...');
+    fetch('/api/database/servers/toggle-remote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+        body: JSON.stringify({ id: serverId, is_remote: makeRemote ? 1 : 0 })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast('success', res.message);
+            loadDatabaseServers();
+        } else {
+            showToast('error', res.message || 'Gagal mengubah konfigurasi remote');
+        }
+    })
+    .catch(err => showToast('error', 'API error: ' + err.toString()));
+}
+
+export function openDatabaseLogsModal(serverName) {
+    const content = document.getElementById('db-logs-content');
+    if (content) content.textContent = 'Loading log kontainer...';
+    document.getElementById('db-logs-modal').classList.add('active');
+
+    fetch(`/api/database/servers/logs?name=${encodeURIComponent(serverName)}`)
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && content) {
+                content.textContent = res.logs;
+            } else if (content) {
+                content.textContent = 'Gagal memuat log kontainer.';
+            }
+        })
+        .catch(err => {
+            if (content) content.textContent = 'Error: ' + err.toString();
+        });
+}
+
+export function closeDatabaseLogsModal() {
+    document.getElementById('db-logs-modal').classList.remove('active');
+}
+
+export function downloadDatabaseBackup(filename) {
+    const path = `/var/lib/zenopanel/backups/db/${filename}`;
+    window.location.href = `/api/files/download?path=${encodeURIComponent(path)}`;
+}
+
+window.toggleDatabaseRemoteAccess = toggleDatabaseRemoteAccess;
+window.openDatabaseLogsModal = openDatabaseLogsModal;
+window.closeDatabaseLogsModal = closeDatabaseLogsModal;
+window.downloadDatabaseBackup = downloadDatabaseBackup;
+
 

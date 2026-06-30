@@ -92,6 +92,36 @@
                     </tr>
                 </tbody>
             </table>
+    </div>
+
+    <!-- NATIVE FIREWALL RULES MANAGER CARD -->
+    <div class="card" style="margin-top:20px; max-width:800px;">
+        <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                <i class="fa-solid fa-shield" style="color:var(--accent-primary);"></i> Firewall Rules Manager (iptables)
+            </h3>
+            <button class="btn-primary-action" onclick="openAddFirewallRuleModal()" style="font-size:0.8rem; padding:6px 12px;">
+                <i class="fa-solid fa-plus"></i> Add Rule
+            </button>
+        </div>
+        
+        <div class="table-container" style="max-height:350px; overflow-y:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rule Name</th>
+                        <th>Port</th>
+                        <th>Protocol</th>
+                        <th>Action</th>
+                        <th style="width: 100px; text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="firewall-rules-tbody">
+                    <tr>
+                        <td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading firewall rules...</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

@@ -218,7 +218,12 @@
             </div>
             <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Password <span id="pwd-help-text" style="color:var(--text-muted); font-size:0.8rem; font-weight:normal;"></span></label>
-                <input type="password" id="user-password" placeholder="••••••••" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                <div style="position:relative;">
+                    <input type="password" id="user-password" placeholder="••••••••" style="width:100%; padding:10px 40px 10px 10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; box-sizing:border-box;">
+                    <button type="button" onclick="toggleUserPasswordVisibility()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; padding:5px; outline:none; display:flex; align-items:center; justify-content:center;">
+                        <i class="fa-solid fa-eye" id="toggle-user-password-icon"></i>
+                    </button>
+                </div>
             </div>
             <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Role</label>
@@ -736,6 +741,133 @@
             <button class="btn-primary-action" id="btn-update-resources-submit" onclick="submitEditContainerResources()">
                 <i class="fa-solid fa-save"></i> Save Changes
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Firewall Rule Modal -->
+<div class="modal-overlay" id="add-firewall-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Firewall Rule</div>
+            <div class="modal-close" onclick="closeAddFirewallRuleModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Rule Name</label>
+                <input type="text" id="fw-rule-name" placeholder="e.g. MySQL Port" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Port</label>
+                <input type="number" id="fw-rule-port" placeholder="e.g. 3306" min="1" max="65535" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Protocol</label>
+                <select id="fw-rule-protocol" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                    <option value="tcp">TCP</option>
+                    <option value="udp">UDP</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Action</label>
+                <select id="fw-rule-action" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                    <option value="ACCEPT">ACCEPT</option>
+                    <option value="DROP">DROP</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddFirewallRuleModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitAddFirewallRule()">Add Rule</button>
+        </div>
+    </div>
+</div>
+
+<!-- Database Logs Modal -->
+<div class="modal-overlay" id="db-logs-modal">
+    <div class="modal-card" style="max-width:720px; width:90%;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-terminal" style="color:var(--accent-primary); margin-right:8px;"></i>Database Server Container Logs</div>
+            <div class="modal-close" onclick="closeDatabaseLogsModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="padding:15px 0 0 0;">
+            <pre id="db-logs-content" style="background:#090d16; color:#a6accd; padding:15px; border-radius:6px; border:1px solid var(--card-border); font-family:var(--font-code); font-size:0.85rem; max-height:450px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; margin:0; line-height:1.5;"></pre>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeDatabaseLogsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Manage DB Users Modal -->
+<div class="modal-overlay" id="manage-db-users-modal">
+    <div class="modal-card" style="max-width:640px; width:90%;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-users-gear" style="color:var(--accent-primary); margin-right:8px;"></i>Manage Database Users</div>
+            <div class="modal-close" onclick="closeManageDbUsersModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="manage-db-users-db-id" value="">
+            
+            <!-- Add User Section -->
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:14px; margin-bottom:18px;">
+                <div style="font-weight:600; font-size:0.85rem; color:var(--text-main); margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-user-plus" style="color:var(--accent-primary);"></i> Add Database User
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:4px; font-size:0.8rem; color:var(--text-muted);">Username</label>
+                        <input type="text" id="new-db-username" placeholder="e.g. user_web" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--card-border); background:rgba(0,0,0,0.2); color:var(--text-main); font-size:0.85rem; outline:none;">
+                    </div>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:4px; font-size:0.8rem; color:var(--text-muted);">Password</label>
+                        <input type="password" id="new-db-password" placeholder="Password" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--card-border); background:rgba(0,0,0,0.2); color:var(--text-main); font-size:0.85rem; outline:none;">
+                    </div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:4px; font-size:0.8rem; color:var(--text-muted);">Access Type</label>
+                        <select id="new-db-access" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); font-size:0.85rem; outline:none; cursor:pointer;">
+                            <option value="local">Local Only (localhost)</option>
+                            <option value="remote">Remote Access (%)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:4px; font-size:0.8rem; color:var(--text-muted);">Privileges</label>
+                        <select id="new-db-privs" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); font-size:0.85rem; outline:none; cursor:pointer;">
+                            <option value="ALL">ALL PRIVILEGES</option>
+                            <option value="SELECT,INSERT,UPDATE,DELETE">SELECT, INSERT, UPDATE, DELETE</option>
+                            <option value="SELECT">SELECT Only (Read-Only)</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:flex-end;">
+                    <button class="btn-primary-action" onclick="submitAddDbUser()" style="font-size:0.8rem; padding:6px 14px;"><i class="fa-solid fa-plus"></i> Add User</button>
+                </div>
+            </div>
+
+            <!-- Users list table -->
+            <div style="font-weight:600; font-size:0.85rem; color:var(--text-main); margin-bottom:8px;">Active Database Users</div>
+            <div class="table-container" style="max-height:220px; overflow-y:auto;">
+                <table class="data-table" style="font-size:0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Access</th>
+                            <th>Privileges</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="db-users-table-body">
+                        <tr>
+                            <td colspan="4" style="text-align:center; padding:15px; color:var(--text-muted);">No users found.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeManageDbUsersModal()">Close</button>
         </div>
     </div>
 </div>

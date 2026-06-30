@@ -7,15 +7,8 @@
             <div class="terminal-dot green"></div>
             <div class="terminal-title">Terminal Shell — bash</div>
         </div>
-        <div class="terminal-body" id="terminal-viewport" onclick="focusTerminalInput()">
-            <div class="terminal-line">Welcome to ZenoPanel Web Terminal. Type command to interact.</div>
-            <div class="terminal-line">Tip: You are logged in as Zenopanel environment worker.</div>
-            <br>
-            <!-- Shell prompt input -->
-            <div class="terminal-input-container">
-                <span class="terminal-prompt" id="terminal-prompt-node">root@control-panel:~#</span>
-                <input type="text" class="terminal-input-field" id="terminal-stdin" onkeydown="handleTerminalCommand(event)" autocomplete="off">
-            </div>
+        <div class="terminal-body" id="terminal-viewport" style="padding: 0; overflow: hidden; background: #05070c;">
+            <div id="terminal" style="width: 100%; height: 100%; box-sizing: border-box; padding: 10px;"></div>
         </div>
     </div>
 </div>

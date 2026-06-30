@@ -1,0 +1,75 @@
+# 1. Get Active Firewall Rules
+http.get: '/api/security/firewall' {
+    auth.guard
+    system.firewall_status: { as: $rules }
+    http.ok: {
+        success: true
+        data: $rules
+    }
+}
+
+# 2. Add Firewall Rule
+http.post: '/api/security/firewall/add' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $name { val: $body.name }
+    var: $port { val: $body.port }
+    var: $protocol { val: $body.protocol }
+    var: $action { val: $body.action }
+
+    system.firewall_rule_add: {
+        name: $name
+        port: $port
+        protocol: $protocol
+        action: $action
+        as: $ok
+    }
+
+    if: $ok {
+        then: {
+            http.ok: {
+                success: true
+                message: "Aturan firewall berhasil ditambahkan."
+            }
+        }
+        else: {
+            http.bad_request: {
+                success: false
+                message: "Gagal menambahkan aturan firewall."
+            }
+        }
+    }
+}
+
+# 3. Delete Firewall Rule
+http.post: '/api/security/firewall/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $name { val: $body.name }
+    var: $port { val: $body.port }
+    var: $protocol { val: $body.protocol }
+    var: $action { val: $body.action }
+
+    system.firewall_rule_delete: {
+        name: $name
+        port: $port
+        protocol: $protocol
+        action: $action
+        as: $ok
+    }
+
+    if: $ok {
+        then: {
+            http.ok: {
+                success: true
+                message: "Aturan firewall berhasil dihapus."
+            }
+        }
+        else: {
+            http.bad_request: {
+                success: false
+                message: "Gagal menghapus aturan firewall."
+            }
+        }
+    }
+}

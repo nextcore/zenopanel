@@ -111,6 +111,7 @@ pub(crate) struct AppState {
     pub(crate) last_container_payload: Arc<Mutex<Option<String>>>,
     pub(crate) managed_tx: tokio::sync::broadcast::Sender<String>,
     pub(crate) last_managed_payload: Arc<Mutex<Option<String>>>,
+    #[allow(dead_code)]
     pub(crate) terminal_sessions: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::mpsc::Sender<String>>>>,
 }
 
@@ -324,6 +325,10 @@ fn main() {
     .execute(&default_pool)
     .await
     .expect("Failed to create db_servers table");
+
+    let _ = sqlx::query("ALTER TABLE db_servers ADD COLUMN is_remote INTEGER DEFAULT 0")
+        .execute(&default_pool)
+        .await;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS db_databases (
@@ -817,8 +822,7 @@ fn main() {
         .route("/api/containers/stream", axum::routing::get(containers_stream_handler))
         .route("/api/managed/stream", axum::routing::get(managed_stream_handler))
         .route("/api/managed/logs/stream", axum::routing::get(managed_logs_stream_handler))
-        .route("/api/terminal/stream", axum::routing::get(terminal_stream_handler))
-        .route("/api/terminal/write", axum::routing::post(terminal_write_handler))
+        .route("/api/terminal/ws", axum::routing::get(terminal_ws_handler))
         .nest_service("/public", static_service)
         .fallback(any(wildcard_handler))
         .layer(axum::middleware::from_fn_with_state(state.clone(), waf::waf_middleware))
@@ -1885,99 +1889,164 @@ async fn managed_logs_stream_handler(
     Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }
 
-#[derive(serde::Deserialize)]
-struct StreamParams {
-    session_id: String,
-}
+use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use std::io::{Read, Write};
 
 #[derive(serde::Deserialize)]
-struct WriteParams {
-    session_id: String,
-    input: String,
+struct TerminalQuery {
+    container: Option<String>,
 }
 
-async fn terminal_stream_handler(
+async fn terminal_ws_handler(
     State(state): State<Arc<AppState>>,
-    axum::extract::Query(params): axum::extract::Query<StreamParams>,
-) -> Result<axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, StatusCode> {
-    let session_id = params.session_id;
-
-    // Spawn a persistent bash shell for this session
-    let mut child = tokio::process::Command::new("bash")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let mut stdin = child.stdin.take().unwrap();
-    let mut stdout = child.stdout.take().unwrap();
-    let mut stderr = child.stderr.take().unwrap();
-
-    let (tx_in, mut rx_in) = tokio::sync::mpsc::channel::<String>(100);
-
-    // Keep track of the stdin sender globally
-    state.terminal_sessions.lock().await.insert(session_id.clone(), tx_in);
-
-    // Stdin writer task
-    tokio::spawn(async move {
-        use tokio::io::AsyncWriteExt;
-        while let Some(msg) = rx_in.recv().await {
-            if stdin.write_all(msg.as_bytes()).await.is_err() {
-                break;
-            }
-            let _ = stdin.flush().await;
-        }
-    });
-
-    let (tx_out, rx_out) = tokio::sync::mpsc::channel::<Result<axum::response::sse::Event, std::convert::Infallible>>(1000);
-
-    // Stdout reader task
-    let tx_out_1 = tx_out.clone();
-    tokio::spawn(async move {
-        use tokio::io::AsyncReadExt;
-        let mut buf = [0u8; 4096];
-        while let Ok(n) = stdout.read(&mut buf).await {
-            if n == 0 { break; }
-            let text = String::from_utf8_lossy(&buf[..n]).to_string();
-            let _ = tx_out_1.send(Ok(axum::response::sse::Event::default().data(text))).await;
-        }
-    });
-
-    // Stderr reader task
-    let tx_out_2 = tx_out.clone();
-    tokio::spawn(async move {
-        use tokio::io::AsyncReadExt;
-        let mut buf = [0u8; 4096];
-        while let Ok(n) = stderr.read(&mut buf).await {
-            if n == 0 { break; }
-            let text = String::from_utf8_lossy(&buf[..n]).to_string();
-            let _ = tx_out_2.send(Ok(axum::response::sse::Event::default().data(text))).await;
-        }
-    });
-
-    // Cleanup task on child exit
-    let state_clone = state.clone();
-    let session_id_clone = session_id.clone();
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-        state_clone.terminal_sessions.lock().await.remove(&session_id_clone);
-    });
-
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx_out);
-    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+    axum::extract::Query(query): axum::extract::Query<TerminalQuery>,
+    ws: axum::extract::ws::WebSocketUpgrade,
+    headers: HeaderMap,
+) -> Result<impl axum::response::IntoResponse, StatusCode> {
+    // 1. Authenticate token
+    let token = auth::extract_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _claims = auth::verify_jwt(&token, &state.jwt_secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    
+    Ok(ws.on_upgrade(move |socket| handle_terminal_socket(socket, state, query.container)))
 }
 
-async fn terminal_write_handler(
-    State(state): State<Arc<AppState>>,
-    axum::Json(payload): axum::Json<WriteParams>,
-) -> Result<axum::response::Json<serde_json::Value>, StatusCode> {
-    if let Some(tx) = state.terminal_sessions.lock().await.get(&payload.session_id) {
-        if tx.send(payload.input).await.is_ok() {
-            return Ok(axum::response::Json(serde_json::json!({ "success": true })));
+async fn handle_terminal_socket(
+    socket: axum::extract::ws::WebSocket,
+    _state: Arc<AppState>,
+    container_id: Option<String>,
+) {
+    let pty_system = NativePtySystem::default();
+    
+    let pair = match pty_system.openpty(PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    }) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to open PTY: {}", e);
+            return;
+        }
+    };
+    
+    let mut cmd = CommandBuilder::new("bash");
+    if let Some(ref id) = container_id {
+        if !id.is_empty() {
+            let data_dir = std::env::var("ZENO_CONTAINER_DATA_DIR")
+                .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
+            let root = format!("{}/runc", data_dir);
+            let runc_bin = crate::slots::box_slot::get_runc_bin();
+            cmd = CommandBuilder::new(runc_bin);
+            cmd.args(&["--root", &root, "exec", "-t", id, "sh"]);
         }
     }
-    Err(StatusCode::NOT_FOUND)
+    
+    let mut child = match pair.slave.spawn_command(cmd) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to spawn command in PTY: {}", e);
+            return;
+        }
+    };
+    
+    drop(pair.slave);
+    
+    let reader = match pair.master.try_clone_reader() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Failed to clone PTY reader: {}", e);
+            return;
+        }
+    };
+    
+    let writer = match pair.master.take_writer() {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("Failed to take PTY writer: {}", e);
+            return;
+        }
+    };
+    let writer = Arc::new(tokio::sync::Mutex::new(writer));
+    
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+    let (tx_ws, mut rx_ws) = tokio::sync::mpsc::channel::<String>(1000);
+    
+    let mut reader_clone = reader;
+    tokio::task::spawn_blocking(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = reader_clone.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            let data = String::from_utf8_lossy(&buf[..n]).to_string();
+            if tx_ws.blocking_send(data).is_err() {
+                break;
+            }
+        }
+    });
+    
+    let ws_sender_task = tokio::spawn(async move {
+        use futures_util::SinkExt;
+        while let Some(msg) = rx_ws.recv().await {
+            if ws_sender.send(axum::extract::ws::Message::Text(msg)).await.is_err() {
+                break;
+            }
+        }
+        let _ = ws_sender.close().await;
+    });
+    
+    let writer_clone = writer.clone();
+    let master_resize = pair.master;
+    let ws_receiver_task = tokio::spawn(async move {
+        use futures_util::StreamExt;
+        while let Some(Ok(msg)) = ws_receiver.next().await {
+            match msg {
+                axum::extract::ws::Message::Text(text) => {
+                    if text.starts_with('{') {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if val["type"] == "resize" {
+                                if let (Some(cols), Some(rows)) = (val["cols"].as_u64(), val["rows"].as_u64()) {
+                                    let _ = master_resize.resize(PtySize {
+                                        rows: rows as u16,
+                                        cols: cols as u16,
+                                        pixel_width: 0,
+                                        pixel_height: 0,
+                                    });
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    let w_mutex = writer_clone.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        let mut guard = w_mutex.blocking_lock();
+                        let _ = guard.write_all(text.as_bytes());
+                        let _ = guard.flush();
+                    }).await;
+                }
+                axum::extract::ws::Message::Binary(bin) => {
+                    let w_mutex = writer_clone.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        let mut guard = w_mutex.blocking_lock();
+                        let _ = guard.write_all(&bin);
+                        let _ = guard.flush();
+                    }).await;
+                }
+                axum::extract::ws::Message::Close(_) => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+    
+    tokio::select! {
+        _ = ws_sender_task => {},
+        _ = ws_receiver_task => {},
+    }
+    
+    let _ = child.kill();
 }
 
 

@@ -1179,5 +1179,191 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    // ── system.firewall_status ────────────────────────────────────────────────
+    engine.register(
+        "system.firewall_status",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "firewall_rules".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let output = std::process::Command::new("iptables")
+                .args(&["-S", "INPUT"])
+                .output();
+
+            let mut list = Vec::new();
+            if let Ok(out) = output {
+                if out.status.success() {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    for line in stdout.lines() {
+                        if line.contains("ZenoPanel:") {
+                            let comment_marker = "ZenoPanel:";
+                            let name = if let Some(idx) = line.find(comment_marker) {
+                                let mut name_part = line[idx + comment_marker.len()..].trim();
+                                if name_part.ends_with('"') || name_part.ends_with('\'') {
+                                    name_part = &name_part[..name_part.len() - 1];
+                                }
+                                name_part.trim().to_string()
+                            } else {
+                                "Unknown".to_string()
+                            };
+
+                            let protocol = if line.contains("-p tcp") {
+                                "tcp".to_string()
+                            } else if line.contains("-p udp") {
+                                "udp".to_string()
+                            } else {
+                                "all".to_string()
+                            };
+
+                            let port = if let Some(idx) = line.find("--dport ") {
+                                let port_part = line[idx + 8..].split_whitespace().next().unwrap_or("");
+                                port_part.to_string()
+                            } else {
+                                "all".to_string()
+                            };
+
+                            let action = if line.contains("-j ACCEPT") {
+                                "ACCEPT".to_string()
+                            } else if line.contains("-j DROP") {
+                                "DROP".to_string()
+                            } else if line.contains("-j REJECT") {
+                                "REJECT".to_string()
+                            } else {
+                                "UNKNOWN".to_string()
+                            };
+
+                            let mut rule_map = HashMap::new();
+                            rule_map.insert("name".to_string(), Value::String(name));
+                            rule_map.insert("port".to_string(), Value::String(port));
+                            rule_map.insert("protocol".to_string(), Value::String(protocol));
+                            rule_map.insert("action".to_string(), Value::String(action));
+                            list.push(Value::Map(rule_map));
+                        }
+                    }
+                }
+            }
+
+            scope.set(&target, Value::List(list));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.firewall_rule_add ──────────────────────────────────────────────
+    engine.register(
+        "system.firewall_rule_add",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut name = String::new();
+            let mut port = String::new();
+            let mut protocol = "tcp".to_string();
+            let mut action = "ACCEPT".to_string();
+            let mut target = "success".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "name" => name = val.to_string_coerce(),
+                    "port" => port = val.to_string_coerce(),
+                    "protocol" => protocol = val.to_string_coerce(),
+                    "action" => action = val.to_string_coerce(),
+                    "as" => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    _ => {}
+                }
+            }
+
+            let action_upper = action.to_uppercase();
+            if action_upper == "DROP" || action_upper == "REJECT" {
+                if port == "22" || port == "3000" || port == "8443" || port == "3001" || port == "3002" {
+                    return Err(Diagnostic {
+                        r#type: "error".to_string(),
+                        message: "Lockout Protection: Memblokir port SSH (22) atau port manajemen ZenoPanel tidak diijinkan.".to_string(),
+                        filename: node.filename.clone(),
+                        line: node.line,
+                        col: node.col,
+                        slot: Some("system.firewall_rule_add".to_string()),
+                    });
+                }
+            }
+
+            // Check if rule already exists to prevent duplicate entries
+            let check = std::process::Command::new("iptables")
+                .args(&[
+                    "-C", "INPUT",
+                    "-p", &protocol,
+                    "--dport", &port,
+                    "-j", &action_upper,
+                    "-m", "comment",
+                    "--comment", &format!("ZenoPanel: {}", name)
+                ])
+                .output();
+            let exists = check.is_ok() && check.unwrap().status.success();
+            
+            let success = if !exists {
+                let output = std::process::Command::new("iptables")
+                    .args(&[
+                        "-A", "INPUT",
+                        "-p", &protocol,
+                        "--dport", &port,
+                        "-j", &action_upper,
+                        "-m", "comment",
+                        "--comment", &format!("ZenoPanel: {}", name)
+                    ])
+                    .output();
+                output.is_ok() && output.unwrap().status.success()
+            } else {
+                true
+            };
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.firewall_rule_delete ───────────────────────────────────────────
+    engine.register(
+        "system.firewall_rule_delete",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut name = String::new();
+            let mut port = String::new();
+            let mut protocol = "tcp".to_string();
+            let mut action = "ACCEPT".to_string();
+            let mut target = "success".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "name" => name = val.to_string_coerce(),
+                    "port" => port = val.to_string_coerce(),
+                    "protocol" => protocol = val.to_string_coerce(),
+                    "action" => action = val.to_string_coerce(),
+                    "as" => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    _ => {}
+                }
+            }
+
+            let action_upper = action.to_uppercase();
+            let output = std::process::Command::new("iptables")
+                .args(&[
+                    "-D", "INPUT",
+                    "-p", &protocol,
+                    "--dport", &port,
+                    "-j", &action_upper,
+                    "-m", "comment",
+                    "--comment", &format!("ZenoPanel: {}", name)
+                ])
+                .output();
+            let success = output.is_ok() && output.unwrap().status.success();
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 

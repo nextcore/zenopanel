@@ -14,6 +14,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- HTMX for smooth dynamic loading -->
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <!-- xterm.js for high-performance terminal emulator -->
+    <link rel="stylesheet" href="/public/css/vendor/xterm.css" />
+    <script src="/public/js/vendor/xterm.js"></script>
+    <script src="/public/js/vendor/xterm-addon-fit.js"></script>
 
     <style>
         :root {

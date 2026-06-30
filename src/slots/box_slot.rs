@@ -68,7 +68,7 @@ pub fn register(engine: &mut Engine) {
     register_box_compose_get_yaml(engine);
 }
 
-fn get_runc_bin() -> String {
+pub(crate) fn get_runc_bin() -> String {
     if let Ok(val) = std::env::var("ZENO_CONTAINER_RUNC") {
         return val;
     }

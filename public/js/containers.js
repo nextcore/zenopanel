@@ -1046,23 +1046,7 @@ export function deleteNetwork(name) {
 }
 
 export function openContainerTerminal(id) {
+  window.pendingContainerTerminalId = id;
   window.switchTab("terminal");
-  setTimeout(() => {
-    const input = document.getElementById("terminal-stdin");
-    if (input) {
-      input.value = `runc --root /var/lib/zeno-container/runc exec ${id} sh`;
-      input.focus();
-      
-      // Simulate pressing Enter to execute the command instantly
-      const event = new KeyboardEvent('keydown', {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true
-      });
-      input.dispatchEvent(event);
-    }
-  }, 300);
 }
 

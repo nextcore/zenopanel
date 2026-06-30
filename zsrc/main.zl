@@ -20,6 +20,7 @@ include: 'zsrc/routes/proxy.zl'
 include: 'zsrc/routes/containers.zl'
 include: 'zsrc/routes/box.zl'
 include: 'zsrc/routes/settings.zl'
+include: 'zsrc/routes/firewall.zl'
 include: 'zsrc/routes/users.zl'
 include: 'zsrc/routes/views.zl'
 

@@ -487,6 +487,14 @@ impl ProxyHttp for ZenoGateway {
         let proto = if is_tls { "https" } else { "http" };
         upstream_request.insert_header("X-Forwarded-Proto", proto)?;
 
+        // Forward Connection and Upgrade headers for WebSocket connections
+        if let Some(upgrade) = session.req_header().headers.get("Upgrade") {
+            upstream_request.insert_header("Upgrade", upgrade)?;
+        }
+        if let Some(connection) = session.req_header().headers.get("Connection") {
+            upstream_request.insert_header("Connection", connection)?;
+        }
+
         Ok(())
     }
 

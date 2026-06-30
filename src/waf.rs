@@ -176,11 +176,11 @@ pub fn get_client_ip(headers: &HeaderMap, connect_info: Option<&ConnectInfo<Sock
 }
 
 static SQLI_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(union\s+all\s+select|select\s+.*\s+from|insert\s+into|delete\s+from|drop\s+table|update\s+.*\s+set|or\s+\d+=\d+|--|#)").unwrap()
+    Regex::new(r"(?i)(union\s+(all\s+)?select|select\s+.*\s+from|insert\s+into|delete\s+from|drop\s+table|update\s+.*\s+set|or\s+.*=.*|--|#|/\*.*\*/|sleep\(\s*\d+\s*\)|benchmark\()").unwrap()
 });
 
 static XSS_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(<script>|javascript:|onerror\s*=|onload\s*=|alert\(|document\.cookie|<img\s+src|expression\()").unwrap()
+    Regex::new(r#"(?i)(<script.*?>|javascript:|on\w+\s*=\s*['"].*?['"]|alert\(|confirm\(|prompt\(|document\.cookie|document\.write|window\.location|<iframe|<object|<svg|<embed|<link\s+rel\s*=\s*['"]stylesheet['"])"#).unwrap()
 });
 
 static PATH_TRAVERSAL_REGEX: Lazy<Regex> = Lazy::new(|| {
@@ -188,7 +188,7 @@ static PATH_TRAVERSAL_REGEX: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RCE_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(/bin/bash|/bin/sh|cmd\.exe|powershell|curl\s+http|wget\s+http)").unwrap()
+    Regex::new(r"(?i)(/bin/bash|/bin/sh|cmd\.exe|powershell|curl\s|wget\s|nc\s|sh\s+-c|bash\s+-c|exec\s+)").unwrap()
 });
 
 pub fn is_malicious(input: &str) -> Option<&'static str> {
@@ -391,9 +391,10 @@ pub(crate) async fn waf_middleware(
     next: Next,
 ) -> Response {
     let start = std::time::Instant::now();
-    let headers = req.headers().clone();
-    let method = req.method().as_str().to_string();
-    let path = req.uri().path().to_string();
+    let (parts, body) = req.into_parts();
+    let headers = parts.headers.clone();
+    let method = parts.method.as_str().to_string();
+    let path = parts.uri.path().to_string();
     let user_agent = headers.get("user-agent")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
@@ -433,9 +434,12 @@ pub(crate) async fn waf_middleware(
     }
 
     // 2. Check WAF
+    let mut block_reason = None;
+    let mut body_bytes = None;
+    let mut body_opt = Some(body);
+
     if state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-        let uri = req.uri();
-        let mut block_reason = None;
+        let uri = parts.uri.clone();
 
         if let Some(reason) = is_malicious(uri.path()) {
             block_reason = Some(reason);
@@ -452,42 +456,85 @@ pub(crate) async fn waf_middleware(
         if block_reason.is_none() {
             for (name, value) in headers.iter() {
                 let name_str = name.as_str();
-                if name_str == "user-agent" || name_str == "cookie" || name_str == "referer" {
+                if name_str == "user-agent" || name_str == "referer" {
                     if let Ok(val_str) = value.to_str() {
                         if let Some(reason) = is_malicious(val_str) {
                             block_reason = Some(reason);
                             break;
                         }
                     }
+                } else if name_str == "cookie" {
+                    if let Ok(val_str) = value.to_str() {
+                        for pair in val_str.split(';') {
+                            let pair = pair.trim();
+                            let mut cookie_parts = pair.splitn(2, '=');
+                            if let (Some(k), Some(v)) = (cookie_parts.next(), cookie_parts.next()) {
+                                let key = k.trim();
+                                if key == "zeno_token" || key == "_csrf" {
+                                    continue;
+                                }
+                                if let Some(reason) = is_malicious(v) {
+                                    block_reason = Some(reason);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        if let Some(reason) = block_reason {
-            let html = render_blocked_page(reason, ip);
-            let status = StatusCode::FORBIDDEN;
-
-            log_waf_to_db(&state.db_manager, &ip_str, reason, &path);
-
-            let latency = start.elapsed().as_millis() as u64;
-            let bytes_sent = html.len() as u64;
-            state.traffic_stats.record(req_size, bytes_sent, latency);
-
-            let ua_clone = user_agent.clone();
-            let ip_clone = ip_str.clone();
-            let method_clone = method.clone();
-            let path_clone = path.clone();
-            tokio::spawn(async move {
-                write_access_log(&ip_clone, &method_clone, &path_clone, status.as_u16(), latency, bytes_sent, &ua_clone);
-            });
-
-            return Response::builder()
-                .status(status)
-                .header("Content-Type", "text/html")
-                .body(Body::from(html))
-                .unwrap();
+        // Scan Request Body for POST/PUT/PATCH
+        if block_reason.is_none() && (method == "POST" || method == "PUT" || method == "PATCH") {
+            if let Some(b) = body_opt.take() {
+                match axum::body::to_bytes(b, 2 * 1024 * 1024).await {
+                    Ok(bytes) => {
+                        let body_str = String::from_utf8_lossy(&bytes);
+                        if let Some(reason) = is_malicious(&body_str) {
+                            block_reason = Some(reason);
+                        }
+                        body_bytes = Some(bytes);
+                    }
+                    Err(_) => {
+                        block_reason = Some("Request Body Read Error / Payload Too Large");
+                        body_bytes = Some(axum::body::Bytes::new());
+                    }
+                }
+            }
         }
     }
+
+    if let Some(reason) = block_reason {
+        let html = render_blocked_page(reason, ip);
+        let status = StatusCode::FORBIDDEN;
+
+        log_waf_to_db(&state.db_manager, &ip_str, reason, &path);
+
+        let latency = start.elapsed().as_millis() as u64;
+        let bytes_sent = html.len() as u64;
+        state.traffic_stats.record(req_size, bytes_sent, latency);
+
+        let ua_clone = user_agent.clone();
+        let ip_clone = ip_str.clone();
+        let method_clone = method.clone();
+        let path_clone = path.clone();
+        tokio::spawn(async move {
+            write_access_log(&ip_clone, &method_clone, &path_clone, status.as_u16(), latency, bytes_sent, &ua_clone);
+        });
+
+        return Response::builder()
+            .status(status)
+            .header("Content-Type", "text/html")
+            .body(Body::from(html))
+            .unwrap();
+    }
+
+    // Reconstruct request
+    let req = if let Some(bytes) = body_bytes {
+        Request::from_parts(parts, Body::from(bytes))
+    } else {
+        Request::from_parts(parts, body_opt.take().unwrap())
+    };
 
     // 3. Process request
     let response = next.run(req).await;
