@@ -173,7 +173,7 @@ import {
   submitPortCheck,
   killPortProcess,
 } from "./portcheck.js";
-import { composeUp, composeDown, composePs, loadComposeYaml } from "./compose.js";
+import { composeUp, composeDown, composePs, loadComposeYaml, loadComposeProjects, selectComposeProject, createComposeProject, saveComposeYaml, switchComposeFileTab, deleteComposeProject, closeCreateComposeModal, submitCreateComposeProject, exposeComposeViaProxy, clearComposeConsole } from "./compose.js";
 import {
   allUsers,
   loadUsers,
@@ -502,6 +502,16 @@ window.composeUp = composeUp;
 window.composeDown = composeDown;
 window.composePs = composePs;
 window.loadComposeYaml = loadComposeYaml;
+window.loadComposeProjects = loadComposeProjects;
+window.selectComposeProject = selectComposeProject;
+window.createComposeProject = createComposeProject;
+window.saveComposeYaml = saveComposeYaml;
+window.switchComposeFileTab = switchComposeFileTab;
+window.deleteComposeProject = deleteComposeProject;
+window.closeCreateComposeModal = closeCreateComposeModal;
+window.submitCreateComposeProject = submitCreateComposeProject;
+window.exposeComposeViaProxy = exposeComposeViaProxy;
+window.clearComposeConsole = clearComposeConsole;
 
 // --- INITIALIZATION ROUTINE ---
 

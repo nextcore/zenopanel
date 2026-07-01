@@ -689,7 +689,10 @@ export function switchContainerSubTab(tab) {
     tab === "compose" ? "block" : "none";
 
   if (tab === "compose") {
-    import("./compose.js").then((m) => m.loadComposeYaml());
+    import("./compose.js").then((m) => {
+      m.loadComposeProjects();
+      m.loadComposeYaml();
+    });
   }
 }
 

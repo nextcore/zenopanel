@@ -66,6 +66,8 @@ pub fn register(engine: &mut Engine) {
     register_network_delete(engine);
     register_box_compose(engine);
     register_box_compose_get_yaml(engine);
+    register_box_compose_list_projects(engine);
+    register_box_compose_delete_project(engine);
 }
 
 pub(crate) fn get_runc_bin() -> String {
@@ -2733,6 +2735,7 @@ fn register_box_compose(engine: &mut Engine) {
             let mut yaml = String::new();
             let mut target = "compose_result".to_string();
             let mut project_name = String::new();
+            let mut file_name = "docker-compose.yml".to_string();
 
             if node.value.is_some() {
                 action = resolve_node_value(_engine, node, scope).to_string_coerce();
@@ -2743,6 +2746,7 @@ fn register_box_compose(engine: &mut Engine) {
                     "action" => action = resolve_node_value(_engine, child, scope).to_string_coerce(),
                     "yaml" => yaml = resolve_node_value(_engine, child, scope).to_string_coerce(),
                     "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "file" | "file_name" => file_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
                     "as" => {
                         if let Some(ref val) = child.value {
                             target = val.trim_start_matches('$').to_string();
@@ -2758,7 +2762,7 @@ fn register_box_compose(engine: &mut Engine) {
             } else {
                 Path::new(&data_dir).join("compose").join(&project_name)
             };
-            let compose_path = compose_dir.join("docker-compose.yml");
+            let compose_path = compose_dir.join(&file_name);
 
             let mut write_err = None;
             if !yaml.is_empty() {
@@ -2777,6 +2781,7 @@ fn register_box_compose(engine: &mut Engine) {
                     "up" => compose_up(&compose_path_str),
                     "down" => compose_down(&compose_path_str),
                     "ps" => compose_ps(&compose_path_str),
+                    "save" => Ok("Saved successfully".to_string()),
                     _ => Err(format!("Unknown compose action: {}", action)),
                 }
             };
@@ -2814,9 +2819,11 @@ fn register_box_compose_get_yaml(engine: &mut Engine) {
         Arc::new(|_engine, _ctx, node, scope| {
             let mut target = "result".to_string();
             let mut project_name = String::new();
+            let mut file_name = "docker-compose.yml".to_string();
             for child in &node.children {
                 match child.name.as_str() {
                     "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "file" | "file_name" => file_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
                     "as" => {
                         if let Some(ref val) = child.value {
                             target = val.trim_start_matches('$').to_string();
@@ -2832,7 +2839,7 @@ fn register_box_compose_get_yaml(engine: &mut Engine) {
             } else {
                 Path::new(&data_dir).join("compose").join(&project_name)
             };
-            let compose_path = compose_dir.join("docker-compose.yml");
+            let compose_path = compose_dir.join(&file_name);
             let yaml = fs::read_to_string(compose_path).unwrap_or_default();
 
             let mut result = HashMap::new();
@@ -2843,6 +2850,95 @@ fn register_box_compose_get_yaml(engine: &mut Engine) {
         SlotMeta {
             description: "Get compose YAML file content".to_string(),
             example: "box.compose_get_yaml { as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_compose_list_projects(engine: &mut Engine) {
+    engine.register(
+        "box.compose_list_projects",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+
+            let data_dir = get_data_dir();
+            let compose_dir = Path::new(&data_dir).join("compose");
+            
+            let mut list = Vec::new();
+            if let Ok(entries) = fs::read_dir(compose_dir) {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        if let Ok(meta) = entry.metadata() {
+                            if meta.is_dir() {
+                                let mut map = HashMap::new();
+                                map.insert("name".to_string(), Value::String(entry.file_name().to_string_lossy().into_owned()));
+                                map.insert("is_dir".to_string(), Value::Bool(true));
+                                list.push(Value::Map(map));
+                            }
+                        }
+                    }
+                }
+            }
+
+            scope.set(&target, Value::List(list));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "List all compose projects".to_string(),
+            example: "box.compose_list_projects { as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_compose_delete_project(engine: &mut Engine) {
+    engine.register(
+        "box.compose_delete_project",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            let mut project_name = String::new();
+            for child in &node.children {
+                match child.name.as_str() {
+                    "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if project_name.is_empty() {
+                scope.set(&target, Value::Bool(false));
+                return Ok(());
+            }
+
+            let data_dir = get_data_dir();
+            let compose_dir = Path::new(&data_dir).join("compose").join(&project_name);
+            let success = if compose_dir.exists() && compose_dir.is_dir() {
+                fs::remove_dir_all(compose_dir).is_ok()
+            } else {
+                false
+            };
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Delete compose project".to_string(),
+            example: "box.compose_delete_project { project_name: 'test', as: $result }".to_string(),
             inputs: HashMap::new(),
             required_blocks: Vec::new(),
             value_type: "".to_string(),

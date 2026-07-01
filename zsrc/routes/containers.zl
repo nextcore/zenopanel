@@ -245,12 +245,43 @@ http.post: '/api/containers/rmi' {
     }
 }
 
+# Delete Compose Project
+http.post: '/api/containers/compose/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    box.compose_delete_project: {
+        project_name: $body.project_name
+        as: $success
+    }
+    if: $success {
+        then: {
+            http.ok: { message: "Project deleted successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Failed to delete project" }
+        }
+    }
+}
+
+# Get all Compose Projects list
+http.get: '/api/containers/compose/projects' {
+    auth.guard
+    box.compose_list_projects: { as: $projects }
+    http.ok: { data: $projects }
+}
+
 # Get Compose YAML content from physical file
 http.get: '/api/containers/compose/yaml' {
     auth.guard
     http.query: 'project_name' { as: $project_name }
+    http.query: 'file' { as: $file_query }
+    coalesce: $file_query {
+        default: 'docker-compose.yml'
+        as: $file_name
+    }
     box.compose_get_yaml: {
         project_name: $project_name
+        file: $file_name
         as: $result
     }
     http.ok: { yaml: $result.yaml }
@@ -261,10 +292,16 @@ http.post: '/api/containers/compose' {
     auth.guard
     http.json_body: { as: $body }
 
+    coalesce: $body.file {
+        default: 'docker-compose.yml'
+        as: $file_name
+    }
+
     # Call structured compose slot securely
     box.compose: $body.action {
         yaml: $body.yaml
         project_name: $body.project_name
+        file: $file_name
         as: $result
     }
     if: $result.success {
