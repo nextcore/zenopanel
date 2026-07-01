@@ -126,6 +126,10 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 - **Database Console**: Jalankan query SQL langsung dari UI untuk database SQLite internal atau default aplikasi.
 - **File Manager**: Navigasi direktori, unggah file via *multipart forms*, buat, edit, dan hapus berkas server dari peramban.
 - **Interactive Terminal**: Akses shell server langsung secara aman di browser (khusus Administrator).
+### 🧱 Firewall Rules Manager (iptables)
+- Kelola aturan port masuk (*incoming traffic*) Linux `iptables` secara visual langsung dari UI panel.
+- **Lockout Protection**: Pencegahan otomatis terhadap pemblokiran port SSH (22) dan port vital web panel admin agar administrator tidak terkunci keluar (*lockout*).
+- **Lockdown Mode (Block All)**: Mengaktifkan kebijakan *default-DROP* (blokir semua port) mirip UFW secara instan dengan sistem pintar yang otomatis mengizinkan port-port utama sistem secara dinamis.
 
 ---
 
