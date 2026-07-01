@@ -899,6 +899,7 @@
                     <option value="dotnet">.NET Core ASP.NET Environment</option>
                 </select>
             </div>
+            <div id="compose-template-options" style="margin-top:15px; display:none;"></div>
         </div>
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
             <button class="btn-action" onclick="closeCreateComposeModal()">Cancel</button>

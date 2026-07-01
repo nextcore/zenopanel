@@ -8,6 +8,14 @@ http.get: '/api/containers/list' {
     http.ok: { data: $containers }
 }
 
+# ─── Fetch Docker Hub Tags ───────────────────────────────────────
+http.get: '/api/containers/docker-tags' {
+    auth.guard
+    http.query: 'repo' { as: $repo }
+    system.fetch_docker_tags: { repo: $repo, as: $tags }
+    http.ok: { data: $tags }
+}
+
 # ─── List Cached Images ──────────────────────────────────────────
 http.get: '/api/containers/images' {
     auth.guard

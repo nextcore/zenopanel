@@ -84,3 +84,17 @@ http.get: '/api/containers/:id/logs' {
     }
     http.ok: { data: $log_result }
 }
+
+# 9. Update ZenoPanel API
+http.post: '/api/system/update' {
+    auth.guard
+    system.update_panel: { as: $success }
+    if: $success {
+        then: {
+            http.ok: { message: "Pembaruan ZenoPanel telah dimulai. Panel akan segera memulai ulang." }
+        }
+        else: {
+            http.bad_request: { message: "Gagal memulai pembaruan ZenoPanel." }
+        }
+    }
+}

@@ -1365,5 +1365,103 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "system.update_panel",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "success".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            // Spawn updater detached in background
+            let child = std::process::Command::new("nohup")
+                .args(&["sh", "-c", "sleep 1 && curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+
+            let success = child.is_ok();
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "system.fetch_docker_tags",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut repo = String::new();
+            let mut target = "tags".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "repo" {
+                    repo = val.to_string_coerce();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            if repo.is_empty() {
+                scope.set(&target, Value::List(Vec::new()));
+                return Ok(());
+            }
+
+            let full_repo = if repo.contains('/') {
+                repo
+            } else {
+                format!("library/{}", repo)
+            };
+
+            let handle = tokio::runtime::Handle::current();
+            let mut tag_list = Vec::new();
+            
+            let url = format!(
+                "https://registry.hub.docker.com/v2/repositories/{}/tags?page_size=100",
+                full_repo
+            );
+
+            let fetch_fut = async {
+                let client = reqwest::Client::builder()
+                    .user_agent("ZenoPanel-Tags-Fetcher/1.0")
+                    .timeout(std::time::Duration::from_secs(8))
+                    .build()
+                    .unwrap_or_else(|_| reqwest::Client::new());
+
+                if let Ok(resp) = client.get(&url).send().await {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        return Some(json);
+                    }
+                }
+                None
+            };
+
+            if let Some(json) = handle.block_on(fetch_fut) {
+                if let Some(results) = json.get("results").and_then(|r| r.as_array()) {
+                    for res in results {
+                        if let Some(name) = res.get("name").and_then(|n| n.as_str()) {
+                            let tag_str = name.to_string();
+                            if tag_str.len() > 20 && tag_str.chars().all(|c| c.is_ascii_hexdigit()) {
+                                continue;
+                            }
+                            let lower = tag_str.to_lowercase();
+                            if lower.contains("beta") || lower.contains("alpha") || lower.contains("rc") || 
+                               lower.contains("dev") || lower == "latest" || lower == "master" || lower == "main" {
+                                continue;
+                            }
+                            tag_list.push(Value::String(tag_str));
+                        }
+                    }
+                }
+            }
+
+            scope.set(&target, Value::List(tag_list));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 

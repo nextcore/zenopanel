@@ -552,3 +552,62 @@ export function refreshContainerLog() {
             output.textContent = 'Error: ' + err.toString();
         });
 }
+
+export function triggerPanelUpdate() {
+    if (!confirm('Are you sure you want to update ZenoPanel now? The panel server will restart during the update.')) {
+        return;
+    }
+
+    const btn = document.getElementById('btn-update-panel');
+    const actionsContainer = document.getElementById('update-banner-actions');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
+    }
+
+    fetch('/api/system/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCSRFToken()
+        }
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast('success', 'Update initiated! Reconnecting to ZenoPanel...');
+            if (actionsContainer) {
+                actionsContainer.innerHTML = '<span style="font-size:0.85rem; color:var(--text-muted);"><i class="fa-solid fa-sync fa-spin"></i> Server restarting, reconnecting...</span>';
+            }
+            setTimeout(checkServerReconnection, 3000);
+        } else {
+            showToast('error', res.message || 'Failed to start update');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> Update Now';
+            }
+        }
+    })
+    .catch(err => {
+        showToast('error', 'Error sending update request');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> Update Now';
+        }
+    });
+}
+
+function checkServerReconnection() {
+    fetch('/api/info')
+        .then(res => {
+            if (res.ok) {
+                showToast('success', 'ZenoPanel updated and online!');
+                setTimeout(() => window.location.reload(), 1000);
+            } else {
+                setTimeout(checkServerReconnection, 2000);
+            }
+        })
+        .catch(() => {
+            setTimeout(checkServerReconnection, 2000);
+        });
+}

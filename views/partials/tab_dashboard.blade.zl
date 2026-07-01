@@ -1,13 +1,15 @@
 <!-- 1. DASHBOARD TAB -->
 <div class="viewport active" id="tab-dashboard">
     <!-- Update Alert Banner -->
-    <div id="update-alert-banner" class="glass-card" style="display: none; background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.15); margin-bottom: 24px; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 20px; flex-wrap: wrap;">
+    <div id="update-alert-banner" class="glass-card" style="display: none; background: rgba(59, 130, 246, 0.08); border-color: rgba(59, 130, 246, 0.15); margin-bottom: 24px; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 20px; flex-wrap: wrap;">
         <div style="display: flex; align-items: center; gap: 12px; font-size: 0.9rem;">
-            <i class="fa-solid fa-circle-info" style="color: #f59e0b; font-size: 1.25rem;"></i>
-            <span>Pembaruan baru tersedia! Versi terbaru: <strong id="latest-ver-str" style="color: #f59e0b;">v0.0.0</strong> (versi saat ini: <strong id="current-ver-str">v0.0.0</strong>).</span>
+            <i class="fa-solid fa-circle-info" style="color: var(--accent-primary); font-size: 1.25rem;"></i>
+            <span>New ZenoPanel update available! Latest: <strong id="latest-ver-str" style="color: var(--accent-primary);">v0.0.0</strong> (current: <strong id="current-ver-str">v0.0.0</strong>).</span>
         </div>
-        <div style="font-size: 0.85rem; color: var(--text-muted);">
-            Hubungkan via SSH & jalankan <code style="background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px; font-family: var(--font-code); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.05);">curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash</code> untuk memperbarui.
+        <div style="display: flex; align-items: center; gap: 12px;" id="update-banner-actions">
+            <button class="btn-primary-action" id="btn-update-panel" onclick="triggerPanelUpdate()" style="padding: 6px 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-cloud-arrow-down"></i> Update Now
+            </button>
         </div>
     </div>
 

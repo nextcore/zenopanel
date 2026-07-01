@@ -31,6 +31,7 @@ import {
   stopStatsPolling,
   loadContainerList,
   refreshContainerLog,
+  triggerPanelUpdate,
 } from "./dashboard.js";
 import {
   currentFilePath,
@@ -345,6 +346,7 @@ const functionsToBind = {
   loadStaticSystemInfo,
   loadProcesses,
   killProcess,
+  triggerPanelUpdate,
   startStatsPolling,
   stopStatsPolling,
   setSortBy,
