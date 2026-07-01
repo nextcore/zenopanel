@@ -100,9 +100,18 @@
             <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
                 <i class="fa-solid fa-shield" style="color:var(--accent-primary);"></i> Firewall Rules Manager (iptables)
             </h3>
-            <button class="btn-primary-action" onclick="openAddFirewallRuleModal()" style="font-size:0.8rem; padding:6px 12px;">
-                <i class="fa-solid fa-plus"></i> Add Rule
-            </button>
+            <div style="display:flex; align-items:center; gap:20px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">Lockdown Mode (Block All)</span>
+                    <label class="switch" style="position:relative; display:inline-block; width:36px; height:20px;">
+                        <input type="checkbox" id="settings-fw-lockdown" onchange="toggleFirewallLockdown()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <button class="btn-primary-action" onclick="openAddFirewallRuleModal()" style="font-size:0.8rem; padding:6px 12px;">
+                    <i class="fa-solid fa-plus"></i> Add Rule
+                </button>
+            </div>
         </div>
         
         <div class="table-container" style="max-height:350px; overflow-y:auto;">

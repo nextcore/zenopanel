@@ -189,10 +189,6 @@ export function selectComposeProject(name) {
   loadComposeYaml(name, activeFile);
 }
 
-}
-
-}
-
 export function loadDynamicDockerTags(repo, selectElementId, defaultTags, filterRegex) {
   const select = document.getElementById(selectElementId);
   if (!select) return;

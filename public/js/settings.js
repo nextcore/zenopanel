@@ -26,7 +26,7 @@ export async function loadSettings() {
 export async function submitSaveSettings() {
     const entrancePathInput = document.getElementById('settings-entrance-path');
     if (!entrancePathInput) return;
-    
+
     const entrancePath = entrancePathInput.value.trim();
     if (!entrancePath) {
         showToast('error', 'Entrance path tidak boleh kosong');
@@ -36,11 +36,11 @@ export async function submitSaveSettings() {
     const csrfToken = getCSRFToken();
     const btn = document.getElementById('btn-save-settings');
     const originalText = btn.innerHTML;
-    
+
     try {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
-        
+
         const response = await fetch('/api/settings', {
             method: 'POST',
             headers: {
@@ -77,7 +77,7 @@ export async function loadServiceStatus() {
             const data = res.data;
             document.getElementById('service-distro').textContent = data.distro;
             document.getElementById('service-init-sys').textContent = data.init_system;
-            
+
             const isRootEl = document.getElementById('service-is-root');
             if (data.is_root) {
                 isRootEl.innerHTML = '<span style="color:#22c55e;"><i class="fa-solid fa-circle-check"></i> Yes</span>';
@@ -95,10 +95,10 @@ export async function loadServiceStatus() {
                 badge.style.background = 'rgba(34, 197, 94, 0.15)';
                 badge.style.color = '#22c55e';
                 badge.style.border = '1px solid rgba(34, 197, 94, 0.3)';
-                
+
                 installBtn.style.display = 'none';
                 uninstallBtn.style.display = 'inline-block';
-                
+
                 if (!data.is_root) {
                     manualContainer.style.display = 'block';
                     document.getElementById('manual-title-label').textContent = 'Manual Service Uninstall';
@@ -114,11 +114,11 @@ export async function loadServiceStatus() {
                 badge.style.background = 'rgba(234, 179, 8, 0.15)';
                 badge.style.color = '#eab308';
                 badge.style.border = '1px solid rgba(234, 179, 8, 0.3)';
-                
+
                 installBtn.style.display = 'inline-block';
                 installBtn.innerHTML = '<i class="fa-solid fa-play"></i> Start Service';
                 uninstallBtn.style.display = 'inline-block';
-                
+
                 if (!data.is_root) {
                     manualContainer.style.display = 'block';
                     document.getElementById('manual-title-label').textContent = 'Manual Service Uninstall';
@@ -134,11 +134,11 @@ export async function loadServiceStatus() {
                 badge.style.background = 'rgba(156, 163, 175, 0.15)';
                 badge.style.color = '#9ca3af';
                 badge.style.border = '1px solid rgba(156, 163, 175, 0.3)';
-                
+
                 installBtn.style.display = 'inline-block';
                 installBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Install Service';
                 uninstallBtn.style.display = 'none';
-                
+
                 // Show manual instructions
                 manualContainer.style.display = 'block';
                 document.getElementById('manual-title-label').textContent = 'Manual Service Configuration';
@@ -158,11 +158,11 @@ export async function installService() {
     const csrfToken = getCSRFToken();
     const btn = document.getElementById('btn-install-service');
     const originalText = btn.innerHTML;
-    
+
     try {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Installing...';
-        
+
         const response = await fetch('/api/settings/service-install', {
             method: 'POST',
             headers: {
@@ -170,7 +170,7 @@ export async function installService() {
                 'X-CSRF-Token': csrfToken
             }
         });
-        
+
         const data = await response.json();
         if (data.success) {
             showToast('success', data.message || 'Service berhasil diinstall');
@@ -189,15 +189,15 @@ export async function installService() {
 
 export async function uninstallService() {
     if (!confirm('Apakah Anda yakin ingin mencopot service Zenopanel?')) return;
-    
+
     const csrfToken = getCSRFToken();
     const btn = document.getElementById('btn-uninstall-service');
     const originalText = btn.innerHTML;
-    
+
     try {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uninstalling...';
-        
+
         const response = await fetch('/api/settings/service-uninstall', {
             method: 'POST',
             headers: {
@@ -205,7 +205,7 @@ export async function uninstallService() {
                 'X-CSRF-Token': csrfToken
             }
         });
-        
+
         const data = await response.json();
         if (data.success) {
             showToast('success', data.message || 'Service berhasil dicopot');
@@ -261,17 +261,17 @@ export async function loadSecuritySettings() {
             if (rlCheckbox) {
                 rlCheckbox.checked = data.settings.rate_limit_enabled;
             }
-            
+
             const maxInput = document.getElementById('settings-rl-max');
             if (maxInput) {
                 maxInput.value = data.settings.rate_limit_max;
             }
-            
+
             const windowInput = document.getElementById('settings-rl-window');
             if (windowInput) {
                 windowInput.value = data.settings.rate_limit_window;
             }
-            
+
             toggleRateLimitFields();
 
             if (tbody) {
@@ -305,11 +305,11 @@ export async function submitSaveSecurity() {
     const csrfToken = getCSRFToken();
     const btn = document.getElementById('btn-save-security');
     const originalText = btn.innerHTML;
-    
+
     try {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
-        
+
         const response = await fetch('/api/settings/security', {
             method: 'POST',
             headers: {
@@ -377,28 +377,28 @@ export async function loadBackupSettings() {
         const data = await response.json();
         if (data.success && data.settings) {
             const settings = data.settings;
-            
+
             const backupEnabled = document.getElementById('settings-backup-enabled');
             if (backupEnabled) backupEnabled.checked = settings.enabled;
-            
+
             const backupInterval = document.getElementById('settings-backup-interval');
             if (backupInterval) backupInterval.value = settings.interval_hours;
-            
+
             const backupRetention = document.getElementById('settings-backup-retention');
             if (backupRetention) backupRetention.value = settings.retention;
-            
+
             const backupDestDir = document.getElementById('settings-backup-dest-dir');
             if (backupDestDir) backupDestDir.value = settings.dest_dir;
-            
+
             const backupPostScript = document.getElementById('settings-backup-post-script');
             if (backupPostScript) backupPostScript.value = settings.post_script;
-            
+
             const backupLastRun = document.getElementById('backup-last-run-val');
             if (backupLastRun) backupLastRun.textContent = settings.last_run ? formatDate(settings.last_run) : 'Never';
-            
+
             const backupLastStatus = document.getElementById('backup-last-status-val');
             if (backupLastStatus) backupLastStatus.textContent = settings.last_status || 'No status available';
-            
+
             toggleBackupFields();
         }
     } catch (err) {
@@ -416,11 +416,11 @@ export async function submitSaveBackupSettings() {
     const csrfToken = getCSRFToken();
     const btn = document.getElementById('btn-save-backup-settings');
     const originalText = btn.innerHTML;
-    
+
     try {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
-        
+
         const response = await fetch('/api/settings/backup', {
             method: 'POST',
             headers: {
@@ -453,15 +453,15 @@ export async function submitSaveBackupSettings() {
 
 export async function triggerBackupManual() {
     if (!confirm('Apakah Anda yakin ingin memicu backup manual sekarang? Proses ini dapat memakan waktu beberapa saat.')) return;
-    
+
     const csrfToken = getCSRFToken();
     const btn = document.getElementById('btn-trigger-backup');
     const originalText = btn.innerHTML;
-    
+
     try {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Backing up...';
-        
+
         const response = await fetch('/api/settings/backup/trigger', {
             method: 'POST',
             headers: {
@@ -597,7 +597,7 @@ export function openAddFirewallRuleModal() {
 export function closeAddFirewallRuleModal() {
     const modal = document.getElementById('add-firewall-modal');
     if (modal) modal.classList.remove('active');
-    
+
     // Clear inputs
     document.getElementById('fw-rule-name').value = '';
     document.getElementById('fw-rule-port').value = '';
@@ -610,18 +610,18 @@ export async function submitAddFirewallRule() {
     const port = document.getElementById('fw-rule-port').value.trim();
     const protocol = document.getElementById('fw-rule-protocol').value;
     const action = document.getElementById('fw-rule-action').value;
-    
+
     if (!name || !port) {
         showToast('error', 'Semua kolom wajib diisi');
         return;
     }
-    
+
     const portNum = parseInt(port, 10);
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
         showToast('error', 'Port harus berupa angka antara 1 s/d 65535');
         return;
     }
-    
+
     const csrfToken = getCSRFToken();
     try {
         const response = await fetch('/api/security/firewall/add', {
@@ -632,7 +632,7 @@ export async function submitAddFirewallRule() {
             },
             body: JSON.stringify({ name, port: portNum.toString(), protocol, action })
         });
-        
+
         const data = await response.json();
         if (data.success) {
             showToast('success', data.message || 'Aturan firewall berhasil disimpan');
@@ -648,7 +648,7 @@ export async function submitAddFirewallRule() {
 
 export async function deleteFirewallRule(name, port, protocol, action) {
     if (!confirm(`Apakah Anda yakin ingin menghapus aturan "${name}" (${protocol}/${port})?`)) return;
-    
+
     const csrfToken = getCSRFToken();
     try {
         const response = await fetch('/api/security/firewall/delete', {
@@ -659,7 +659,7 @@ export async function deleteFirewallRule(name, port, protocol, action) {
             },
             body: JSON.stringify({ name, port: port.toString(), protocol, action })
         });
-        
+
         const data = await response.json();
         if (data.success) {
             showToast('success', data.message || 'Aturan firewall berhasil dihapus');
@@ -676,12 +676,28 @@ export async function loadFirewallRules() {
     try {
         const tbody = document.getElementById('firewall-rules-tbody');
         if (!tbody) return;
-        
+
+        // Fetch Lockdown Status as well!
+        try {
+            const ldResponse = await fetch('/api/security/firewall/lockdown');
+            if (ldResponse.ok) {
+                const ldData = await ldResponse.json();
+                if (ldData.success) {
+                    const ldCheckbox = document.getElementById('settings-fw-lockdown');
+                    if (ldCheckbox) {
+                        ldCheckbox.checked = ldData.enabled;
+                    }
+                }
+            }
+        } catch (ldErr) {
+            console.error('Error fetching firewall lockdown status:', ldErr);
+        }
+
         const response = await fetch('/api/security/firewall');
         if (!response.ok) {
             throw new Error('Failed to fetch firewall rules');
         }
-        
+
         const data = await response.json();
         if (data.success) {
             const rules = data.data || [];
@@ -689,16 +705,16 @@ export async function loadFirewallRules() {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Belum ada aturan firewall terdaftar.</td></tr>';
             } else {
                 tbody.innerHTML = rules.map(rule => {
-                    const actionBadge = rule.action === 'ACCEPT' 
+                    const actionBadge = rule.action === 'ACCEPT'
                         ? `<span class="badge badge-running">ACCEPT</span>`
                         : `<span class="badge badge-stopped">DROP</span>`;
-                        
+
                     // Escape arguments for the delete action
                     const safeName = escapeHtml(rule.name);
                     const safePort = escapeHtml(rule.port);
                     const safeProtocol = escapeHtml(rule.protocol);
                     const safeAction = escapeHtml(rule.action);
-                    
+
                     return `
                         <tr>
                             <td><strong>${safeName}</strong></td>
@@ -717,6 +733,56 @@ export async function loadFirewallRules() {
         }
     } catch (err) {
         console.error('Error loading firewall rules:', err);
+    }
+}
+
+export async function toggleFirewallLockdown() {
+    const checkbox = document.getElementById('settings-fw-lockdown');
+    if (!checkbox) return;
+
+    const enabled = checkbox.checked;
+
+    // If enabling, show confirmation modal to warn the user!
+    if (enabled) {
+        const confirmed = confirm(
+            "PERINGATAN: Mengaktifkan Lockdown Mode akan memblokir SEMUA port masuk ke server ini (default DROP) secara otomatis, kecuali port SSH (22) dan port manajemen ZenoPanel (3000, 8443, 3001, 3002). Jika Anda menjalankan aplikasi lain pada port non-standar, port tersebut akan terblokir sampai Anda menambahkannya secara manual ke daftar aturan di bawah. Apakah Anda yakin ingin melanjutkan?"
+        );
+        if (!confirmed) {
+            checkbox.checked = false;
+            return;
+        }
+    } else {
+        const confirmed = confirm(
+            "Apakah Anda yakin ingin menonaktifkan Lockdown Mode? Kebijakan firewall default akan dikembalikan menjadi mengizinkan semua koneksi masuk (default ACCEPT)."
+        );
+        if (!confirmed) {
+            checkbox.checked = true;
+            return;
+        }
+    }
+
+    const csrfToken = getCSRFToken();
+    try {
+        const response = await fetch('/api/security/firewall/lockdown', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ enabled })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Status lockdown berhasil diperbarui');
+            await loadFirewallRules();
+        } else {
+            showToast('error', data.message || 'Gagal memperbarui status lockdown');
+            checkbox.checked = !enabled; // Revert checkbox state
+        }
+    } catch (err) {
+        showToast('error', 'Error: ' + err.message);
+        checkbox.checked = !enabled; // Revert checkbox state
     }
 }
 

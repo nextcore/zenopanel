@@ -73,3 +73,40 @@ http.post: '/api/security/firewall/delete' {
         }
     }
 }
+
+# 4. Get Firewall Lockdown Status
+http.get: '/api/security/firewall/lockdown' {
+    auth.guard
+    system.firewall_get_lockdown: { as: $enabled }
+    http.ok: {
+        success: true
+        enabled: $enabled
+    }
+}
+
+# 5. Set Firewall Lockdown Mode
+http.post: '/api/security/firewall/lockdown' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $enabled { val: $body.enabled }
+
+    system.firewall_set_lockdown: {
+        enabled: $enabled
+        as: $ok
+    }
+
+    if: $ok {
+        then: {
+            http.ok: {
+                success: true
+                message: "Lockdown mode berhasil diperbarui."
+            }
+        }
+        else: {
+            http.bad_request: {
+                success: false
+                message: "Gagal memperbarui lockdown mode."
+            }
+        }
+    }
+}

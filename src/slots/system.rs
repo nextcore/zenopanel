@@ -1463,5 +1463,168 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "system.firewall_get_lockdown",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "lockdown_enabled".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.firewall_get_lockdown".to_string()) })?;
+
+            let db_manager = app_state.db_manager.clone();
+            let mut enabled = false;
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let v: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'firewall_lockdown'")
+                            .fetch_optional(&pool)
+                            .await
+                            .unwrap_or(None);
+                        if let Some(r) = v {
+                            enabled = r.0 == "true";
+                        }
+                    }
+                });
+            });
+
+            scope.set(&target, Value::Bool(enabled));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "system.firewall_set_lockdown",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut target = "success".to_string();
+            let mut enabled = false;
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "enabled" {
+                    enabled = val.to_bool();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.firewall_set_lockdown".to_string()) })?;            let db_manager = app_state.db_manager.clone();
+            let mut lockdown_ports_str = "22,80,443,3002".to_string();
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let v: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'firewall_lockdown_ports'")
+                            .fetch_optional(&pool)
+                            .await
+                            .unwrap_or(None);
+                        if let Some(r) = v {
+                            lockdown_ports_str = r.0;
+                        }
+                    }
+                });
+            });
+
+            let ports: Vec<String> = lockdown_ports_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            let success = if enabled {
+                let check_and_add = |args: &[&str]| {
+                    let mut check_args = vec!["-C"];
+                    check_args.extend_from_slice(&args[1..]);
+                    let check = std::process::Command::new("iptables").args(&check_args).output();
+                    let exists = check.is_ok() && check.unwrap().status.success();
+                    if !exists {
+                        let _ = std::process::Command::new("iptables").args(args).output();
+                    }
+                };
+
+                // 1. Allow loopback
+                check_and_add(&["-A", "INPUT", "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Loopback"]);
+
+                // 2. Allow Established & Related
+                check_and_add(&["-A", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Established/Related"]);
+
+                // 3. Allow specified ports
+                for port in &ports {
+                    let rule_name = match port.as_str() {
+                        "22" => "Allow SSH (Port 22)".to_string(),
+                        "80" => "Allow HTTP (Port 80)".to_string(),
+                        "443" => "Allow HTTPS (Port 443)".to_string(),
+                        "3002" => "Allow ZenoPanel (Port 3002)".to_string(),
+                        _ => format!("Allow Port {}", port),
+                    };
+                    check_and_add(&["-A", "INPUT", "-p", "tcp", "--dport", port, "-j", "ACCEPT", "-m", "comment", "--comment", &format!("ZenoPanel: {}", rule_name)]);
+                }
+
+                // 4. Set default policy INPUT to DROP
+                let drop_policy = std::process::Command::new("iptables")
+                    .args(&["-P", "INPUT", "DROP"])
+                    .output();
+
+                drop_policy.is_ok() && drop_policy.unwrap().status.success()
+            } else {
+                // 1. Reset default policy INPUT to ACCEPT
+                let accept_policy = std::process::Command::new("iptables")
+                    .args(&["-P", "INPUT", "ACCEPT"])
+                    .output();
+
+                // 2. Delete loopback rule
+                let _ = std::process::Command::new("iptables")
+                    .args(&["-D", "INPUT", "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Loopback"])
+                    .output();
+
+                // 3. Delete Established & Related rule
+                let _ = std::process::Command::new("iptables")
+                    .args(&["-D", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Established/Related"])
+                    .output();
+
+                // 4. Delete specified ports
+                for port in &ports {
+                    let rule_name = match port.as_str() {
+                        "22" => "Allow SSH (Port 22)".to_string(),
+                        "80" => "Allow HTTP (Port 80)".to_string(),
+                        "443" => "Allow HTTPS (Port 443)".to_string(),
+                        "3002" => "Allow ZenoPanel (Port 3002)".to_string(),
+                        _ => format!("Allow Port {}", port),
+                    };
+                    let _ = std::process::Command::new("iptables")
+                        .args(&["-D", "INPUT", "-p", "tcp", "--dport", port, "-j", "ACCEPT", "-m", "comment", "--comment", &format!("ZenoPanel: {}", rule_name)])
+                        .output();
+                }
+
+                accept_policy.is_ok() && accept_policy.unwrap().status.success()
+            };
+            if success {
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                            let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('firewall_lockdown', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                                .bind(if enabled { "true" } else { "false" })
+                                .execute(&pool)
+                                .await;
+                        }
+                    });
+                });
+            }
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 

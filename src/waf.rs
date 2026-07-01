@@ -484,8 +484,14 @@ pub(crate) async fn waf_middleware(
             }
         }
 
-        // Scan Request Body for POST/PUT/PATCH
-        if block_reason.is_none() && (method == "POST" || method == "PUT" || method == "PATCH") {
+        let entrance_path = {
+            let lock = state.entrance_path.lock().unwrap();
+            lock.clone()
+        };
+        let is_admin_or_login = path.starts_with("/api/") || path == entrance_path;
+
+        // Scan Request Body for POST/PUT/PATCH (skip for administrative API / login page)
+        if !is_admin_or_login && block_reason.is_none() && (method == "POST" || method == "PUT" || method == "PATCH") {
             if let Some(b) = body_opt.take() {
                 match axum::body::to_bytes(b, 2 * 1024 * 1024).await {
                     Ok(bytes) => {
