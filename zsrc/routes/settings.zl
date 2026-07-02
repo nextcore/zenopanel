@@ -315,3 +315,26 @@ http.post: '/api/settings/logs/rotate' {
         }
     }
 }
+
+# 15. POST /api/settings/update
+http.post: '/api/settings/update' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            system.update: { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Update panel berhasil dipicu. Panel akan diunduh dan dimulai ulang." }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal memicu update panel" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+

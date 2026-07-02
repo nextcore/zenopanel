@@ -241,6 +241,38 @@ export function loadDynamicDockerTags(repo, selectElementId, defaultTags, filter
     });
 }
 
+function getTemplateTipHtml(template) {
+  let tip = "";
+  if (template === "node") {
+    tip = `Upload file kode Node.js Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Pastikan ada file entrypoint <strong>server.js</strong> dan berkas dependencies <strong>package.json</strong> di folder tersebut.`;
+  } else if (template === "laravel") {
+    tip = `Upload seluruh kode framework Laravel Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Zeno Box akan melayani aplikasi Anda menggunakan <strong>FrankenPHP secara asinkron</strong> pada port 8000.`;
+  } else if (template === "dotnet") {
+    tip = `Publish aplikasi Anda terlebih dahulu, lalu upload hasilnya ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Ubah nama DLL target di file YAML setelah proyek dibuat (default: <code>app-name.dll</code>).`;
+  } else if (template === "python") {
+    tip = `Upload berkas Python Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Pastikan ada file <strong>main.py</strong> (berisi objek ASGI <code>app = FastAPI()</code>) dan <strong>requirements.txt</strong>.`;
+  } else if (template === "go") {
+    tip = `Upload binary Go terkompilasi Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Beri nama berkas binary Anda <strong>main-binary</strong> agar kontainer dapat mengeksekusinya secara otomatis.`;
+  } else if (template === "ruby") {
+    tip = `Upload berkas Ruby on Rails Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Kontainer akan menjalankan <code>rails server -b 0.0.0.0</code> secara default.`;
+  } else if (template === "java") {
+    tip = `Upload berkas compile package JAR Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Beri nama berkas JAR tersebut <strong>app.jar</strong> agar kontainer Java Spring Boot dapat menjalankannya.`;
+  } else if (template === "rust") {
+    tip = `Upload binary Rust terkompilasi (target release-musl) ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app</strong>.<br>Beri nama berkas binary tersebut <strong>release-binary</strong>.`;
+  }
+
+  if (!tip) return "";
+
+  return `
+    <div style="margin-top:15px; padding:12px; border-radius:6px; border:1px solid rgba(59,130,246,0.2); background:rgba(59,130,246,0.04); font-size:0.78rem; line-height:1.5; color:var(--text-muted);">
+      <div style="display:flex; align-items:center; gap:6px; color:var(--accent-primary); font-weight:600; margin-bottom:6px;">
+        <i class="fa-solid fa-circle-info"></i> Petunjuk Deployment
+      </div>
+      <div>${tip}</div>
+    </div>
+  `;
+}
+
 export function initComposeTemplateOptionsListener() {
   const select = document.getElementById("new-compose-project-template");
   const optionsDiv = document.getElementById("compose-template-options");
@@ -264,8 +296,6 @@ export function initComposeTemplateOptionsListener() {
             <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Web Server / Engine</label>
             <select id="compose-opt-laravel-server" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none; cursor:pointer;">
                 <option value="frankenphp">FrankenPHP (Standalone, Asynchronous)</option>
-                <option value="fpm-nginx">Nginx + PHP-FPM (Single Container)</option>
-                <option value="fpm-apache">Apache + PHP-FPM (Single Container)</option>
             </select>
         </div>
         <div class="form-group" style="margin-bottom:12px;">
@@ -283,20 +313,14 @@ export function initComposeTemplateOptionsListener() {
             </label>
         </div>
       `;
+      html += getTemplateTipHtml("laravel");
       optionsDiv.innerHTML = html;
 
       // Fetch dynamic PHP tags
       const serverSelect = document.getElementById("compose-opt-laravel-server");
       const loadPhpTags = () => {
-        const val = serverSelect.value;
-        if (val === "frankenphp") {
-          // FrankenPHP tags look like: 1.0-php8.3-alpine or 1-php8.3-alpine
-          loadDynamicDockerTags("dunglas/frankenphp", "compose-opt-laravel-phpver", ["8.3", "8.2", "8.1"], /^(?:1|latest)-php(?:8\.[123])-alpine$/);
-        } else if (val === "fpm-nginx") {
-          loadDynamicDockerTags("webdevops/php-nginx", "compose-opt-laravel-phpver", ["8.3", "8.2", "8.1"], /^(?:8\.[123])-alpine$/);
-        } else {
-          loadDynamicDockerTags("webdevops/php-apache", "compose-opt-laravel-phpver", ["8.3", "8.2", "8.1"], /^(?:8\.[123])-alpine$/);
-        }
+        // FrankenPHP tags look like: latest-php8.3-alpine or latest-php8.4-alpine
+        loadDynamicDockerTags("dunglas/frankenphp", "compose-opt-laravel-phpver", ["latest-php8.3-alpine", "latest-php8.2-alpine", "latest-php8.4-alpine"], /^(?:1|latest)-php(?:8\.[1234])-alpine$/);
       };
 
       serverSelect.addEventListener("change", loadPhpTags);
@@ -319,6 +343,7 @@ export function initComposeTemplateOptionsListener() {
             </label>
         </div>
       `;
+      html += getTemplateTipHtml("dotnet");
       optionsDiv.innerHTML = html;
       loadDynamicDockerTags("dotnet/aspnet", "compose-opt-dotnet-ver", ["10.0-alpine", "8.0-alpine", "9.0-alpine"], /^(?:10\.0|8\.0|9\.0)-alpine$/);
 
@@ -339,6 +364,7 @@ export function initComposeTemplateOptionsListener() {
             </label>
         </div>
       `;
+      html += getTemplateTipHtml("node");
       optionsDiv.innerHTML = html;
       loadDynamicDockerTags("node", "compose-opt-node-ver", ["20-alpine", "22-alpine", "18-alpine"], /^(?:20|22|18)-alpine$/);
 
@@ -353,6 +379,7 @@ export function initComposeTemplateOptionsListener() {
             </label>
         </div>
       `;
+      html += getTemplateTipHtml(template);
       optionsDiv.innerHTML = html;
     }
   });
@@ -416,18 +443,13 @@ export function submitCreateComposeProject() {
     const addMongo = document.getElementById("compose-opt-node-db-mongo")?.checked;
     const addPostgres = document.getElementById("compose-opt-node-db-postgres")?.checked;
 
-    defaultYaml = `version: '3.8'\n\nservices:\n  node-app:\n    image: node:${nodeVer}\n    container_name: ${cleanName}_node_app\n    command: sh -c "cd /app && npm install --production && node server.js"\n    ports:\n      - "3000:3000"\n    volumes:\n      - .:/app\n    environment:\n      NODE_ENV: production\n      PORT: 3000\n    memory: 512m\n    cpus: 0.5\n`;
+    defaultYaml = `version: '3.8'\n\nservices:\n  node-app:\n    image: node:${nodeVer}\n    container_name: ${cleanName}_node_app\n    command: node /app/server.js\n    ports:\n      - "3000:3000"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    environment:\n      NODE_ENV: production\n      PORT: 3000\n    memory: 512m\n    cpus: 0.5\n`;
 
     if (addMongo) {
-      defaultYaml += `\n  mongodb:\n    image: mongo:latest\n    container_name: ${cleanName}_mongodb\n    ports:\n      - "27017:27017"\n    volumes:\n      - mongodb_data:/data/db\n    restart: always\n`;
+      defaultYaml += `\n  mongodb:\n    image: mongo:latest\n    container_name: ${cleanName}_mongodb\n    ports:\n      - "27017:27017"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_mongodb:/data/db\n    restart: always\n`;
     }
     if (addPostgres) {
-      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
-    }
-    if (addMongo || addPostgres) {
-      defaultYaml += `\nvolumes:\n`;
-      if (addMongo) defaultYaml += `  mongodb_data:\n`;
-      if (addPostgres) defaultYaml += `  postgres_data:\n`;
+      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_postgres:/var/lib/postgresql/data\n    restart: always\n`;
     }
 
   } else if (template === "laravel") {
@@ -445,18 +467,13 @@ export function submitCreateComposeProject() {
       appImage = `webdevops/php-apache:${phpVer}`;
     }
 
-    defaultYaml = `version: '3.8'\n\nservices:\n  php-app:\n    image: ${appImage}\n    container_name: ${cleanName}_php_app\n    ports:\n      - "8000:80"\n    volumes:\n      - .:/app\n    environment:\n      SERVER_NAME: :80\n      APP_ENV: production\n      APP_DEBUG: 'false'\n    memory: 512m\n    cpus: 0.5\n`;
+    defaultYaml = `version: '3.8'\n\nservices:\n  php-app:\n    image: ${appImage}\n    container_name: ${cleanName}_php_app\n    ports:\n      - "8000:80"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    environment:\n      SERVER_NAME: :80\n      APP_ENV: production\n      APP_DEBUG: 'false'\n    memory: 512m\n    cpus: 0.5\n`;
 
     if (addMysql) {
-      defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: always\n`;
+      defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_mysql:/var/lib/mysql\n    restart: always\n`;
     }
     if (addPostgres) {
-      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
-    }
-    if (addMysql || addPostgres) {
-      defaultYaml += `\nvolumes:\n`;
-      if (addMysql) defaultYaml += `  mysql_data:\n`;
-      if (addPostgres) defaultYaml += `  postgres_data:\n`;
+      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_postgres:/var/lib/postgresql/data\n    restart: always\n`;
     }
 
   } else if (template === "dotnet") {
@@ -464,16 +481,13 @@ export function submitCreateComposeProject() {
     const addMssql = document.getElementById("compose-opt-dotnet-db-mssql")?.checked;
     const addPostgres = document.getElementById("compose-opt-dotnet-db-postgres")?.checked;
 
-    defaultYaml = `version: '3.8'\n\nservices:\n  dotnet-app:\n    image: mcr.microsoft.com/dotnet/aspnet:${dotnetVer}\n    container_name: ${cleanName}_dotnet_app\n    # Replace app-name.dll with your published DLL filename\n    command: dotnet /app/app-name.dll\n    ports:\n      - "5000:8080"\n    volumes:\n      - .:/app\n    environment:\n      ASPNETCORE_ENVIRONMENT: Production\n      ASPNETCORE_URLS: http://+:8080\n    memory: 512m\n    cpus: 0.5\n`;
+    defaultYaml = `version: '3.8'\n\nservices:\n  dotnet-app:\n    image: mcr.microsoft.com/dotnet/aspnet:${dotnetVer}\n    container_name: ${cleanName}_dotnet_app\n    command: dotnet /app/app-name.dll\n    ports:\n      - "5000:8080"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    environment:\n      ASPNETCORE_ENVIRONMENT: Production\n      ASPNETCORE_URLS: http://+:8080\n    memory: 512m\n    cpus: 0.5\n`;
 
     if (addMssql) {
       defaultYaml += `\n  mssql:\n    image: mcr.microsoft.com/mssql/server:2022-latest\n    container_name: ${cleanName}_mssql\n    ports:\n      - "1433:1433"\n    environment:\n      ACCEPT_EULA: "Y"\n      MSSQL_SA_PASSWORD: "SecretPassword123!"\n    restart: always\n`;
     }
     if (addPostgres) {
-      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
-    }
-    if (addPostgres) {
-      defaultYaml += `\nvolumes:\n  postgres_data:\n`;
+      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_postgres:/var/lib/postgresql/data\n    restart: always\n`;
     }
 
   } else {
@@ -482,29 +496,24 @@ export function submitCreateComposeProject() {
     const addPostgres = document.getElementById("compose-opt-generic-db-postgres")?.checked;
 
     if (template === "python") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  python-app:\n    image: python:3.11-alpine\n    container_name: ${cleanName}_python_app\n    command: sh -c "cd /app && pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000"\n    ports:\n      - "8000:80"\n    volumes:\n      - .:/app\n    environment:\n      PYTHONUNBUFFERED: 1\n      ENV: production\n    memory: 512m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  python-app:\n    image: python:3.11-alpine\n    container_name: ${cleanName}_python_app\n    command: uvicorn main:app --host 0.0.0.0 --port 8000\n    ports:\n      - "8000:80"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    environment:\n      PYTHONUNBUFFERED: 1\n      ENV: production\n    memory: 512m\n    cpus: 0.5\n`;
     } else if (template === "go") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  go-app:\n    image: alpine:latest\n    container_name: ${cleanName}_go_app\n    command: sh -c "chmod +x /app/main-binary && /app/main-binary"\n    ports:\n      - "8080:8080"\n    volumes:\n      - .:/app\n    environment:\n      APP_ENV: production\n    memory: 256m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  go-app:\n    image: alpine:latest\n    container_name: ${cleanName}_go_app\n    command: /app/main-binary\n    ports:\n      - "8080:8080"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    environment:\n      APP_ENV: production\n    memory: 256m\n    cpus: 0.5\n`;
     } else if (template === "ruby") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  rails-app:\n    image: ruby:3.2-alpine\n    container_name: ${cleanName}_rails_app\n    command: sh -c "bundle install && rails server -b 0.0.0.0"\n    ports:\n      - "3000:3000"\n    volumes:\n      - .:/app\n    working_dir: /app\n    environment:\n      RAILS_ENV: development\n    memory: 512m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  rails-app:\n    image: ruby:3.2-alpine\n    container_name: ${cleanName}_rails_app\n    command: rails server -b 0.0.0.0\n    ports:\n      - "3000:3000"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    environment:\n      RAILS_ENV: development\n    memory: 512m\n    cpus: 0.5\n`;
     } else if (template === "java") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  spring-app:\n    image: eclipse-temurin:17-jre-alpine\n    container_name: ${cleanName}_spring_app\n    command: java -jar /app/app.jar\n    ports:\n      - "8080:8080"\n    volumes:\n      - .:/app\n    working_dir: /app\n    memory: 1g\n    cpus: 1.0\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  spring-app:\n    image: eclipse-temurin:17-jre-alpine\n    container_name: ${cleanName}_spring_app\n    command: java -jar /app/app.jar\n    ports:\n      - "8080:8080"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    memory: 1g\n    cpus: 1.0\n`;
     } else if (template === "rust") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  rust-app:\n    image: rust:alpine\n    container_name: ${cleanName}_rust_app\n    command: cargo run --release\n    ports:\n      - "8080:8080"\n    volumes:\n      - .:/app\n    working_dir: /app\n    memory: 512m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  rust-app:\n    image: rust:alpine\n    container_name: ${cleanName}_rust_app\n    command: /app/release-binary\n    ports:\n      - "8080:8080"\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_app:/app\n    memory: 512m\n    cpus: 0.5\n`;
     } else {
       defaultYaml = `version: '3.8'\n\nservices:\n  app:\n    image: alpine:latest\n    container_name: ${cleanName}_custom_app\n    command: tail -f /dev/null\n    restart: always\n`;
     }
 
     if (addMysql) {
-      defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: always\n`;
+      defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_mysql:/var/lib/mysql\n    restart: always\n`;
     }
     if (addPostgres) {
-      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
-    }
-    if (addMysql || addPostgres) {
-      defaultYaml += `\nvolumes:\n`;
-      if (addMysql) defaultYaml += `  mysql_data:\n`;
-      if (addPostgres) defaultYaml += `  postgres_data:\n`;
+      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - /var/lib/zeno-container/volumes/${cleanName}_postgres:/var/lib/postgresql/data\n    restart: always\n`;
     }
   }
 

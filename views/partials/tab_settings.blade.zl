@@ -28,6 +28,40 @@
         </div>
     </div>
 
+    <!-- ZENOPANEL UPDATE CARD -->
+    <div class="card" style="margin-top:20px; max-width:600px;">
+        <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                <i class="fa-solid fa-cloud-arrow-down" style="color:var(--accent-primary);"></i> ZenoPanel Update
+            </h3>
+        </div>
+        
+        <div class="update-info-form" style="display:flex; flex-direction:column; gap:20px;">
+            <div class="grid-2col" style="display:grid; grid-template-columns:1fr 1fr; gap:15px; background:rgba(255,255,255,0.02); padding:15px; border-radius:8px; border:1px solid var(--card-border);">
+                <div>
+                    <span style="display:block; font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Current Version</span>
+                    <span id="update-current-ver" style="font-size:0.95rem; font-weight:600; color:var(--text-main);">-</span>
+                </div>
+                <div>
+                    <span style="display:block; font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Latest Version</span>
+                    <span id="update-latest-ver" style="font-size:0.95rem; font-weight:600; color:var(--text-main);">-</span>
+                </div>
+            </div>
+
+            <!-- Version Status Text / Alert -->
+            <div id="update-status-alert" style="display:none; padding:10px 12px; border-radius:6px; font-size:0.85rem; line-height:1.4;"></div>
+
+            <div style="border-top:1px solid var(--card-border); padding-top:15px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn-secondary" onclick="checkUpdateManual()" style="padding:10px 15px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.05); color:var(--text-main); cursor:pointer; font-weight:600; font-size:0.85rem;">
+                    <i class="fa-solid fa-arrows-rotate"></i> Check for Updates
+                </button>
+                <button class="btn-primary-action" id="btn-update-panel" onclick="triggerUpdatePanel()" style="display:none; padding:10px 15px; border-radius:6px; background:var(--accent-primary); color:#fff; border:none; cursor:pointer; font-weight:600; font-size:0.85rem;">
+                    <i class="fa-solid fa-cloud-arrow-down"></i> Update Now
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- SERVICE INJECTOR -->
     <div class="card" style="margin-top:20px; max-width:600px;">
         <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px;">

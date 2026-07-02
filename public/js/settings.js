@@ -18,6 +18,7 @@ export async function loadSettings() {
         await loadServiceStatus();
         await loadBackupSettings();
         await loadLogSettings();
+        await loadUpdateStatus();
     } catch (err) {
         showToast('error', 'Error loading settings: ' + err.message);
     }
@@ -785,4 +786,97 @@ export async function toggleFirewallLockdown() {
         checkbox.checked = !enabled; // Revert checkbox state
     }
 }
+
+export async function loadUpdateStatus() {
+    try {
+        const response = await fetch('/api/info');
+        if (!response.ok) throw new Error('Failed to fetch version info');
+        const res = await response.json();
+        
+        if (res.success && res.data) {
+            const d = res.data;
+            document.getElementById('update-current-ver').textContent = 'v' + (d.version || '-');
+            document.getElementById('update-latest-ver').textContent = d.latest_version ? 'v' + d.latest_version : 'Checking...';
+
+            const alertEl = document.getElementById('update-status-alert');
+            const updateBtn = document.getElementById('btn-update-panel');
+
+            if (d.update_available && d.latest_version) {
+                alertEl.style.display = 'block';
+                alertEl.style.background = 'rgba(239, 68, 68, 0.1)';
+                alertEl.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+                alertEl.style.color = '#f87171';
+                alertEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> Versi baru tersedia! Silakan perbarui ke versi <strong>v${d.latest_version}</strong>.`;
+                updateBtn.style.display = 'inline-block';
+            } else if (d.latest_version) {
+                alertEl.style.display = 'block';
+                alertEl.style.background = 'rgba(34, 197, 94, 0.1)';
+                alertEl.style.border = '1px solid rgba(34, 197, 94, 0.2)';
+                alertEl.style.color = '#4ade80';
+                alertEl.innerHTML = `<i class="fa-solid fa-circle-check"></i> ZenoPanel Anda sudah menggunakan versi terbaru.`;
+                updateBtn.style.display = 'none';
+            } else {
+                alertEl.style.display = 'none';
+                updateBtn.style.display = 'none';
+            }
+        }
+    } catch (err) {
+        console.error('Error loading update status:', err);
+    }
+}
+
+export async function checkUpdateManual() {
+    const btn = document.querySelector('[onclick="checkUpdateManual()"]');
+    const originalText = btn.innerHTML;
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
+        await loadUpdateStatus();
+        showToast('success', 'Pemeriksaan pembaruan selesai');
+    } catch (err) {
+        showToast('error', 'Gagal memeriksa pembaruan: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+export async function triggerUpdatePanel() {
+    if (!confirm('Apakah Anda yakin ingin memperbarui ZenoPanel sekarang? Sistem akan diunduh dan dimulai ulang otomatis dalam beberapa detik.')) {
+        return;
+    }
+
+    const csrfToken = getCSRFToken();
+    const btn = document.getElementById('btn-update-panel');
+    const originalText = btn.innerHTML;
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
+
+        const response = await fetch('/api/system/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            }
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', 'Update berhasil dipicu! Mengalihkan halaman dalam 5 detik...');
+            setTimeout(() => {
+                window.location.reload();
+            }, 6000);
+        } else {
+            showToast('error', data.message || 'Gagal memulai pembaruan');
+        }
+    } catch (err) {
+        showToast('error', 'Error memicu pembaruan: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
 

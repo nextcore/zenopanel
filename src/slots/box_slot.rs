@@ -877,8 +877,14 @@ fn setup_bridge() -> Result<(), String> {
     let _ = run_cmd_status_silent("ip", &["addr", "add", "172.20.0.1/16", "dev", "zenobr0"]);
     let _ = run_cmd_status_silent("ip", &["link", "set", "zenobr0", "up"]);
 
-    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"]);
-    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"]);
+    // Check if POSTROUTING rule exists first to prevent duplication
+    let rule_exists = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !rule_exists {
+        let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"]);
+    }
 
     Ok(())
 }
@@ -949,10 +955,17 @@ fn configure_container_network(
 
     let ip = find_available_ip(data_dir, &subnet_str, &gateway_ip)?;
 
-    let mut veth_host = format!("veth-h-{}", container_id);
-    let mut veth_guest = format!("veth-g-{}", container_id);
-    if veth_host.len() > 15 { veth_host.truncate(15); }
-    if veth_guest.len() > 15 { veth_guest.truncate(15); }
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    container_id.hash(&mut hasher);
+    let hash_val = hasher.finish();
+    let hash_str = format!("{:08x}", hash_val);
+    let short_hash = if hash_str.len() > 8 { &hash_str[0..8] } else { &hash_str };
+
+    let veth_host = format!("veth-h-{}", short_hash);
+    let veth_guest = format!("veth-g-{}", short_hash);
 
     let _ = run_cmd_status_silent("ip", &["link", "delete", &veth_host]);
 
@@ -962,8 +975,17 @@ fn configure_container_network(
         return Err("Failed to create veth pair".to_string());
     }
 
-    let _ = run_cmd_status_silent("ip", &["link", "set", &veth_host, "master", &bridge_id]);
-    let _ = run_cmd_status_silent("ip", &["link", "set", &veth_host, "up"]);
+    let status = run_cmd_status_silent("ip", &["link", "set", &veth_host, "master", &bridge_id])
+        .map_err(|e| format!("Failed to bind host interface to bridge: {}", e))?;
+    if !status.success() {
+        return Err(format!("Failed to bind host interface {} to bridge {}", veth_host, bridge_id));
+    }
+
+    let status = run_cmd_status_silent("ip", &["link", "set", &veth_host, "up"])
+        .map_err(|e| format!("Failed to bring up host interface: {}", e))?;
+    if !status.success() {
+        return Err(format!("Failed to bring up host interface {}", veth_host));
+    }
 
     let pid_str = pid.to_string();
     let status = run_cmd_status_silent("ip", &["link", "set", &veth_guest, "netns", &pid_str])
@@ -972,10 +994,29 @@ fn configure_container_network(
         return Err("Failed to move guest interface to container netns".to_string());
     }
 
-    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "link", "set", &veth_guest, "name", "eth0"]);
-    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "addr", "add", &format!("{}/16", ip), "dev", "eth0"]);
-    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "link", "set", "eth0", "up"]);
-    let _ = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "route", "add", "default", "via", &gateway_ip]);
+    let status = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "link", "set", &veth_guest, "name", "eth0"])
+        .map_err(|e| format!("Failed to rename veth inside namespace: {}", e))?;
+    if !status.success() {
+        return Err("Failed to rename guest interface to eth0 inside container".to_string());
+    }
+
+    let status = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "addr", "add", &format!("{}/16", ip), "dev", "eth0"])
+        .map_err(|e| format!("Failed to configure IP inside namespace: {}", e))?;
+    if !status.success() {
+        return Err("Failed to assign IP address to eth0 inside container".to_string());
+    }
+
+    let status = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "link", "set", "eth0", "up"])
+        .map_err(|e| format!("Failed to bring up link inside namespace: {}", e))?;
+    if !status.success() {
+        return Err("Failed to bring up eth0 inside container".to_string());
+    }
+
+    let status = run_cmd_status_silent("nsenter", &["-t", &pid_str, "-n", "ip", "route", "add", "default", "via", &gateway_ip])
+        .map_err(|e| format!("Failed to add gateway route inside namespace: {}", e))?;
+    if !status.success() {
+        return Err("Failed to configure default gateway route inside container".to_string());
+    }
 
     let resolv_path = rootfs_dir(data_dir, container_id).join("etc/resolv.conf");
     let _ = fs::write(resolv_path, "nameserver 8.8.8.8\nnameserver 1.1.1.1\n");
@@ -1003,8 +1044,16 @@ fn clean_container_network(container_id: &str, ip: &str, ports: &[String]) {
             let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "OUTPUT", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
         }
     }
-    let mut veth_host = format!("veth-h-{}", container_id);
-    if veth_host.len() > 15 { veth_host.truncate(15); }
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    container_id.hash(&mut hasher);
+    let hash_val = hasher.finish();
+    let hash_str = format!("{:08x}", hash_val);
+    let short_hash = if hash_str.len() > 8 { &hash_str[0..8] } else { &hash_str };
+
+    let veth_host = format!("veth-h-{}", short_hash);
     let _ = run_cmd_status_silent("ip", &["link", "delete", &veth_host]);
 }
 
@@ -1128,6 +1177,11 @@ fn container_start(id: &str) -> Result<(), String> {
         return Err(format!("Container {} is already running", id));
     }
 
+    // Clean up any residual network interfaces and rules from a previous crashed run
+    let old_ip = state.env.as_ref().and_then(|e| e.get("ZENO_IP").cloned()).unwrap_or_default();
+    let old_ports = state.ports.clone().unwrap_or_default();
+    clean_container_network(id, &old_ip, &old_ports);
+
     let bundle_p = bundle_dir(&data_dir, id);
 
     let _ = runc_exec(&["delete", "--force", id]);
@@ -1183,6 +1237,11 @@ fn container_start(id: &str) -> Result<(), String> {
     let run_start = runc_exec(&["start", id])
         .map_err(|e| format!("runc start process failed: {}", e))?;
     if !run_start.status.success() {
+        // Clean up network interfaces and rules on startup failure
+        let ip = state.env.as_ref().and_then(|e| e.get("ZENO_IP").cloned()).unwrap_or_default();
+        let ports = state.ports.clone().unwrap_or_default();
+        clean_container_network(id, &ip, &ports);
+
         state.status = "failed".to_string();
         let _ = save_container_state(&state);
         let err_msg = String::from_utf8_lossy(&run_start.stderr);
@@ -1238,10 +1297,30 @@ fn container_delete(id: &str) -> Result<(), String> {
     let dst_rootfs = rootfs_dir(&data_dir, id);
     if dst_rootfs.exists() {
         let _ = run_privileged_status("umount", &["-l", &dst_rootfs.to_string_lossy().to_string()]);
+        // Give the kernel time to lazy-unmount the mount point
+        std::thread::sleep(std::time::Duration::from_millis(150));
     }
 
     let cont_p = container_dir(&data_dir, id);
-    let _ = fs::remove_dir_all(cont_p);
+    
+    // Attempt deletion with retries to resolve transient locks/busy states
+    let mut delete_err = None;
+    for attempt in 1..=5 {
+        match fs::remove_dir_all(&cont_p) {
+            Ok(_) => {
+                delete_err = None;
+                break;
+            }
+            Err(e) => {
+                delete_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(100 * attempt));
+            }
+        }
+    }
+
+    if let Some(err) = delete_err {
+        return Err(format!("Failed to delete container directory '{}': {}", cont_p.display(), err));
+    }
 
     let _ = sync_hosts_entries(&data_dir);
     Ok(())
@@ -1346,7 +1425,14 @@ fn create_bridge_network(data_dir: &str, name: &str) -> Result<String, String> {
     let _ = run_cmd_status_silent("ip", &["addr", "add", &format!("{}/16", gateway), "dev", &bridge_id]);
     let _ = run_cmd_status_silent("ip", &["link", "set", &bridge_id, "up"]);
 
-    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", &subnet, "!", "-o", &bridge_id, "-j", "MASQUERADE"]);
+    // Check if the NAT rule already exists before appending to prevent duplicates
+    let rule_exists = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-s", &subnet, "!", "-o", &bridge_id, "-j", "MASQUERADE"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !rule_exists {
+        let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", &subnet, "!", "-o", &bridge_id, "-j", "MASQUERADE"]);
+    }
 
     let new_net = NetworkConfig {
         id: bridge_id.clone(),

@@ -208,6 +208,9 @@ import {
   deleteFirewallRule,
   loadFirewallRules,
   toggleFirewallLockdown,
+  loadUpdateStatus,
+  checkUpdateManual,
+  triggerUpdatePanel,
 } from "./settings.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
@@ -448,6 +451,9 @@ const functionsToBind = {
   deleteFirewallRule,
   loadFirewallRules,
   toggleFirewallLockdown,
+  loadUpdateStatus,
+  checkUpdateManual,
+  triggerUpdatePanel,
   refreshContainerLog,
   loadContainerList,
   loadContainers,

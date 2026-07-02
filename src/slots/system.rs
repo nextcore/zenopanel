@@ -1377,10 +1377,10 @@ pub fn register(engine: &mut Engine) {
             }
 
             // Spawn updater detached in background
-            let child = std::process::Command::new("nohup")
-                .args(&["sh", "-c", "sleep 1 && curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+            // We use rm -f zeno to avoid "Text file busy", pass current dir, and fallback restart
+            let script = "nohup bash -c 'sleep 1 && rm -f zeno && curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash -s -- --dir \"$PWD\" && (systemctl restart zenopanel || nohup ./zeno >/dev/null 2>&1 &)' > /dev/null 2>&1 &";
+            let child = std::process::Command::new("bash")
+                .args(&["-c", script])
                 .spawn();
 
             let success = child.is_ok();
