@@ -99,6 +99,7 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 - **Depends On**: Startup order sesuai dependency.
 - **Networks**: Dukung definisi network dengan service discovery.
 - **Command Lengkap**: `compose up`, `compose down`, `compose ps` dari CLI & UI.
+- **Boilerplate & Petunjuk Deployment UI**: Dasbor dilengkapi dengan templat boilerplate Compose teroptimalisasi (Node.js, PHP Laravel FrankenPHP, Python FastAPI, Go, Java, dll.) beserta kotak petunjuk peletakan berkas pada volume host secara visual.
 
 ### 🔀 Reverse Proxy & Load Balancing Modern (Cloudflare Pingora)
 - **Engine Pingora Terintegrasi**: Menggunakan Cloudflare Pingora Core yang ultra-cepat, hemat memori, dan tahan terhadap serangan buffer overflow.
@@ -131,6 +132,10 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 - **Lockout Protection**: Pencegahan otomatis terhadap pemblokiran port SSH (22) dan port vital web panel admin agar administrator tidak terkunci keluar (*lockout*).
 - **Lockdown Mode (Block All)**: Mengaktifkan kebijakan *default-DROP* (blokir semua port) mirip UFW secara instan dengan sistem pintar yang otomatis mengizinkan port-port utama sistem secara dinamis.
 
+### 🔄 Self-Update Satu-Klik (ZenoPanel Update)
+- **Pembaruan Panel Otomatis**: Administrator dapat mendeteksi rilis rilis terbaru secara real-time dan melakukan pembaruan versi ZenoPanel langsung dari menu Pengaturan.
+- **Hot Replacement Cerdas**: Mekanisme pembaruan secara otomatis melepastautkan (*unlink*) berkas binary `zeno` lama sebelum mengunduh rilis baru untuk mencegah error *Text file busy*, kemudian merestart layanan web panel secara aman.
+
 ---
 
 ## 🏗️ Teknologi & Arsitektur
@@ -156,6 +161,7 @@ ZenoPanel dibangun di atas fondasi teknologi Rust yang kokoh untuk menjamin efis
 - **Manajemen Jaringan & Volume Dinamis**: Membuat, melihat, dan menghapus volume serta network secara dinamis langsung dari UI ZenoPanel atau API.
 - **Resource Limits**: Mengatur dan memperbarui batas penggunaan memori (RAM) dan CPU secara dinamis per kontainer.
 - **Health Checks & Auto-Restart**: Pemantauan kesehatan berkala dan restart otomatis kontainer yang mati yang dikelola langsung oleh ZenoPanel.
+- **Self-Update Satu-Klik**: Mengunduh dan memperbarui versi ZenoPanel secara mandiri via antarmuka web panel.
 
 ### 🚧 Sedang Dikembangkan
 - **Container Build**: Build image dari Dockerfile.
