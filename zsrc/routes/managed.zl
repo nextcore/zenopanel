@@ -133,3 +133,77 @@ http.get: '/api/managed/logs' {
     }
     http.ok: { data: $logs }
 }
+
+# Get Git Settings for Native Managed Process
+http.get: '/api/managed/git' {
+    auth.guard
+    http.query: 'cwd' { as: $cwd }
+    proc.git_get: {
+        cwd: $cwd
+        as: $result
+    }
+    http.ok: { data: $result }
+}
+
+# Save Git Settings for Native Managed Process
+http.post: '/api/managed/git' {
+    auth.guard
+    http.json_body: { as: $body }
+    proc.git_save: {
+        cwd: $body.cwd
+        repo_url: $body.repo_url
+        branch: $body.branch
+        webhook_token: $body.webhook_token
+        as: $success
+    }
+    if: $success {
+        then: {
+            http.ok: { message: "Git settings saved successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Failed to save Git settings" }
+        }
+    }
+}
+
+# Trigger Git Sync for Native Managed Process
+http.post: '/api/managed/git/sync' {
+    auth.guard
+    http.json_body: { as: $body }
+    proc.git_sync: {
+        id: $body.id
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { output: $result.stdout }
+        }
+        else: {
+            http.bad_request: {
+                message: "Git sync failed"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# Public Webhook Auto-Deploy for Native Managed Process
+http.post: '/api/deploy/native' {
+    http.query: 'id' { as: $proc_id }
+    http.query: 'token' { as: $token_query }
+
+    proc.git_sync: {
+        id: $proc_id
+        token: $token_query
+        as: $sync_res
+    }
+
+    if: $sync_res.success {
+        then: {
+            http.ok: { message: "Auto-deployment triggered successfully via webhook", output: $sync_res.stdout }
+        }
+        else: {
+            http.bad_request: { message: "Webhook sync failed", error: $sync_res.stderr }
+        }
+    }
+}

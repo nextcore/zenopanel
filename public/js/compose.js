@@ -943,3 +943,141 @@ export function clearComposeConsole() {
     resultDiv.textContent = "";
   }
 }
+
+// ─── Git Deploy / Sync Features ──────────────────────────────────────
+
+export function openComposeGitModal() {
+  const modal = document.getElementById("compose-git-modal");
+  const repoInput = document.getElementById("compose-git-repo-url");
+  const branchInput = document.getElementById("compose-git-branch");
+  const webhookInput = document.getElementById("compose-git-webhook-url");
+
+  if (!modal) return;
+
+  // Clear inputs first
+  if (repoInput) repoInput.value = "";
+  if (branchInput) branchInput.value = "main";
+  if (webhookInput) webhookInput.value = "";
+
+  // Fetch current config
+  fetch(`/api/containers/compose/git?project_name=${activeProject}`)
+    .then((res) => res.json())
+    .then((res) => {
+      const gitData = res.data || {};
+      if (repoInput && gitData.repo_url) repoInput.value = gitData.repo_url;
+      if (branchInput && gitData.branch) branchInput.value = gitData.branch;
+      
+      let token = gitData.webhook_token;
+      if (!token) {
+        // Generate random token
+        token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      }
+      
+      if (webhookInput) {
+        webhookInput.value = `${window.location.protocol}//${window.location.host}/api/deploy/webhook?project=${activeProject}&token=${token}`;
+      }
+      
+      modal.dataset.webhookToken = token;
+      modal.style.display = "flex";
+    })
+    .catch((err) => {
+      console.error("Error fetching Git config:", err);
+      showToast("error", "Failed to fetch Git configuration");
+    });
+}
+
+export function closeComposeGitModal() {
+  const modal = document.getElementById("compose-git-modal");
+  if (modal) modal.style.display = "none";
+}
+
+export function saveComposeGitSettings() {
+  const repoUrl = document.getElementById("compose-git-repo-url")?.value?.trim() || "";
+  const branch = document.getElementById("compose-git-branch")?.value?.trim() || "main";
+  const modal = document.getElementById("compose-git-modal");
+  const token = modal ? modal.dataset.webhookToken : "";
+
+  if (!repoUrl) {
+    showToast("error", "Repository URL is required");
+    return;
+  }
+
+  const csrf = getCSRFToken();
+
+  fetch("/api/containers/compose/git", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({
+      project_name: activeProject,
+      repo_url: repoUrl,
+      branch: branch,
+      webhook_token: token,
+    }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.message) {
+        showToast("success", res.message);
+        closeComposeGitModal();
+      } else {
+        showToast("error", "Failed to save Git settings");
+      }
+    })
+    .catch((err) => {
+      console.error("Error saving Git config:", err);
+      showToast("error", "Failed to save Git settings");
+    });
+}
+
+export function syncComposeGit() {
+  const resultDiv = document.getElementById("compose-result");
+  if (resultDiv) {
+    resultDiv.textContent = `Syncing project '${activeProject}' with Git repository...\n`;
+  }
+
+  closeComposeGitModal();
+  showToast("info", "Starting Git synchronization...");
+
+  const csrf = getCSRFToken();
+
+  fetch("/api/containers/compose/git/sync", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({
+      project_name: activeProject,
+    }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.output) {
+        if (resultDiv) resultDiv.textContent += "\n" + res.output;
+        showToast("success", "Git synchronization and restart completed successfully!");
+      } else if (res.error) {
+        if (resultDiv) resultDiv.textContent += "\nERROR: " + res.error;
+        showToast("error", "Git synchronization failed");
+      } else {
+        showToast("error", "Unknown error during sync");
+      }
+    })
+    .catch((err) => {
+      console.error("Error during Git sync:", err);
+      if (resultDiv) resultDiv.textContent += "\nERROR: Connection failed";
+      showToast("error", "Network connection error during sync");
+    });
+}
+
+export function copyWebhookUrl() {
+  const webhookInput = document.getElementById("compose-git-webhook-url");
+  if (webhookInput) {
+    webhookInput.select();
+    webhookInput.setSelectionRange(0, 99999);
+    navigator.clipboard.writeText(webhookInput.value);
+    showToast("success", "Webhook URL copied to clipboard!");
+  }
+}

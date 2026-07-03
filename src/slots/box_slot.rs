@@ -71,6 +71,9 @@ pub fn register(engine: &mut Engine) {
     register_box_registry_list(engine);
     register_box_registry_add(engine);
     register_box_registry_delete(engine);
+    register_box_compose_git_get(engine);
+    register_box_compose_git_save(engine);
+    register_box_compose_git_sync(engine);
 }
 
 pub(crate) fn get_runc_bin() -> String {
@@ -3550,6 +3553,72 @@ mod tests {
     }
 
     #[test]
+    fn test_compose_git_slots() {
+        use zenocore::{Context, Scope};
+        let _guard = TEST_MUTEX.lock().unwrap();
+        
+        let temp_dir = std::env::temp_dir().join(format!("zeno_test_git_slots_{}", rand::random::<u32>()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        
+        let old_dir = std::env::var("ZENO_CONTAINER_DATA_DIR").ok();
+        unsafe {
+            std::env::set_var("ZENO_CONTAINER_DATA_DIR", &temp_dir);
+        }
+
+        let mut engine = Engine::new();
+        register_box_compose_git_get(&mut engine);
+        register_box_compose_git_save(&mut engine);
+        
+        let mut ctx = Context::new();
+        let scope = Scope::new(None);
+        
+        // Save git settings
+        let save_node = zenocore::parser::parse_string(
+            r#"
+            box.compose_git_save: {
+                project_name: "test_git_project_name_123"
+                repo_url: "https://github.com/user/repo.git"
+                branch: "production"
+                webhook_token: "secret123"
+                as: $success
+            }
+            "#,
+            "test"
+        ).unwrap();
+        engine.execute(&mut ctx, &save_node, &scope).unwrap();
+        assert_eq!(scope.get("success"), Some(Value::Bool(true)));
+        
+        // Get git settings
+        let get_node = zenocore::parser::parse_string(
+            r#"
+            box.compose_git_get: {
+                project_name: "test_git_project_name_123"
+                as: $git
+            }
+            "#,
+            "test"
+        ).unwrap();
+        let scope2 = Scope::new(None);
+        engine.execute(&mut ctx, &get_node, &scope2).unwrap();
+        let git_val = scope2.get("git").unwrap();
+        assert!(matches!(git_val, Value::Map(_)));
+        if let Value::Map(ref map) = git_val {
+            assert_eq!(map.get("repo_url").unwrap(), &Value::String("https://github.com/user/repo.git".to_string()));
+            assert_eq!(map.get("branch").unwrap(), &Value::String("production".to_string()));
+            assert_eq!(map.get("webhook_token").unwrap(), &Value::String("secret123".to_string()));
+        }
+        
+        let _ = fs::remove_dir_all(&temp_dir);
+        unsafe {
+            if let Some(d) = old_dir {
+                std::env::set_var("ZENO_CONTAINER_DATA_DIR", d);
+            } else {
+                std::env::remove_var("ZENO_CONTAINER_DATA_DIR");
+            }
+        }
+    }
+
+    #[test]
     fn test_yaml_deserialization_and_order() {
         let yaml_content = r#"
 version: '3.8'
@@ -4008,6 +4077,246 @@ fn register_box_registry_delete(engine: &mut Engine) {
         SlotMeta {
             description: "Delete Docker Registry credentials".to_string(),
             example: "box.registry_delete { registry: 'ghcr.io', as: $success }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_compose_git_get(engine: &mut Engine) {
+    engine.register(
+        "box.compose_git_get",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            let mut project_name = String::new();
+            for child in &node.children {
+                match child.name.as_str() {
+                    "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let data_dir = get_data_dir();
+            let git_config_path = Path::new(&data_dir).join("compose").join(&project_name).join(".zeno-git.json");
+
+            let mut result = HashMap::new();
+            if git_config_path.exists() {
+                if let Ok(content) = fs::read_to_string(&git_config_path) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(obj) = val.as_object() {
+                            for (k, v) in obj {
+                                result.insert(k.clone(), Value::String(v.as_str().unwrap_or("").to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Get Git settings for a Compose project".to_string(),
+            example: "box.compose_git_get { project_name: 'my-app', as: $git }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_compose_git_save(engine: &mut Engine) {
+    engine.register(
+        "box.compose_git_save",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            let mut project_name = String::new();
+            let mut repo_url = String::new();
+            let mut branch = "main".to_string();
+            let mut webhook_token = String::new();
+
+            for child in &node.children {
+                match child.name.as_str() {
+                    "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "repo_url" => repo_url = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "branch" => branch = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "webhook_token" => webhook_token = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let data_dir = get_data_dir();
+            let compose_dir = Path::new(&data_dir).join("compose").join(&project_name);
+            let git_config_path = compose_dir.join(".zeno-git.json");
+
+            let mut success = false;
+            if fs::create_dir_all(&compose_dir).is_ok() {
+                let config = serde_json::json!({
+                    "repo_url": repo_url,
+                    "branch": branch,
+                    "webhook_token": webhook_token
+                });
+                if let Ok(pretty) = serde_json::to_string_pretty(&config) {
+                    success = fs::write(&git_config_path, pretty).is_ok();
+                }
+            }
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Save Git settings for a Compose project".to_string(),
+            example: "box.compose_git_save { project_name: 'my-app', repo_url: 'https://...', branch: 'main', webhook_token: '...', as: $success }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_compose_git_sync(engine: &mut Engine) {
+    engine.register(
+        "box.compose_git_sync",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            let mut project_name = String::new();
+            for child in &node.children {
+                match child.name.as_str() {
+                    "project_name" => project_name = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let data_dir = get_data_dir();
+            let compose_dir = Path::new(&data_dir).join("compose").join(&project_name);
+            let git_config_path = compose_dir.join(".zeno-git.json");
+
+            let mut result = HashMap::new();
+            result.insert("success".to_string(), Value::Bool(false));
+
+            if !git_config_path.exists() {
+                result.insert("stderr".to_string(), Value::String("No Git configuration found for this project".to_string()));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            let config_content = match fs::read_to_string(&git_config_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    result.insert("stderr".to_string(), Value::String(format!("Failed to read Git config: {}", e)));
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+            };
+
+            let config: serde_json::Value = match serde_json::from_str(&config_content) {
+                Ok(v) => v,
+                Err(e) => {
+                    result.insert("stderr".to_string(), Value::String(format!("Failed to parse Git config: {}", e)));
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+            };
+
+            let repo_url = config.get("repo_url").and_then(|v| v.as_str()).unwrap_or("");
+            let branch = config.get("branch").and_then(|v| v.as_str()).unwrap_or("main");
+
+            if repo_url.is_empty() {
+                result.insert("stderr".to_string(), Value::String("Git repository URL is empty".to_string()));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            let volume_path = Path::new(&data_dir).join("volumes").join(format!("{}_app_data", project_name));
+            if !volume_path.exists() {
+                let _ = fs::create_dir_all(&volume_path);
+            }
+
+            let git_dir = volume_path.join(".git");
+            let git_res = if git_dir.exists() {
+                let fetch_out = std::process::Command::new("git")
+                    .arg("fetch")
+                    .arg("--all")
+                    .current_dir(&volume_path)
+                    .output();
+
+                match fetch_out {
+                    Ok(out) if out.status.success() => {
+                        let reset_out = std::process::Command::new("git")
+                            .arg("reset")
+                            .arg("--hard")
+                            .arg(format!("origin/{}", branch))
+                            .current_dir(&volume_path)
+                            .output();
+
+                        match reset_out {
+                            Ok(out2) if out2.status.success() => Ok("Git pull & reset --hard completed successfully".to_string()),
+                            Ok(out2) => Err(format!("git reset failed: {}", String::from_utf8_lossy(&out2.stderr))),
+                            Err(e) => Err(format!("Failed to run git reset: {}", e)),
+                        }
+                    }
+                    Ok(out) => Err(format!("git fetch failed: {}", String::from_utf8_lossy(&out.stderr))),
+                    Err(e) => Err(format!("Failed to run git fetch: {}", e)),
+                }
+            } else {
+                let run_init = std::process::Command::new("git").arg("init").current_dir(&volume_path).status();
+                let run_remote = std::process::Command::new("git").arg("remote").arg("add").arg("origin").arg(repo_url).current_dir(&volume_path).status();
+                let run_fetch = std::process::Command::new("git").arg("fetch").arg("origin").current_dir(&volume_path).status();
+                let run_checkout = std::process::Command::new("git").arg("checkout").arg("-f").arg(branch).current_dir(&volume_path).status();
+
+                match (run_init, run_remote, run_fetch, run_checkout) {
+                    (Ok(s1), Ok(s2), Ok(s3), Ok(s4)) if s1.success() && s2.success() && s3.success() && s4.success() => {
+                        Ok("Git clone/checkout completed successfully".to_string())
+                    }
+                    _ => Err("Git initialization or checkout failed. Please verify the repository URL and permissions.".to_string()),
+                }
+            };
+
+            match git_res {
+                Ok(stdout_msg) => {
+                    let compose_path = compose_dir.join("docker-compose.yml");
+                    if compose_path.exists() {
+                        match compose_up(&compose_path.to_string_lossy()) {
+                            Ok(up_msg) => {
+                                result.insert("success".to_string(), Value::Bool(true));
+                                result.insert("stdout".to_string(), Value::String(format!("{}\n\n{}", stdout_msg, up_msg)));
+                            }
+                            Err(e) => {
+                                result.insert("stderr".to_string(), Value::String(format!("Git pulled but compose restart failed: {}", e)));
+                            }
+                        }
+                    } else {
+                        result.insert("success".to_string(), Value::Bool(true));
+                        result.insert("stdout".to_string(), Value::String(format!("{} (Note: No docker-compose.yml to restart)", stdout_msg)));
+                    }
+                }
+                Err(e) => {
+                    result.insert("stderr".to_string(), Value::String(e));
+                }
+            }
+
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Synchronize/pull Git repository files to project volume and restart compose containers".to_string(),
+            example: "box.compose_git_sync { project_name: 'my-app', as: $result }".to_string(),
             inputs: HashMap::new(),
             required_blocks: Vec::new(),
             value_type: "".to_string(),

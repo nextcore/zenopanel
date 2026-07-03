@@ -88,6 +88,9 @@ export function renderManagedProcesses(processes) {
                         <button class="action-dropdown-item" onclick="openEditProcessModal('${proc.id}')">
                             <i class="fa-solid fa-pen-to-square" style="color:var(--warning);"></i> Edit
                         </button>
+                        <button class="action-dropdown-item" onclick="openNativeGitModal('${proc.id}', '${escapeHtml(proc.name)}', '${escapeHtml(proc.cwd)}')">
+                            <i class="fa-brands fa-git-alt" style="color:var(--accent-primary);"></i> Git Deploy
+                        </button>
                         <button class="action-dropdown-item" onclick="viewProcessLogs('${proc.id}', '${escapeHtml(proc.name)}')">
                             <i class="fa-solid fa-terminal" style="color:var(--text-main);"></i> Logs
                         </button>
@@ -636,5 +639,134 @@ export function toggleProcessDropdown(event, id) {
                 targetMenu.parentElement.classList.remove('open-up');
             }
         }
+    }
+}
+
+export function openNativeGitModal(id, name, cwd) {
+    const modal = document.getElementById('native-git-modal');
+    const idInput = document.getElementById('native-git-proc-id');
+    const cwdInput = document.getElementById('native-git-proc-cwd');
+    const nameSpan = document.getElementById('native-git-proc-name');
+    const repoInput = document.getElementById('native-git-repo-url');
+    const branchInput = document.getElementById('native-git-branch');
+    const webhookInput = document.getElementById('native-git-webhook-url');
+
+    if (!modal) return;
+
+    // Reset fields
+    if (idInput) idInput.value = id;
+    if (cwdInput) cwdInput.value = cwd;
+    if (nameSpan) nameSpan.innerText = name;
+    if (repoInput) repoInput.value = '';
+    if (branchInput) branchInput.value = 'main';
+    if (webhookInput) webhookInput.value = '';
+
+    fetch(`/api/managed/git?cwd=${encodeURIComponent(cwd)}`)
+        .then(res => res.json())
+        .then(res => {
+            const gitData = res.data || {};
+            if (repoInput && gitData.repo_url) repoInput.value = gitData.repo_url;
+            if (branchInput && gitData.branch) branchInput.value = gitData.branch;
+
+            let token = gitData.webhook_token;
+            if (!token) {
+                token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            }
+
+            if (webhookInput) {
+                webhookInput.value = `${window.location.protocol}//${window.location.host}/api/deploy/native?id=${id}&token=${token}`;
+            }
+
+            modal.dataset.webhookToken = token;
+            modal.classList.add('active');
+        })
+        .catch(err => {
+            console.error('Failed to load native process Git config:', err);
+            showToast('error', 'Gagal memuat konfigurasi Git');
+        });
+}
+
+export function closeNativeGitModal() {
+    const modal = document.getElementById('native-git-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+export function saveNativeGitSettings() {
+    const id = document.getElementById('native-git-proc-id')?.value || '';
+    const cwd = document.getElementById('native-git-proc-cwd')?.value || '';
+    const repoUrl = document.getElementById('native-git-repo-url')?.value?.trim() || '';
+    const branch = document.getElementById('native-git-branch')?.value?.trim() || 'main';
+    const modal = document.getElementById('native-git-modal');
+    const token = modal ? modal.dataset.webhookToken : '';
+
+    if (!repoUrl) {
+        showToast('error', 'URL repositori wajib diisi');
+        return;
+    }
+
+    fetch('/api/managed/git', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCSRFToken()
+        },
+        body: JSON.stringify({
+            cwd: cwd,
+            repo_url: repoUrl,
+            branch: branch,
+            webhook_token: token
+        })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.message) {
+            showToast('success', res.message);
+            closeNativeGitModal();
+        } else {
+            showToast('error', 'Gagal menyimpan pengaturan Git');
+        }
+    })
+    .catch(err => {
+        console.error('Error saving Git config:', err);
+        showToast('error', 'Gagal menyambung ke server');
+    });
+}
+
+export function syncNativeGit() {
+    const id = document.getElementById('native-git-proc-id')?.value || '';
+    closeNativeGitModal();
+    showToast('info', 'Memulai sinkronisasi Git...');
+
+    fetch('/api/managed/git/sync', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCSRFToken()
+        },
+        body: JSON.stringify({ id: id })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.output) {
+            showToast('success', 'Sinkronisasi Git dan restart berhasil!');
+        } else if (res.error) {
+            showToast('error', `Gagal sinkronisasi: ${res.error}`);
+        } else {
+            showToast('error', 'Terjadi kesalahan tidak dikenal saat sinkronisasi');
+        }
+    })
+    .catch(err => {
+        console.error('Error during Git sync:', err);
+        showToast('error', 'Gagal menyambung ke server');
+    });
+}
+
+export function copyNativeWebhookUrl() {
+    const webhookInput = document.getElementById('native-git-webhook-url');
+    if (webhookInput) {
+        webhookInput.select();
+        webhookInput.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(webhookInput.value);
+        showToast('success', 'URL Webhook disalin ke clipboard!');
     }
 }

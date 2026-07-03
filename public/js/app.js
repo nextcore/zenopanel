@@ -110,6 +110,11 @@ import {
   downloadProcessLogs,
   closeProcLogsModal,
   toggleProcessDropdown,
+  openNativeGitModal,
+  closeNativeGitModal,
+  saveNativeGitSettings,
+  syncNativeGit,
+  copyNativeWebhookUrl,
 } from "./managed.js";
 import {
   allProxyRules,
@@ -174,7 +179,7 @@ import {
   submitPortCheck,
   killPortProcess,
 } from "./portcheck.js";
-import { composeUp, composeDown, composePs, loadComposeYaml, loadComposeProjects, selectComposeProject, createComposeProject, saveComposeYaml, switchComposeFileTab, deleteComposeProject, closeCreateComposeModal, submitCreateComposeProject, exposeComposeViaProxy, clearComposeConsole } from "./compose.js";
+import { composeUp, composeDown, composePs, loadComposeYaml, loadComposeProjects, selectComposeProject, createComposeProject, saveComposeYaml, switchComposeFileTab, deleteComposeProject, closeCreateComposeModal, submitCreateComposeProject, exposeComposeViaProxy, clearComposeConsole, openComposeGitModal, closeComposeGitModal, saveComposeGitSettings, syncComposeGit, copyWebhookUrl } from "./compose.js";
 import {
   allUsers,
   loadUsers,
@@ -412,6 +417,11 @@ const functionsToBind = {
   downloadProcessLogs,
   closeProcLogsModal,
   toggleProcessDropdown,
+  openNativeGitModal,
+  closeNativeGitModal,
+  saveNativeGitSettings,
+  syncNativeGit,
+  copyNativeWebhookUrl,
   loadProxyRules,
   renderProxyRules,
   populateManagedProcessesDropdown,
@@ -529,6 +539,11 @@ window.closeCreateComposeModal = closeCreateComposeModal;
 window.submitCreateComposeProject = submitCreateComposeProject;
 window.exposeComposeViaProxy = exposeComposeViaProxy;
 window.clearComposeConsole = clearComposeConsole;
+window.openComposeGitModal = openComposeGitModal;
+window.closeComposeGitModal = closeComposeGitModal;
+window.saveComposeGitSettings = saveComposeGitSettings;
+window.syncComposeGit = syncComposeGit;
+window.copyWebhookUrl = copyWebhookUrl;
 
 // --- INITIALIZATION ROUTINE ---
 

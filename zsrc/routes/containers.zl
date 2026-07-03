@@ -325,6 +325,98 @@ http.post: '/api/containers/compose' {
     }
 }
 
+# Get Git Settings for Compose Project
+http.get: '/api/containers/compose/git' {
+    auth.guard
+    http.query: 'project_name' { as: $project_name }
+    box.compose_git_get: {
+        project_name: $project_name
+        as: $result
+    }
+    http.ok: { data: $result }
+}
+
+# Save Git Settings for Compose Project
+http.post: '/api/containers/compose/git' {
+    auth.guard
+    http.json_body: { as: $body }
+    box.compose_git_save: {
+        project_name: $body.project_name
+        repo_url: $body.repo_url
+        branch: $body.branch
+        webhook_token: $body.webhook_token
+        as: $success
+    }
+    if: $success {
+        then: {
+            http.ok: { message: "Git settings saved successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Failed to save Git settings" }
+        }
+    }
+}
+
+# Trigger Git Sync for Compose Project
+http.post: '/api/containers/compose/git/sync' {
+    auth.guard
+    http.json_body: { as: $body }
+    box.compose_git_sync: {
+        project_name: $body.project_name
+        as: $result
+    }
+    if: $result.success {
+        then: {
+            http.ok: { output: $result.stdout }
+        }
+        else: {
+            http.bad_request: {
+                message: "Git sync failed"
+                error: $result.stderr
+            }
+        }
+    }
+}
+
+# Public Git Auto-Deploy Webhook
+http.post: '/api/deploy/webhook' {
+    http.query: 'project' { as: $project_name }
+    http.query: 'token' { as: $token_query }
+
+    box.compose_git_get: {
+        project_name: $project_name
+        as: $git_config
+    }
+
+    if: $git_config.webhook_token {
+        then: {
+            # Verify token matches
+            if: ($git_config.webhook_token == $token_query) {
+                then: {
+                    box.compose_git_sync: {
+                        project_name: $project_name
+                        as: $sync_res
+                    }
+                    if: $sync_res.success {
+                        then: {
+                            http.ok: { message: "Auto-deployment triggered successfully via webhook", output: $sync_res.stdout }
+                        }
+                        else: {
+                            http.bad_request: { message: "Webhook sync failed", error: $sync_res.stderr }
+                        }
+                    }
+                }
+                else: {
+                    http.unauthorized: { message: "Invalid webhook token" }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { message: "Webhook is not configured for this project" }
+        }
+    }
+}
+
 # ─── Get RootFS Path ─────────────────────────────────────────--
 http.get: '/api/containers/rootfs-path' {
     auth.guard

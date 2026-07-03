@@ -85,6 +85,9 @@
                             <button class="btn-action" onclick="exposeComposeViaProxy()" style="display:flex; align-items:center; gap:6px; color:var(--accent-primary);">
                                 <i class="fa-solid fa-network-wired"></i> Expose via Proxy
                             </button>
+                            <button class="btn-action" onclick="openComposeGitModal()" style="display:flex; align-items:center; gap:6px; color:var(--accent-primary);">
+                                <i class="fa-brands fa-git-alt"></i> Git Deploy
+                            </button>
                             <button class="btn-action" onclick="deleteComposeProject()" style="display:flex; align-items:center; gap:6px; color:var(--danger);">
                                 <i class="fa-solid fa-trash-can"></i> Delete
                             </button>
@@ -420,6 +423,50 @@ services:
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
             <button class="btn-action" onclick="closeAddNetworkModal()">Cancel</button>
             <button class="btn-primary-action" onclick="submitAddNetwork()">Create Network</button>
+        </div>
+    </div>
+</div>
+
+<!-- Git Sync deployment Modal -->
+<div class="modal-overlay" id="compose-git-modal">
+    <div class="modal-card" style="max-width:500px;">
+        <div class="modal-header">
+            <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                <i class="fa-brands fa-git-alt" style="color:var(--accent-primary); font-size:1.2rem;"></i> Git Sync Deployment
+            </div>
+            <div class="modal-close" onclick="closeComposeGitModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
+            <div class="form-group">
+                <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Repository URL (HTTPS)</label>
+                <input type="text" id="compose-git-repo-url" placeholder="https://github.com/username/repo.git" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); font-size:0.8rem; outline:none;">
+                <small style="display:block; margin-top:4px; font-size:0.7rem; color:var(--text-muted); line-height:1.4;">
+                    For private repos, use standard PAT token URL format: <code>https://&lt;token&gt;@github.com/username/repo.git</code>
+                </small>
+            </div>
+            <div class="form-group">
+                <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Branch</label>
+                <input type="text" id="compose-git-branch" placeholder="main" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); font-size:0.8rem; outline:none;">
+            </div>
+            <div class="form-group" style="background:rgba(59,130,246,0.03); border:1px solid rgba(59,130,246,0.1); border-radius:6px; padding:10px; margin-top:5px;">
+                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:0.8rem; color:var(--accent-primary);">Git Auto-Deploy Webhook</label>
+                <div style="display:flex; gap:8px; margin-bottom:6px;">
+                    <input type="text" id="compose-git-webhook-url" readonly style="flex-grow:1; padding:6px; border-radius:4px; border:1px solid var(--card-border); background:rgba(0,0,0,0.3); color:var(--text-muted); font-size:0.75rem; outline:none;" value="">
+                    <button class="btn-action" onclick="copyWebhookUrl()" style="padding:0 10px; font-size:0.75rem; border-radius:4px;">Copy</button>
+                </div>
+                <small style="display:block; font-size:0.7rem; color:var(--text-muted); line-height:1.4;">
+                    Add this Webhook URL to GitHub/GitLab repository settings (Webhooks) to automatically trigger deployment on every push.
+                </small>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeComposeGitModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="saveComposeGitSettings()" style="display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-floppy-disk"></i> Save Settings
+            </button>
+            <button class="btn-action" onclick="syncComposeGit()" style="display:flex; align-items:center; gap:6px; background:rgba(16,185,129,0.1); border-color:rgba(16,185,129,0.25); color:#10b981;">
+                <i class="fa-solid fa-sync"></i> Pull & Deploy
+            </button>
         </div>
     </div>
 </div>
