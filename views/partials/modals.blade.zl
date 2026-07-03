@@ -897,6 +897,7 @@
                     <option value="java">Java Spring Boot Environment</option>
                     <option value="rust">Rust Cargo App Environment</option>
                     <option value="dotnet">.NET Core ASP.NET Environment</option>
+                    <option value="elixir">Elixir Phoenix Environment</option>
                 </select>
             </div>
             <div id="compose-template-options" style="margin-top:15px; display:none;"></div>

@@ -311,6 +311,20 @@ export function initComposeTemplateOptionsListener() {
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
                 <input type="checkbox" id="compose-opt-laravel-db-postgres" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add PostgreSQL
             </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-laravel-db-mariadb" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MariaDB
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-laravel-redis" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add Redis Cache/Queue
+            </label>
+        </div>
+        <div class="form-group" style="margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-laravel-scheduler" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add Scheduler Daemon
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-laravel-queue" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add Queue Worker
+            </label>
         </div>
       `;
       html += getTemplateTipHtml("laravel");
@@ -334,19 +348,55 @@ export function initComposeTemplateOptionsListener() {
                 <!-- Dynamically loaded -->
             </select>
         </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Main DLL File Name</label>
+            <input type="text" id="compose-opt-dotnet-dll" placeholder="e.g. MyWebApi.dll" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none;" value="App.dll">
+        </div>
         <div class="form-group" style="margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap;">
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
                 <input type="checkbox" id="compose-opt-dotnet-db-mssql" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add SQL Server
             </label>
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-dotnet-db-mysql" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MySQL Database
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
                 <input type="checkbox" id="compose-opt-dotnet-db-postgres" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add PostgreSQL
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-dotnet-db-mariadb" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MariaDB
             </label>
         </div>
       `;
       html += getTemplateTipHtml("dotnet");
       optionsDiv.innerHTML = html;
       loadDynamicDockerTags("dotnet/aspnet", "compose-opt-dotnet-ver", ["10.0-alpine", "8.0-alpine", "9.0-alpine"], /^(?:10\.0|8\.0|9\.0)-alpine$/);
-
+    } else if (template === "elixir") {
+      html = `
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Elixir Version</label>
+            <select id="compose-opt-elixir-ver" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none; cursor:pointer;">
+                <!-- Dynamically loaded -->
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Command / Entrypoint</label>
+            <input type="text" id="compose-opt-elixir-cmd" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none;" value="mix phx.server">
+        </div>
+        <div class="form-group" style="margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-elixir-db-postgres" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add PostgreSQL (Ecto Default)
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-elixir-db-mysql" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MySQL Database
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-elixir-db-mariadb" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MariaDB
+            </label>
+        </div>
+      `;
+      html += getTemplateTipHtml("elixir");
+      optionsDiv.innerHTML = html;
+      loadDynamicDockerTags("elixir", "compose-opt-elixir-ver", ["1.16-alpine", "1.15-alpine", "1.17-alpine"], /^(?:1\.15|1\.16|1\.17)-alpine$/);
     } else if (template === "node") {
       html = `
         <div class="form-group" style="margin-bottom:12px;">
@@ -362,6 +412,9 @@ export function initComposeTemplateOptionsListener() {
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
                 <input type="checkbox" id="compose-opt-node-db-postgres" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add PostgreSQL
             </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-node-db-mariadb" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MariaDB
+            </label>
         </div>
       `;
       html += getTemplateTipHtml("node");
@@ -369,13 +422,27 @@ export function initComposeTemplateOptionsListener() {
       loadDynamicDockerTags("node", "compose-opt-node-ver", ["20-alpine", "22-alpine", "18-alpine"], /^(?:20|22|18)-alpine$/);
 
     } else {
+      let defaultCmd = "";
+      if (template === "python") defaultCmd = "uvicorn main:app --host 0.0.0.0 --port 8000";
+      else if (template === "go") defaultCmd = "/app/main-binary";
+      else if (template === "ruby") defaultCmd = "rails server -b 0.0.0.0";
+      else if (template === "java") defaultCmd = "java -jar /app/app.jar";
+      else if (template === "rust") defaultCmd = "/app/release-binary";
+
       html = `
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Command / Entrypoint</label>
+            <input type="text" id="compose-opt-generic-cmd" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none;" value="${defaultCmd}">
+        </div>
         <div class="form-group" style="margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap;">
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
                 <input type="checkbox" id="compose-opt-generic-db-mysql" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MySQL
             </label>
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
                 <input type="checkbox" id="compose-opt-generic-db-postgres" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add PostgreSQL
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                <input type="checkbox" id="compose-opt-generic-db-mariadb" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MariaDB
             </label>
         </div>
       `;
@@ -442,6 +509,7 @@ export function submitCreateComposeProject() {
     const nodeVer = document.getElementById("compose-opt-node-ver")?.value || "20-alpine";
     const addMongo = document.getElementById("compose-opt-node-db-mongo")?.checked;
     const addPostgres = document.getElementById("compose-opt-node-db-postgres")?.checked;
+    const addMariadb = document.getElementById("compose-opt-node-db-mariadb")?.checked;
 
     defaultYaml = `version: '3.8'\n\nservices:\n  node-app:\n    image: node:${nodeVer}\n    container_name: ${cleanName}_node_app\n    command: node /app/server.js\n    ports:\n      - "3000:3000"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      NODE_ENV: production\n      PORT: 3000\n    memory: 512m\n    cpus: 0.5\n`;
 
@@ -451,16 +519,24 @@ export function submitCreateComposeProject() {
     if (addPostgres) {
       defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
     }
+    if (addMariadb) {
+      defaultYaml += `\n  mariadb:\n    image: mariadb:latest\n    container_name: ${cleanName}_mariadb\n    ports:\n      - "3306:3306"\n    environment:\n      MARIADB_ROOT_PASSWORD: secretpassword\n      MARIADB_DATABASE: ${cleanName}_db\n    volumes:\n      - mariadb_data:/var/lib/mysql\n    restart: always\n`;
+    }
 
     defaultYaml += `\nvolumes:\n  app_data:\n`;
     if (addMongo) defaultYaml += `  mongo_data:\n`;
     if (addPostgres) defaultYaml += `  postgres_data:\n`;
+    if (addMariadb) defaultYaml += `  mariadb_data:\n`;
 
   } else if (template === "laravel") {
     const phpServer = document.getElementById("compose-opt-laravel-server")?.value || "frankenphp";
     const phpVer = document.getElementById("compose-opt-laravel-phpver")?.value || "8.3";
     const addMysql = document.getElementById("compose-opt-laravel-db-mysql")?.checked;
     const addPostgres = document.getElementById("compose-opt-laravel-db-postgres")?.checked;
+    const addMariadb = document.getElementById("compose-opt-laravel-db-mariadb")?.checked;
+    const addRedis = document.getElementById("compose-opt-laravel-redis")?.checked;
+    const addScheduler = document.getElementById("compose-opt-laravel-scheduler")?.checked;
+    const addQueue = document.getElementById("compose-opt-laravel-queue")?.checked;
 
     let appImage = "";
     if (phpServer === "frankenphp") {
@@ -471,28 +547,74 @@ export function submitCreateComposeProject() {
       appImage = `webdevops/php-apache:${phpVer}`;
     }
 
-    defaultYaml = `version: '3.8'\n\nservices:\n  php-app:\n    image: ${appImage}\n    container_name: ${cleanName}_php_app\n    ports:\n      - "8000:80"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      SERVER_NAME: :80\n      APP_ENV: production\n      APP_DEBUG: 'false'\n    memory: 512m\n    cpus: 0.5\n`;
+    // Build the php-app environment variables
+    let envVars = `      SERVER_NAME: :80\n      APP_ENV: production\n      APP_DEBUG: 'false'`;
+
+    if (addMysql) {
+      envVars += `\n      DB_CONNECTION: mysql\n      DB_HOST: mysql\n      DB_PORT: 3306\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
+    } else if (addMariadb) {
+      envVars += `\n      DB_CONNECTION: mysql\n      DB_HOST: mariadb\n      DB_PORT: 3306\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
+    } else if (addPostgres) {
+      envVars += `\n      DB_CONNECTION: pgsql\n      DB_HOST: postgres\n      DB_PORT: 5432\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
+    }
+
+    if (addRedis) {
+      envVars += `\n      REDIS_HOST: redis\n      REDIS_PORT: 6379`;
+    }
+
+    defaultYaml = `version: '3.8'\n\nservices:\n  php-app:\n    image: ${appImage}\n    container_name: ${cleanName}_php_app\n    ports:\n      - "8000:80"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
 
     if (addMysql) {
       defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: always\n`;
     }
+    if (addMariadb) {
+      defaultYaml += `\n  mariadb:\n    image: mariadb:latest\n    container_name: ${cleanName}_mariadb\n    ports:\n      - "3306:3306"\n    environment:\n      MARIADB_ROOT_PASSWORD: secretpassword\n      MARIADB_DATABASE: ${cleanName}_db\n    volumes:\n      - mariadb_data:/var/lib/mysql\n    restart: always\n`;
+    }
     if (addPostgres) {
       defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
+    }
+    if (addRedis) {
+      defaultYaml += `\n  redis:\n    image: redis:alpine\n    container_name: ${cleanName}_redis\n    ports:\n      - "6379:6379"\n    volumes:\n      - redis_data:/data\n    restart: always\n`;
+    }
+
+    if (addScheduler) {
+      defaultYaml += `\n  scheduler:\n    image: ${appImage}\n    container_name: ${cleanName}_scheduler\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    command: sh -c "while [ true ]; do php artisan schedule:run --no-interaction & sleep 60; done"\n    restart: always\n`;
+    }
+
+    if (addQueue) {
+      defaultYaml += `\n  queue-worker:\n    image: ${appImage}\n    container_name: ${cleanName}_queue_worker\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    command: php artisan queue:work --verbose --tries=3 --timeout=90\n    restart: always\n`;
     }
 
     defaultYaml += `\nvolumes:\n  app_data:\n`;
     if (addMysql) defaultYaml += `  mysql_data:\n`;
+    if (addMariadb) defaultYaml += `  mariadb_data:\n`;
     if (addPostgres) defaultYaml += `  postgres_data:\n`;
+    if (addRedis) defaultYaml += `  redis_data:\n`;
 
   } else if (template === "dotnet") {
     const dotnetVer = document.getElementById("compose-opt-dotnet-ver")?.value || "10.0-alpine";
+    const dotnetDll = document.getElementById("compose-opt-dotnet-dll")?.value || "App.dll";
     const addMssql = document.getElementById("compose-opt-dotnet-db-mssql")?.checked;
+    const addMysql = document.getElementById("compose-opt-dotnet-db-mysql")?.checked;
     const addPostgres = document.getElementById("compose-opt-dotnet-db-postgres")?.checked;
 
-    defaultYaml = `version: '3.8'\n\nservices:\n  dotnet-app:\n    image: mcr.microsoft.com/dotnet/aspnet:${dotnetVer}\n    container_name: ${cleanName}_dotnet_app\n    command: dotnet /app/app-name.dll\n    ports:\n      - "5000:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      ASPNETCORE_ENVIRONMENT: Production\n      ASPNETCORE_URLS: http://+:8080\n    memory: 512m\n    cpus: 0.5\n`;
+    let envVars = `      ASPNETCORE_ENVIRONMENT: Production\n      ASPNETCORE_URLS: http://+:8080`;
 
     if (addMssql) {
-      defaultYaml += `\n  mssql:\n    image: mcr.microsoft.com/mssql/server:2022-latest\n    container_name: ${cleanName}_mssql\n    ports:\n      - "1433:1433"\n    environment:\n      ACCEPT_EULA: "Y"\n      MSSQL_SA_PASSWORD: "SecretPassword123!"\n    restart: always\n`;
+      envVars += `\n      ConnectionStrings__DefaultConnection: "Server=mssql;Database=${cleanName}_db;User Id=sa;Password=SecretPassword123!;TrustServerCertificate=True;"`;
+    } else if (addMysql) {
+      envVars += `\n      ConnectionStrings__DefaultConnection: "Server=mysql;Port=3306;Database=${cleanName}_db;User Id=root;Password=secretpassword;"`;
+    } else if (addPostgres) {
+      envVars += `\n      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${cleanName}_db;Username=root;Password=secretpassword;"`;
+    }
+
+    defaultYaml = `version: '3.8'\n\nservices:\n  dotnet-app:\n    image: mcr.microsoft.com/dotnet/aspnet:${dotnetVer}\n    container_name: ${cleanName}_dotnet_app\n    command: dotnet /app/${dotnetDll}\n    ports:\n      - "5000:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
+
+    if (addMssql) {
+      defaultYaml += `\n  mssql:\n    image: mcr.microsoft.com/mssql/server:2022-latest\n    container_name: ${cleanName}_mssql\n    ports:\n      - "1433:1433"\n    environment:\n      ACCEPT_EULA: "Y"\n      MSSQL_SA_PASSWORD: "SecretPassword123!"\n    volumes:\n      - mssql_data:/var/opt/mssql\n    restart: always\n`;
+    }
+    if (addMysql) {
+      defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: always\n`;
     }
     if (addPostgres) {
       defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
@@ -500,29 +622,78 @@ export function submitCreateComposeProject() {
 
     defaultYaml += `\nvolumes:\n  app_data:\n`;
     if (addMssql) defaultYaml += `  mssql_data:\n`;
+    if (addMysql) defaultYaml += `  mysql_data:\n`;
     if (addPostgres) defaultYaml += `  postgres_data:\n`;
+
+  } else if (template === "elixir") {
+    const elixirVer = document.getElementById("compose-opt-elixir-ver")?.value || "1.16-alpine";
+    const elixirCmd = document.getElementById("compose-opt-elixir-cmd")?.value || "mix phx.server";
+    const addPostgres = document.getElementById("compose-opt-elixir-db-postgres")?.checked;
+    const addMysql = document.getElementById("compose-opt-elixir-db-mysql")?.checked;
+    const addMariadb = document.getElementById("compose-opt-elixir-db-mariadb")?.checked;
+
+    let envVars = `      PORT: 4000\n      PHX_HOST: localhost\n      SECRET_KEY_BASE: reallllly_long_secret_key_base_at_least_64_bytes_for_phoenix_production_app`;
+
+    if (addPostgres) {
+      envVars += `\n      DATABASE_URL: "ecto://root:secretpassword@postgres:5432/${cleanName}_db"`;
+    } else if (addMysql) {
+      envVars += `\n      DATABASE_URL: "ecto://root:secretpassword@mysql:3306/${cleanName}_db"`;
+    } else if (addMariadb) {
+      envVars += `\n      DATABASE_URL: "ecto://root:secretpassword@mariadb:3306/${cleanName}_db"`;
+    }
+
+    defaultYaml = `version: '3.8'\n\nservices:\n  elixir-app:\n    image: elixir:${elixirVer}\n    container_name: ${cleanName}_elixir_app\n    command: ${elixirCmd}\n    ports:\n      - "4000:4000"\n    volumes:\n      - app_data:/app\n    working_dir: /app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
+
+    if (addPostgres) {
+      defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
+    }
+    if (addMysql) {
+      defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: always\n`;
+    }
+    if (addMariadb) {
+      defaultYaml += `\n  mariadb:\n    image: mariadb:latest\n    container_name: ${cleanName}_mariadb\n    ports:\n      - "3306:3306"\n    environment:\n      MARIADB_ROOT_PASSWORD: secretpassword\n      MARIADB_DATABASE: ${cleanName}_db\n    volumes:\n      - mariadb_data:/var/lib/mysql\n    restart: always\n`;
+    }
+
+    defaultYaml += `\nvolumes:\n  app_data:\n`;
+    if (addPostgres) defaultYaml += `  postgres_data:\n`;
+    if (addMysql) defaultYaml += `  mysql_data:\n`;
+    if (addMariadb) defaultYaml += `  mariadb_data:\n`;
 
   } else {
     // Other runtimes
     const addMysql = document.getElementById("compose-opt-generic-db-mysql")?.checked;
     const addPostgres = document.getElementById("compose-opt-generic-db-postgres")?.checked;
+    const addMariadb = document.getElementById("compose-opt-generic-db-mariadb")?.checked;
+    const genericCmd = document.getElementById("compose-opt-generic-cmd")?.value;
+
+    let envVars = "";
+    if (addMysql) {
+      envVars += `\n      DB_CONNECTION: mysql\n      DB_HOST: mysql\n      DB_PORT: 3306\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
+    } else if (addMariadb) {
+      envVars += `\n      DB_CONNECTION: mysql\n      DB_HOST: mariadb\n      DB_PORT: 3306\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
+    } else if (addPostgres) {
+      envVars += `\n      DB_CONNECTION: postgres\n      DB_HOST: postgres\n      DB_PORT: 5432\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
+    }
 
     if (template === "python") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  python-app:\n    image: python:3.11-alpine\n    container_name: ${cleanName}_python_app\n    command: uvicorn main:app --host 0.0.0.0 --port 8000\n    ports:\n      - "8000:80"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      PYTHONUNBUFFERED: 1\n      ENV: production\n    memory: 512m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  python-app:\n    image: python:3.11-alpine\n    container_name: ${cleanName}_python_app\n    command: ${genericCmd || "uvicorn main:app --host 0.0.0.0 --port 8000"}\n    ports:\n      - "8000:80"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      PYTHONUNBUFFERED: 1\n      ENV: production${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
     } else if (template === "go") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  go-app:\n    image: alpine:latest\n    container_name: ${cleanName}_go_app\n    command: /app/main-binary\n    ports:\n      - "8080:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      APP_ENV: production\n    memory: 256m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  go-app:\n    image: alpine:latest\n    container_name: ${cleanName}_go_app\n    command: ${genericCmd || "/app/main-binary"}\n    ports:\n      - "8080:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      APP_ENV: production${envVars}\n    memory: 256m\n    cpus: 0.5\n`;
     } else if (template === "ruby") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  rails-app:\n    image: ruby:3.2-alpine\n    container_name: ${cleanName}_rails_app\n    command: rails server -b 0.0.0.0\n    ports:\n      - "3000:3000"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      RAILS_ENV: development\n    memory: 512m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  rails-app:\n    image: ruby:3.2-alpine\n    container_name: ${cleanName}_rails_app\n    command: ${genericCmd || "rails server -b 0.0.0.0"}\n    ports:\n      - "3000:3000"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      RAILS_ENV: development${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
     } else if (template === "java") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  spring-app:\n    image: eclipse-temurin:17-jre-alpine\n    container_name: ${cleanName}_spring_app\n    command: java -jar /app/app.jar\n    ports:\n      - "8080:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    memory: 1g\n    cpus: 1.0\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  spring-app:\n    image: eclipse-temurin:17-jre-alpine\n    container_name: ${cleanName}_spring_app\n    command: ${genericCmd || "java -jar /app/app.jar"}\n    ports:\n      - "8080:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      APP_ENV: production${envVars}\n    memory: 1g\n    cpus: 1.0\n`;
     } else if (template === "rust") {
-      defaultYaml = `version: '3.8'\n\nservices:\n  rust-app:\n    image: rust:alpine\n    container_name: ${cleanName}_rust_app\n    command: /app/release-binary\n    ports:\n      - "8080:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    memory: 512m\n    cpus: 0.5\n`;
+      defaultYaml = `version: '3.8'\n\nservices:\n  rust-app:\n    image: rust:alpine\n    container_name: ${cleanName}_rust_app\n    command: ${genericCmd || "/app/release-binary"}\n    ports:\n      - "8080:8080"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n      APP_ENV: production${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
     } else {
       defaultYaml = `version: '3.8'\n\nservices:\n  app:\n    image: alpine:latest\n    container_name: ${cleanName}_custom_app\n    command: tail -f /dev/null\n    env_file:\n      - .env\n    restart: always\n`;
     }
 
     if (addMysql) {
       defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: always\n`;
+    }
+    if (addMariadb) {
+      defaultYaml += `\n  mariadb:\n    image: mariadb:latest\n    container_name: ${cleanName}_mariadb\n    ports:\n      - "3306:3306"\n    environment:\n      MARIADB_ROOT_PASSWORD: secretpassword\n      MARIADB_DATABASE: ${cleanName}_db\n    volumes:\n      - mariadb_data:/var/lib/mysql\n    restart: always\n`;
     }
     if (addPostgres) {
       defaultYaml += `\n  postgres:\n    image: postgres:latest\n    container_name: ${cleanName}_postgres\n    ports:\n      - "5432:5432"\n    environment:\n      POSTGRES_USER: root\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_DB: ${cleanName}_db\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n`;
@@ -531,6 +702,7 @@ export function submitCreateComposeProject() {
     if (template !== "custom") {
       defaultYaml += `\nvolumes:\n  app_data:\n`;
       if (addMysql) defaultYaml += `  mysql_data:\n`;
+      if (addMariadb) defaultYaml += `  mariadb_data:\n`;
       if (addPostgres) defaultYaml += `  postgres_data:\n`;
     }
   }
