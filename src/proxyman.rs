@@ -261,6 +261,7 @@ impl ProxyManager {
         };
 
         self.rules.write().await.insert(id.clone(), rule);
+        crate::slots::system::sync_firewall_rules(&self.pool);
         Ok(id)
     }
 
@@ -333,7 +334,7 @@ impl ProxyManager {
             rule.managed_process_id = managed_process_id;
             rule.rule_type = rule_type;
         }
-
+        crate::slots::system::sync_firewall_rules(&self.pool);
         Ok(())
     }
 
@@ -359,6 +360,7 @@ impl ProxyManager {
             .map_err(|e| e.to_string())?;
 
         self.rules.write().await.remove(id);
+        crate::slots::system::sync_firewall_rules(&self.pool);
         Ok(())
     }
 
@@ -374,6 +376,7 @@ impl ProxyManager {
         if let Some(rule) = self.rules.write().await.get_mut(id) {
             rule.enabled = enabled;
         }
+        crate::slots::system::sync_firewall_rules(&self.pool);
         Ok(())
     }
 

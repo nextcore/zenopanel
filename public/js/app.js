@@ -185,7 +185,6 @@ import {
   deleteUser,
   toggleUserPasswordVisibility,
 } from "./users.js";
-import {
   loadSettings,
   submitSaveSettings,
   loadServiceStatus,
@@ -211,6 +210,10 @@ import {
   loadUpdateStatus,
   checkUpdateManual,
   triggerUpdatePanel,
+  loadRegistries,
+  onRegistryDomainSelectChange,
+  submitAddRegistry,
+  deleteRegistry,
 } from "./settings.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
@@ -454,6 +457,10 @@ const functionsToBind = {
   loadUpdateStatus,
   checkUpdateManual,
   triggerUpdatePanel,
+  loadRegistries,
+  onRegistryDomainSelectChange,
+  submitAddRegistry,
+  deleteRegistry,
   refreshContainerLog,
   loadContainerList,
   loadContainers,

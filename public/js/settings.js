@@ -19,6 +19,7 @@ export async function loadSettings() {
         await loadBackupSettings();
         await loadLogSettings();
         await loadUpdateStatus();
+        await loadRegistries();
     } catch (err) {
         showToast('error', 'Error loading settings: ' + err.message);
     }
@@ -876,6 +877,117 @@ export async function triggerUpdatePanel() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
+    }
+}
+
+export async function loadRegistries() {
+    try {
+        const response = await fetch('/api/settings/registries');
+        if (!response.ok) throw new Error('Failed to fetch registries');
+        const data = await response.json();
+        
+        const container = document.getElementById('registry-list-container');
+        if (!container) return;
+
+        if (data.success && data.registries) {
+            const list = data.registries;
+            if (list.length === 0) {
+                container.innerHTML = `
+                    <div style="padding:15px; border-radius:6px; border:1px dashed var(--card-border); text-align:center; color:var(--text-muted); font-size:0.8rem;">
+                        Belum ada private registry terdaftar.
+                    </div>
+                `;
+            } else {
+                container.innerHTML = list.map(reg => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:6px; padding:10px 14px;">
+                        <span style="font-family:var(--font-code); font-size:0.85rem; color:var(--text-main); font-weight:600; display:flex; align-items:center; gap:8px;">
+                            <i class="fa-solid fa-server" style="color:var(--accent-secondary);"></i> ${escapeHtml(reg)}
+                        </span>
+                        <button class="btn-icon" onclick="deleteRegistry('${escapeHtml(reg)}')" title="Hapus Kredensial" style="padding:4px; font-size:0.85rem; border:none; background:transparent; cursor:pointer;">
+                            <i class="fa-solid fa-trash" style="color:#ef4444;"></i>
+                        </button>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (err) {
+        console.error('Error loading registries:', err);
+    }
+}
+
+export function onRegistryDomainSelectChange() {
+    const select = document.getElementById('registry-domain-select');
+    const customGroup = document.getElementById('registry-domain-custom-group');
+    if (select && customGroup) {
+        customGroup.style.display = select.value === 'custom' ? 'block' : 'none';
+    }
+}
+
+export async function submitAddRegistry() {
+    const select = document.getElementById('registry-domain-select');
+    if (!select) return;
+
+    let registry = select.value;
+    if (registry === 'custom') {
+        registry = document.getElementById('registry-domain-custom').value.trim();
+    }
+    const username = document.getElementById('registry-username').value.trim();
+    const password = document.getElementById('registry-password').value.trim();
+
+    if (!registry || !username || !password) {
+        showToast('error', 'Semua kolom registry, username, dan password wajib diisi');
+        return;
+    }
+
+    const csrfToken = getCSRFToken();
+    try {
+        const response = await fetch('/api/settings/registries', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ registry, username, password })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Kredensial registry berhasil disimpan');
+            document.getElementById('registry-username').value = '';
+            document.getElementById('registry-password').value = '';
+            document.getElementById('registry-domain-custom').value = '';
+            await loadRegistries();
+        } else {
+            showToast('error', data.message || 'Gagal menyimpan kredensial registry');
+        }
+    } catch (err) {
+        showToast('error', 'Error: ' + err.message);
+    }
+}
+
+export async function deleteRegistry(registry) {
+    if (!confirm(`Apakah Anda yakin ingin menghapus kredensial untuk registry "${registry}"?`)) return;
+
+    const csrfToken = getCSRFToken();
+    try {
+        const response = await fetch('/api/settings/registries/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ registry })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('success', data.message || 'Kredensial registry berhasil dihapus');
+            await loadRegistries();
+        } else {
+            showToast('error', data.message || 'Gagal menghapus kredensial registry');
+        }
+    } catch (err) {
+        showToast('error', 'Error: ' + err.message);
     }
 }
 

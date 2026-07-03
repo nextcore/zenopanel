@@ -68,6 +68,9 @@ pub fn register(engine: &mut Engine) {
     register_box_compose_get_yaml(engine);
     register_box_compose_list_projects(engine);
     register_box_compose_delete_project(engine);
+    register_box_registry_list(engine);
+    register_box_registry_add(engine);
+    register_box_registry_delete(engine);
 }
 
 pub(crate) fn get_runc_bin() -> String {
@@ -181,14 +184,108 @@ fn parse_image_ref(image: &str) -> ImageRef {
     ImageRef { registry, repository: repo, tag }
 }
 
+fn get_docker_auth_for_registry(registry_url: &str) -> Option<(String, String)> {
+    let home = std::env::var("HOME").ok().map(PathBuf::from)?;
+    let paths: [PathBuf; 2] = [
+        home.join(".docker/config.json"),
+        PathBuf::from("/root/.docker/config.json"),
+    ];
+
+    let host = registry_url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+
+    for p in &paths {
+        if p.exists() {
+            if let Ok(content) = fs::read_to_string(p) {
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(auths) = config.get("auths").and_then(|a| a.as_object()) {
+                        for (key, val) in auths {
+                            let key_clean = key.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/');
+                            let host_clean = host.trim_end_matches('/');
+                            let is_match = key_clean == host_clean 
+                                || (host_clean == "registry-1.docker.io" && key_clean == "index.docker.io/v1");
+                            
+                            if is_match {
+                                if let Some(auth_str) = val.get("auth").and_then(|a| a.as_str()) {
+                                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                                    if let Ok(decoded) = STANDARD.decode(auth_str) {
+                                        if let Ok(decoded_str) = String::from_utf8(decoded) {
+                                            let parts: Vec<&str> = decoded_str.splitn(2, ':').collect();
+                                            if parts.len() == 2 {
+                                                return Some((parts[0].to_string(), parts[1].to_string()));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_www_authenticate(header_val: &str) -> Option<(String, String, String)> {
+    if !header_val.starts_with("Bearer ") {
+        return None;
+    }
+    let params = &header_val[7..];
+    let mut realm = None;
+    let mut service = None;
+    let mut scope = None;
+
+    for part in params.split(',') {
+        let kv: Vec<&str> = part.splitn(2, '=').collect();
+        if kv.len() == 2 {
+            let k = kv[0].trim();
+            let v = kv[1].trim().trim_matches('"');
+            if k == "realm" {
+                realm = Some(v.to_string());
+            } else if k == "service" {
+                service = Some(v.to_string());
+            } else if k == "scope" {
+                scope = Some(v.to_string());
+            }
+        }
+    }
+
+    if let (Some(r), Some(s)) = (realm, service) {
+        Some((r, s, scope.unwrap_or_default()))
+    } else {
+        None
+    }
+}
+
+fn apply_auth_header(req: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuilder {
+    if token.is_empty() {
+        req
+    } else if token.starts_with("Bearer ") || token.starts_with("Basic ") {
+        req.header("Authorization", token)
+    } else {
+        req.header("Authorization", format!("Bearer {}", token))
+    }
+}
+
 async fn get_registry_token(client: &reqwest::Client, img: &ImageRef) -> Result<String, String> {
     let host = img.registry.trim_start_matches("https://").trim_start_matches("http://");
+    let credentials = get_docker_auth_for_registry(&img.registry);
+
     if host == "registry-1.docker.io" {
         let auth_url = format!(
             "https://auth.docker.io/token?service=registry.docker.io&scope=repository:{}:pull",
             img.repository
         );
-        let resp = client.get(&auth_url).send().await.map_err(|e| e.to_string())?;
+        let mut req = client.get(&auth_url);
+        if let Some((ref username, ref password)) = credentials {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let auth_val = format!("{}:{}", username, password);
+            let encoded = STANDARD.encode(auth_val);
+            req = req.header("Authorization", format!("Basic {}", encoded));
+        }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
         if resp.status().is_success() {
             let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
             if let Some(tok) = json.get("token").and_then(|v| v.as_str()) {
@@ -198,7 +295,65 @@ async fn get_registry_token(client: &reqwest::Client, img: &ImageRef) -> Result<
                 return Ok(tok.to_string());
             }
         }
+        
+        if let Some((ref username, ref password)) = credentials {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let auth_val = format!("{}:{}", username, password);
+            let encoded = STANDARD.encode(auth_val);
+            return Ok(format!("Basic {}", encoded));
+        }
+        
+        return Ok(String::new());
     }
+
+    let v2_url = format!("{}/v2/", img.registry);
+    let mut req = client.get(&v2_url);
+    if let Some((ref username, ref password)) = credentials {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let auth_val = format!("{}:{}", username, password);
+        let encoded = STANDARD.encode(auth_val);
+        req = req.header("Authorization", format!("Basic {}", encoded));
+    }
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    if resp.status() == 401 {
+        if let Some(auth_header) = resp.headers().get("www-authenticate").and_then(|h| h.to_str().ok()) {
+            if let Some((realm, service, scope)) = parse_www_authenticate(auth_header) {
+                let final_scope = if scope.is_empty() {
+                    format!("repository:{}:pull", img.repository)
+                } else {
+                    scope
+                };
+                let mut token_req = client.get(&realm)
+                    .query(&[("service", &service), ("scope", &final_scope)]);
+                
+                if let Some((ref username, ref password)) = credentials {
+                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                    let auth_val = format!("{}:{}", username, password);
+                    let encoded = STANDARD.encode(auth_val);
+                    token_req = token_req.header("Authorization", format!("Basic {}", encoded));
+                }
+                
+                let token_resp = token_req.send().await.map_err(|e| e.to_string())?;
+                if token_resp.status().is_success() {
+                    let json: serde_json::Value = token_resp.json().await.map_err(|e| e.to_string())?;
+                    if let Some(tok) = json.get("token").and_then(|v| v.as_str()) {
+                        return Ok(tok.to_string());
+                    }
+                    if let Some(tok) = json.get("access_token").and_then(|v| v.as_str()) {
+                        return Ok(tok.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some((ref username, ref password)) = credentials {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let auth_val = format!("{}:{}", username, password);
+        let encoded = STANDARD.encode(auth_val);
+        return Ok(format!("Basic {}", encoded));
+    }
+
     Ok(String::new())
 }
 
@@ -221,9 +376,7 @@ async fn pull_image_rust(image: &str) -> Result<Vec<String>, String> {
     let manifest_url = format!("{}/v2/{}/manifests/{}", img_ref.registry, img_ref.repository, img_ref.tag);
     let mut req = client.get(&manifest_url)
         .header("Accept", "application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json");
-    if !token.is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", token));
-    }
+    req = apply_auth_header(req, &token);
     let resp = req.send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Failed to fetch manifest: status {}", resp.status()));
@@ -258,9 +411,7 @@ async fn pull_image_rust(image: &str) -> Result<Vec<String>, String> {
         
         let manifest_by_digest_url = format!("{}/v2/{}/manifests/{}", img_ref.registry, img_ref.repository, digest);
         let mut req2 = client.get(&manifest_by_digest_url).header("Accept", "application/vnd.docker.distribution.manifest.v2+json");
-        if !token.is_empty() {
-            req2 = req2.header("Authorization", format!("Bearer {}", token));
-        }
+        req2 = apply_auth_header(req2, &token);
         let resp2 = req2.send().await.map_err(|e| e.to_string())?;
         if !resp2.status().is_success() {
             return Err(format!("Failed to fetch resolved manifest: status {}", resp2.status()));
@@ -276,9 +427,7 @@ async fn pull_image_rust(image: &str) -> Result<Vec<String>, String> {
 
     let config_url = format!("{}/v2/{}/blobs/{}", img_ref.registry, img_ref.repository, config_digest);
     let mut req_cfg = client.get(&config_url);
-    if !token.is_empty() {
-        req_cfg = req_cfg.header("Authorization", format!("Bearer {}", token));
-    }
+    req_cfg = apply_auth_header(req_cfg, &token);
     let resp_cfg = req_cfg.send().await.map_err(|e| e.to_string())?;
     let config_bytes = resp_cfg.bytes().await.map_err(|e| e.to_string())?;
     let image_config_json: serde_json::Value = serde_json::from_slice(&config_bytes).map_err(|e| e.to_string())?;
@@ -303,9 +452,7 @@ async fn pull_image_rust(image: &str) -> Result<Vec<String>, String> {
             if !Path::new(&tar_gz_path).exists() {
                 let blob_url = format!("{}/v2/{}/blobs/{}", img_ref.registry, img_ref.repository, digest);
                 let mut req_blob = client.get(&blob_url);
-                if !token.is_empty() {
-                    req_blob = req_blob.header("Authorization", format!("Bearer {}", token));
-                }
+                req_blob = apply_auth_header(req_blob, &token);
                 let resp_blob = req_blob.send().await.map_err(|e| e.to_string())?;
                 if !resp_blob.status().is_success() {
                     return Err(format!("Layer download failed: status {}", resp_blob.status()));
@@ -3389,6 +3536,8 @@ fn serde_json_to_zeno(val: &serde_json::Value) -> Value {
 mod tests {
     use super::*;
 
+    static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_parse_memory_bytes() {
         assert_eq!(parse_memory_bytes("512m"), 512 * 1024 * 1024);
@@ -3528,6 +3677,342 @@ volumes:
         // Assert top-level volumes
         assert!(cf.volumes.as_ref().unwrap().contains_key("db_data"));
     }
+
+    #[test]
+    fn test_docker_config_and_registry_auth() {
+        let _lock = TEST_MUTEX.lock().unwrap();
+        let temp_dir = std::env::temp_dir().join(format!("zeno_test_docker_config_{}", rand::random::<u32>()));
+        let docker_dir = temp_dir.join(".docker");
+        fs::create_dir_all(&docker_dir).unwrap();
+        
+        let config_content = r#"{
+            "auths": {
+                "ghcr.io": {
+                    "auth": "bXktdXNlcjpteS1wYXNzd29yZA=="
+                },
+                "https://index.docker.io/v1/": {
+                    "auth": "ZG9ja2VyLXVzZXI6ZG9ja2VyLXBhc3N3b3Jk"
+                }
+            }
+        }"#;
+        fs::write(docker_dir.join("config.json"), config_content).unwrap();
+
+        // Backup current HOME and override it
+        let old_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("HOME", &temp_dir);
+        }
+
+        // Test matching a custom registry
+        let ghcr_auth = get_docker_auth_for_registry("https://ghcr.io");
+        assert_eq!(ghcr_auth, Some(("my-user".to_string(), "my-password".to_string())));
+
+        // Test matching docker hub index
+        let docker_auth = get_docker_auth_for_registry("https://registry-1.docker.io");
+        assert_eq!(docker_auth, Some(("docker-user".to_string(), "docker-password".to_string())));
+
+        // Clean up HOME env var and remove mock files
+        unsafe {
+            if let Some(h) = old_home {
+                std::env::set_var("HOME", h);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_www_authenticate() {
+        let header = r#"Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:user/repo:pull""#;
+        let parsed = parse_www_authenticate(header);
+        assert_eq!(
+            parsed,
+            Some((
+                "https://ghcr.io/token".to_string(),
+                "ghcr.io".to_string(),
+                "repository:user/repo:pull".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_registry_slots_engine() {
+        use zenocore::{Context, Scope};
+        let _lock = TEST_MUTEX.lock().unwrap();
+        let temp_dir = std::env::temp_dir().join(format!("zeno_test_registry_slots_{}", rand::random::<u32>()));
+        let docker_dir = temp_dir.join(".docker");
+        fs::create_dir_all(&docker_dir).unwrap();
+
+        // Backup current HOME and override it
+        let old_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("HOME", &temp_dir);
+        }
+
+        let mut engine = Engine::new();
+        register_box_registry_list(&mut engine);
+        register_box_registry_add(&mut engine);
+        register_box_registry_delete(&mut engine);
+
+        let mut ctx = Context::new();
+        let scope = Scope::new(None);
+
+        // 1. Add registry ghcr.io
+        let node_add = zenocore::parser::parse_string(
+            r#"
+            box.registry_add: {
+                registry: 'ghcr.io'
+                username: 'test-user'
+                password: 'test-password'
+                as: $success
+            }
+            "#,
+            "test"
+        ).unwrap();
+        engine.execute(&mut ctx, &node_add, &scope).unwrap();
+        assert_eq!(scope.get("success"), Some(Value::Bool(true)));
+
+        // 2. List registries
+        let node_list = zenocore::parser::parse_string(
+            r#"
+            box.registry_list: {
+                as: $list
+            }
+            "#,
+            "test"
+        ).unwrap();
+        engine.execute(&mut ctx, &node_list, &scope).unwrap();
+        
+        if let Some(Value::List(lst)) = scope.get("list") {
+            assert_eq!(lst.len(), 1);
+            assert_eq!(lst[0], Value::String("ghcr.io".to_string()));
+        } else {
+            panic!("Expected list value");
+        }
+
+        // 3. Delete registry
+        let node_del = zenocore::parser::parse_string(
+            r#"
+            box.registry_delete: {
+                registry: 'ghcr.io'
+                as: $del_success
+            }
+            "#,
+            "test"
+        ).unwrap();
+        engine.execute(&mut ctx, &node_del, &scope).unwrap();
+        assert_eq!(scope.get("del_success"), Some(Value::Bool(true)));
+
+        // 4. Verify list is empty
+        engine.execute(&mut ctx, &node_list, &scope).unwrap();
+        if let Some(Value::List(lst)) = scope.get("list") {
+            assert_eq!(lst.len(), 0);
+        } else {
+            panic!("Expected list value");
+        }
+
+        // Clean up HOME env var and remove mock files
+        unsafe {
+            if let Some(h) = old_home {
+                std::env::set_var("HOME", h);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+}
+
+fn register_box_registry_list(engine: &mut Engine) {
+    engine.register(
+        "box.registry_list",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+
+            let mut list = Vec::new();
+            if let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) {
+                let p = home.join(".docker/config.json");
+                if p.exists() {
+                    if let Ok(content) = fs::read_to_string(&p) {
+                        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(auths) = config.get("auths").and_then(|a| a.as_object()) {
+                                for (key, _) in auths {
+                                    list.push(Value::String(key.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            scope.set(&target, Value::List(list));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "List Docker Registry logins".to_string(),
+            example: "box.registry_list { as: $logins }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_registry_add(engine: &mut Engine) {
+    engine.register(
+        "box.registry_add",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            let mut registry = String::new();
+            let mut username = String::new();
+            let mut password = String::new();
+            for child in &node.children {
+                match child.name.as_str() {
+                    "registry" => registry = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "username" => username = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "password" => password = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if registry.is_empty() || username.is_empty() || password.is_empty() {
+                scope.set(&target, Value::Bool(false));
+                return Ok(());
+            }
+
+            let home = match std::env::var("HOME").ok().map(PathBuf::from) {
+                Some(h) => h,
+                None => {
+                    scope.set(&target, Value::Bool(false));
+                    return Ok(());
+                }
+            };
+
+            let docker_dir = home.join(".docker");
+            let _ = fs::create_dir_all(&docker_dir);
+            let p = docker_dir.join("config.json");
+
+            let mut config = if p.exists() {
+                fs::read_to_string(&p)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .unwrap_or_else(|| serde_json::json!({ "auths": {} }))
+            } else {
+                serde_json::json!({ "auths": {} })
+            };
+
+            if config.get("auths").is_none() {
+                if let Some(obj) = config.as_object_mut() {
+                    obj.insert("auths".to_string(), serde_json::json!({}));
+                }
+            }
+
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            let auth_val = format!("{}:{}", username, password);
+            let encoded = STANDARD.encode(auth_val);
+
+            if let Some(auths) = config.get_mut("auths").and_then(|a| a.as_object_mut()) {
+                auths.insert(
+                    registry.clone(),
+                    serde_json::json!({
+                        "auth": encoded
+                    }),
+                );
+            }
+
+            let success = if let Ok(pretty) = serde_json::to_string_pretty(&config) {
+                fs::write(p, pretty).is_ok()
+            } else {
+                false
+            };
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Add Docker Registry credentials".to_string(),
+            example: "box.registry_add { registry: 'ghcr.io', username: 'foo', password: 'bar', as: $success }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_registry_delete(engine: &mut Engine) {
+    engine.register(
+        "box.registry_delete",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "result".to_string();
+            let mut registry = String::new();
+            for child in &node.children {
+                match child.name.as_str() {
+                    "registry" => registry = resolve_node_value(_engine, child, scope).to_string_coerce(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if registry.is_empty() {
+                scope.set(&target, Value::Bool(false));
+                return Ok(());
+            }
+
+            let home = match std::env::var("HOME").ok().map(PathBuf::from) {
+                Some(h) => h,
+                None => {
+                    scope.set(&target, Value::Bool(false));
+                    return Ok(());
+                }
+            };
+
+            let p = home.join(".docker/config.json");
+            if !p.exists() {
+                scope.set(&target, Value::Bool(false));
+                return Ok(());
+            }
+
+            let mut success = false;
+            if let Ok(content) = fs::read_to_string(&p) {
+                if let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(auths) = config.get_mut("auths").and_then(|a| a.as_object_mut()) {
+                        if auths.remove(&registry).is_some() {
+                            if let Ok(pretty) = serde_json::to_string_pretty(&config) {
+                                success = fs::write(p, pretty).is_ok();
+                            }
+                        }
+                    }
+                }
+            }
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Delete Docker Registry credentials".to_string(),
+            example: "box.registry_delete { registry: 'ghcr.io', as: $success }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
 }
 
 

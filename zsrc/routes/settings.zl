@@ -338,3 +338,72 @@ http.post: '/api/settings/update' {
     }
 }
 
+# 16. GET /api/settings/registries
+http.get: '/api/settings/registries' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            box.registry_list: { as: $list }
+            http.ok: { success: true, registries: $list }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 17. POST /api/settings/registries
+http.post: '/api/settings/registries' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            box.registry_add: {
+                registry: $body.registry
+                username: $body.username
+                password: $body.password
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Kredensial registry berhasil disimpan" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal menyimpan kredensial registry" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
+# 18. POST /api/settings/registries/delete
+http.post: '/api/settings/registries/delete' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            box.registry_delete: {
+                registry: $body.registry
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Kredensial registry berhasil dihapus" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal menghapus kredensial registry" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+

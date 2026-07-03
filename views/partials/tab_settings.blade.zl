@@ -255,4 +255,60 @@
             </button>
         </div>
     </div>
+
+    <!-- DOCKER PRIVATE REGISTRIES -->
+    <div class="card" style="margin-top:20px; max-width:600px;">
+        <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                <i class="fa-solid fa-key" style="color:var(--accent-primary);"></i> Docker Private Registries
+            </h3>
+        </div>
+        
+        <div style="display:flex; flex-direction:column; gap:20px;">
+            <!-- Registry List -->
+            <div>
+                <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; letter-spacing:0.05em;">Logged-in Registries</div>
+                <div id="registry-list-container" style="display:flex; flex-direction:column; gap:8px;">
+                    <div style="padding:10px; text-align:center; color:var(--text-muted); font-size:0.8rem;">Loading registries...</div>
+                </div>
+            </div>
+
+            <!-- Add Credentials Form -->
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:16px;">
+                <div style="font-weight:600; font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:14px; letter-spacing:0.05em;"><i class="fa-solid fa-plus"></i> Add Registry Credentials</div>
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">Registry Server / Domain</label>
+                    <select id="registry-domain-select" onchange="onRegistryDomainSelectChange()" style="width:100%; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; font-size:0.85rem;">
+                        <option value="ghcr.io">GitHub Container Registry (ghcr.io)</option>
+                        <option value="registry-1.docker.io">Docker Hub (registry-1.docker.io)</option>
+                        <option value="registry.gitlab.com">GitLab Registry (registry.gitlab.com)</option>
+                        <option value="quay.io">Quay.io (quay.io)</option>
+                        <option value="custom">Custom Registry Domain...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="registry-domain-custom-group" style="margin-bottom:12px; display:none;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">Custom Domain</label>
+                    <input type="text" id="registry-domain-custom" placeholder="e.g. registry.company.com" style="width:100%; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem; font-family:var(--font-code);">
+                </div>
+
+                <div class="grid-2col" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">Username</label>
+                        <input type="text" id="registry-username" placeholder="Username / Email" style="width:100%; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;">
+                    </div>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">Password / Access Token</label>
+                        <input type="password" id="registry-password" placeholder="••••••••" style="width:100%; padding:9px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;">
+                    </div>
+                </div>
+                
+                <div style="text-align:right;">
+                    <button class="btn-primary-action" onclick="submitAddRegistry()" style="padding:8px 20px; font-size:0.85rem;">
+                        <i class="fa-solid fa-lock"></i> Save Credentials
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>

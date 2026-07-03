@@ -1518,113 +1518,147 @@ pub fn register(engine: &mut Engine) {
 
             let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
                 .map(|s| s.clone())
-                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.firewall_set_lockdown".to_string()) })?;            let db_manager = app_state.db_manager.clone();
-            let mut lockdown_ports_str = "22,80,443,3002".to_string();
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.firewall_set_lockdown".to_string()) })?;
+            let db_manager = app_state.db_manager.clone();
 
+            let mut success = false;
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
                     if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
-                        let v: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'firewall_lockdown_ports'")
-                            .fetch_optional(&pool)
-                            .await
-                            .unwrap_or(None);
-                        if let Some(r) = v {
-                            lockdown_ports_str = r.0;
+                        let res = sqlx::query("INSERT INTO settings (key, value) VALUES ('firewall_lockdown', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(if enabled { "true" } else { "false" })
+                            .execute(&pool)
+                            .await;
+                        if res.is_ok() {
+                            sync_firewall_rules(&pool);
+                            success = true;
                         }
                     }
                 });
             });
-
-            let ports: Vec<String> = lockdown_ports_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            let success = if enabled {
-                let check_and_add = |args: &[&str]| {
-                    let mut check_args = vec!["-C"];
-                    check_args.extend_from_slice(&args[1..]);
-                    let check = std::process::Command::new("iptables").args(&check_args).output();
-                    let exists = check.is_ok() && check.unwrap().status.success();
-                    if !exists {
-                        let _ = std::process::Command::new("iptables").args(args).output();
-                    }
-                };
-
-                // 1. Allow loopback
-                check_and_add(&["-A", "INPUT", "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Loopback"]);
-
-                // 2. Allow Established & Related
-                check_and_add(&["-A", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Established/Related"]);
-
-                // 3. Allow specified ports
-                for port in &ports {
-                    let rule_name = match port.as_str() {
-                        "22" => "Allow SSH (Port 22)".to_string(),
-                        "80" => "Allow HTTP (Port 80)".to_string(),
-                        "443" => "Allow HTTPS (Port 443)".to_string(),
-                        "3002" => "Allow ZenoPanel (Port 3002)".to_string(),
-                        _ => format!("Allow Port {}", port),
-                    };
-                    check_and_add(&["-A", "INPUT", "-p", "tcp", "--dport", port, "-j", "ACCEPT", "-m", "comment", "--comment", &format!("ZenoPanel: {}", rule_name)]);
-                }
-
-                // 4. Set default policy INPUT to DROP
-                let drop_policy = std::process::Command::new("iptables")
-                    .args(&["-P", "INPUT", "DROP"])
-                    .output();
-
-                drop_policy.is_ok() && drop_policy.unwrap().status.success()
-            } else {
-                // 1. Reset default policy INPUT to ACCEPT
-                let accept_policy = std::process::Command::new("iptables")
-                    .args(&["-P", "INPUT", "ACCEPT"])
-                    .output();
-
-                // 2. Delete loopback rule
-                let _ = std::process::Command::new("iptables")
-                    .args(&["-D", "INPUT", "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Loopback"])
-                    .output();
-
-                // 3. Delete Established & Related rule
-                let _ = std::process::Command::new("iptables")
-                    .args(&["-D", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanel: Allow Established/Related"])
-                    .output();
-
-                // 4. Delete specified ports
-                for port in &ports {
-                    let rule_name = match port.as_str() {
-                        "22" => "Allow SSH (Port 22)".to_string(),
-                        "80" => "Allow HTTP (Port 80)".to_string(),
-                        "443" => "Allow HTTPS (Port 443)".to_string(),
-                        "3002" => "Allow ZenoPanel (Port 3002)".to_string(),
-                        _ => format!("Allow Port {}", port),
-                    };
-                    let _ = std::process::Command::new("iptables")
-                        .args(&["-D", "INPUT", "-p", "tcp", "--dport", port, "-j", "ACCEPT", "-m", "comment", "--comment", &format!("ZenoPanel: {}", rule_name)])
-                        .output();
-                }
-
-                accept_policy.is_ok() && accept_policy.unwrap().status.success()
-            };
-            if success {
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
-                            let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('firewall_lockdown', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-                                .bind(if enabled { "true" } else { "false" })
-                                .execute(&pool)
-                                .await;
-                        }
-                    });
-                });
-            }
 
             scope.set(&target, Value::Bool(success));
             Ok(())
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+}
+
+pub fn clear_zenopanel_system_rules() {
+    if let Ok(out) = std::process::Command::new("iptables").args(&["-S", "INPUT"]).output() {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let mut rules_to_delete = Vec::new();
+            for line in stdout.lines() {
+                if line.contains("ZenoPanelSystem:") {
+                    if line.starts_with("-A INPUT ") {
+                        rules_to_delete.push(line["-A INPUT ".len()..].to_string());
+                    }
+                }
+            }
+            for rule in rules_to_delete {
+                let args: Vec<&str> = rule.split_whitespace().collect();
+                let mut delete_args = vec!["-D", "INPUT"];
+                delete_args.extend(args);
+                let _ = std::process::Command::new("iptables").args(&delete_args).output();
+            }
+        }
+    }
+}
+
+pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
+    let mut is_lockdown_enabled = false;
+    let mut lockdown_ports_str = "22,80,443,3002".to_string();
+
+    let _ = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let v1: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'firewall_lockdown'")
+                .fetch_optional(pool)
+                .await
+                .unwrap_or(None);
+            if let Some(r) = v1 {
+                is_lockdown_enabled = r.0 == "true";
+            }
+
+            let v2: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'firewall_lockdown_ports'")
+                .fetch_optional(pool)
+                .await
+                .unwrap_or(None);
+            if let Some(r) = v2 {
+                lockdown_ports_str = r.0;
+            }
+        })
+    });
+
+    clear_zenopanel_system_rules();
+
+    if is_lockdown_enabled {
+        let mut ports: Vec<String> = lockdown_ports_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if let Ok(app_port) = std::env::var("APP_PORT") {
+            let p = app_port.trim_start_matches(':').to_string();
+            if !ports.contains(&p) && !p.is_empty() {
+                ports.push(p);
+            }
+        }
+        if let Ok(app_tls_port) = std::env::var("APP_TLS_PORT") {
+            let p = app_tls_port.trim_start_matches(':').to_string();
+            if !ports.contains(&p) && !p.is_empty() {
+                ports.push(p);
+            }
+        }
+
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                if let Ok(rows) = sqlx::query_as::<_, (String, String)>("SELECT domain, alternative_domain FROM proxy_rules WHERE enabled = 1")
+                    .fetch_all(pool)
+                    .await
+                {
+                    for (domain, alt_domain) in rows {
+                        if let (_, Some(p)) = crate::proxyman::parse_host_port(&domain) {
+                            let p_str = p.to_string();
+                            if !ports.contains(&p_str) {
+                                ports.push(p_str);
+                            }
+                        }
+                        if !alt_domain.is_empty() {
+                            if let (_, Some(p)) = crate::proxyman::parse_host_port(&alt_domain) {
+                                let p_str = p.to_string();
+                                if !ports.contains(&p_str) {
+                                    ports.push(p_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        });
+
+        let apply_rule = |args: &[&str]| {
+            let _ = std::process::Command::new("iptables").args(args).output();
+        };
+
+        apply_rule(&["-A", "INPUT", "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanelSystem: Allow Loopback"]);
+        apply_rule(&["-A", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanelSystem: Allow Established/Related"]);
+
+        for port in &ports {
+            let rule_name = match port.as_str() {
+                "22" => "Allow SSH (Port 22)".to_string(),
+                "80" => "Allow HTTP (Port 80)".to_string(),
+                "443" => "Allow HTTPS (Port 443)".to_string(),
+                "3002" => "Allow ZenoPanel (Port 3002)".to_string(),
+                _ => format!("Allow Port {}", port),
+            };
+            apply_rule(&["-A", "INPUT", "-p", "tcp", "--dport", port, "-j", "ACCEPT", "-m", "comment", "--comment", &format!("ZenoPanelSystem: {}", rule_name)]);
+        }
+
+        let _ = std::process::Command::new("iptables").args(&["-P", "INPUT", "DROP"]).output();
+    } else {
+        let _ = std::process::Command::new("iptables").args(&["-P", "INPUT", "ACCEPT"]).output();
+    }
 }
 
