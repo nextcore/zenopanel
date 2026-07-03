@@ -585,21 +585,28 @@ fn generate_config_json(
         }));
     }
 
+    let data_dir = get_data_dir();
     for m in mounts {
         let parts: Vec<&str> = m.splitn(2, ':').collect();
         if parts.len() == 2 {
             let host_path = parts[0];
             let container_path = parts[1];
 
+            let is_named_volume = !host_path.starts_with('/') && !host_path.starts_with('.') && !host_path.starts_with('~');
+            let resolved_host_path = if is_named_volume {
+                Path::new(&data_dir).join("volumes").join(host_path)
+            } else {
+                PathBuf::from(host_path)
+            };
+
             // Auto-create host path directory if it doesn't exist
-            let path = Path::new(host_path);
-            if !path.exists() {
-                let _ = fs::create_dir_all(path);
+            if !resolved_host_path.exists() {
+                let _ = fs::create_dir_all(&resolved_host_path);
             }
 
-            let abs_host = fs::canonicalize(host_path)
+            let abs_host = fs::canonicalize(&resolved_host_path)
                 .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| host_path.to_string());
+                .unwrap_or_else(|_| resolved_host_path.to_string_lossy().to_string());
 
             oci_mounts.push(json!({
                 "destination": container_path,
@@ -1022,12 +1029,24 @@ fn configure_container_network(
     let _ = fs::write(resolv_path, "nameserver 8.8.8.8\nnameserver 1.1.1.1\n");
 
     for p in ports {
-        let parts: Vec<&str> = p.split(':').collect();
-        if parts.len() == 2 {
-            let host_port = parts[0];
-            let container_port = parts[1];
-            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
-            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
+        if let Some(rule) = parse_port_rule(&p) {
+            let host_port_formatted = rule.host_port.replace('-', ":");
+            let dest_str = format!("{}:{}", ip, rule.container_port);
+            let mut preroute_args = vec!["-t", "nat", "-A", "PREROUTING", "-p", &rule.protocol];
+            if let Some(ref hip) = rule.host_ip {
+                preroute_args.push("-d");
+                preroute_args.push(hip);
+            }
+            preroute_args.extend(&["--dport", &host_port_formatted, "-j", "DNAT", "--to-destination", &dest_str]);
+            let _ = run_cmd_status_silent("iptables", &preroute_args);
+
+            let mut output_args = vec!["-t", "nat", "-A", "OUTPUT", "-p", &rule.protocol];
+            if let Some(ref hip) = rule.host_ip {
+                output_args.push("-d");
+                output_args.push(hip);
+            }
+            output_args.extend(&["--dport", &host_port_formatted, "-j", "DNAT", "--to-destination", &dest_str]);
+            let _ = run_cmd_status_silent("iptables", &output_args);
         }
     }
 
@@ -1036,12 +1055,24 @@ fn configure_container_network(
 
 fn clean_container_network(container_id: &str, ip: &str, ports: &[String]) {
     for p in ports {
-        let parts: Vec<&str> = p.split(':').collect();
-        if parts.len() == 2 {
-            let host_port = parts[0];
-            let container_port = parts[1];
-            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "PREROUTING", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
-            let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "OUTPUT", "-p", "tcp", "--dport", host_port, "-j", "DNAT", "--to-destination", &format!("{}:{}", ip, container_port)]);
+        if let Some(rule) = parse_port_rule(&p) {
+            let host_port_formatted = rule.host_port.replace('-', ":");
+            let dest_str = format!("{}:{}", ip, rule.container_port);
+            let mut preroute_args = vec!["-t", "nat", "-D", "PREROUTING", "-p", &rule.protocol];
+            if let Some(ref hip) = rule.host_ip {
+                preroute_args.push("-d");
+                preroute_args.push(hip);
+            }
+            preroute_args.extend(&["--dport", &host_port_formatted, "-j", "DNAT", "--to-destination", &dest_str]);
+            let _ = run_cmd_status_silent("iptables", &preroute_args);
+
+            let mut output_args = vec!["-t", "nat", "-D", "OUTPUT", "-p", &rule.protocol];
+            if let Some(ref hip) = rule.host_ip {
+                output_args.push("-d");
+                output_args.push(hip);
+            }
+            output_args.extend(&["--dport", &host_port_formatted, "-j", "DNAT", "--to-destination", &dest_str]);
+            let _ = run_cmd_status_silent("iptables", &output_args);
         }
     }
     use std::collections::hash_map::DefaultHasher;
@@ -2433,6 +2464,86 @@ fn register_network_delete(engine: &mut Engine) {
 }
 
 #[derive(Serialize, Debug, Clone)]
+pub struct ComposeExtraHosts(pub Vec<String>);
+
+impl<'de> serde::Deserialize<'de> for ComposeExtraHosts {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ExtraHostsVisitor;
+        impl<'de> serde::de::Visitor<'de> for ExtraHostsVisitor {
+            type Value = ComposeExtraHosts;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a sequence of strings or a map of hostnames to IPs")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut hosts = Vec::new();
+                while let Some(elem) = seq.next_element::<String>()? {
+                    hosts.push(elem);
+                }
+                Ok(ComposeExtraHosts(hosts))
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                let mut hosts = Vec::new();
+                while let Some((k, v)) = map.next_entry::<String, String>()? {
+                    hosts.push(format!("{}:{}", k, v));
+                }
+                Ok(ComposeExtraHosts(hosts))
+            }
+        }
+        deserializer.deserialize_any(ExtraHostsVisitor)
+    }
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ComposeCommand(pub Vec<String>);
+
+impl<'de> serde::Deserialize<'de> for ComposeCommand {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct CmdVisitor;
+        impl<'de> serde::de::Visitor<'de> for CmdVisitor {
+            type Value = ComposeCommand;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or a sequence of strings")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(ComposeCommand(v.split_whitespace().map(|s| s.to_string()).collect()))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut cmd = Vec::new();
+                while let Some(elem) = seq.next_element::<String>()? {
+                    cmd.push(elem);
+                }
+                Ok(ComposeCommand(cmd))
+            }
+        }
+        deserializer.deserialize_any(CmdVisitor)
+    }
+}
+
+#[derive(Serialize, Debug, Clone)]
 pub struct ComposeEnvironment(pub HashMap<String, String>);
 
 impl<'de> serde::Deserialize<'de> for ComposeEnvironment {
@@ -2453,8 +2564,15 @@ impl<'de> serde::Deserialize<'de> for ComposeEnvironment {
                 M: serde::de::MapAccess<'de>,
             {
                 let mut env = HashMap::new();
-                while let Some((k, v)) = map.next_entry::<String, String>()? {
-                    env.insert(k, v);
+                while let Some((k, v)) = map.next_entry::<String, serde_json::Value>()? {
+                    let v_str = match v {
+                        serde_json::Value::String(s) => s,
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        serde_json::Value::Null => String::new(),
+                        _ => v.to_string(),
+                    };
+                    env.insert(k, v_str);
                 }
                 Ok(ComposeEnvironment(env))
             }
@@ -2464,8 +2582,14 @@ impl<'de> serde::Deserialize<'de> for ComposeEnvironment {
                 A: serde::de::SeqAccess<'de>,
             {
                 let mut env = HashMap::new();
-                while let Some(item) = seq.next_element::<String>()? {
-                    let parts: Vec<&str> = item.splitn(2, '=').collect();
+                while let Some(item) = seq.next_element::<serde_json::Value>()? {
+                    let item_str = match item {
+                        serde_json::Value::String(s) => s,
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        _ => continue,
+                    };
+                    let parts: Vec<&str> = item_str.splitn(2, '=').collect();
                     if parts.len() == 2 {
                         env.insert(parts[0].to_string(), parts[1].to_string());
                     } else if parts.len() == 1 {
@@ -2492,7 +2616,7 @@ impl<'de> serde::Deserialize<'de> for ComposePorts {
             type Value = ComposePorts;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a sequence of strings or integers")
+                formatter.write_str("a sequence of strings, integers, or objects mapping ports")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -2504,6 +2628,45 @@ impl<'de> serde::Deserialize<'de> for ComposePorts {
                     match elem {
                         serde_json::Value::String(s) => ports.push(s),
                         serde_json::Value::Number(n) => ports.push(n.to_string()),
+                        serde_json::Value::Object(obj) => {
+                            let target = obj.get("target")
+                                .map(|v| match v {
+                                    serde_json::Value::Number(n) => n.to_string(),
+                                    serde_json::Value::String(s) => s.clone(),
+                                    _ => String::new(),
+                                })
+                                .unwrap_or_default();
+                            
+                            let published = obj.get("published")
+                                .map(|v| match v {
+                                    serde_json::Value::Number(n) => n.to_string(),
+                                    serde_json::Value::String(s) => s.clone(),
+                                    _ => String::new(),
+                                });
+
+                            let host_ip = obj.get("host_ip")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+
+                            let protocol = obj.get("protocol")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+
+                            if !target.is_empty() {
+                                let mut port_str = String::new();
+                                if let Some(ip) = host_ip {
+                                    port_str.push_str(&format!("{}:", ip));
+                                }
+                                if let Some(pub_port) = published {
+                                    port_str.push_str(&format!("{}:", pub_port));
+                                }
+                                port_str.push_str(&target);
+                                if let Some(proto) = protocol {
+                                    port_str.push_str(&format!("/{}", proto));
+                                }
+                                ports.push(port_str);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -2528,8 +2691,10 @@ pub struct ComposeService {
     pub container_name: Option<String>,
     pub ports: Option<ComposePorts>,
     pub environment: Option<ComposeEnvironment>,
+    pub env_file: Option<serde_yaml::Value>,
     pub volumes: Option<Vec<String>>,
-    pub command: Option<String>,
+    pub entrypoint: Option<ComposeCommand>,
+    pub command: Option<ComposeCommand>,
     pub depends_on: Option<Vec<String>>,
     pub networks: Option<Vec<String>>,
     pub restart: Option<String>,
@@ -2538,6 +2703,7 @@ pub struct ComposeService {
     pub cpus: Option<f64>,
     pub oom_score_adj: Option<i32>,
     pub read_only: Option<bool>,
+    pub extra_hosts: Option<ComposeExtraHosts>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2550,6 +2716,7 @@ pub struct ComposeFile {
     pub version: Option<String>,
     pub services: HashMap<String, ComposeService>,
     pub networks: Option<HashMap<String, ComposeNetwork>>,
+    pub volumes: Option<HashMap<String, serde_yaml::Value>>,
 }
 
 fn order_services(services: &HashMap<String, ComposeService>) -> Vec<String> {
@@ -2612,7 +2779,112 @@ fn parse_memory_bytes(m_str: &str) -> i64 {
     num_str.parse::<i64>().unwrap_or(0) * unit
 }
 
-fn inject_hosts_entries(data_dir: &str, container_id: &str, services: &HashMap<String, ComposeService>, current_name: &str) -> Result<(), String> {
+#[derive(Debug, Clone)]
+pub struct PortRule {
+    pub host_ip: Option<String>,
+    pub host_port: String,
+    pub container_port: String,
+    pub protocol: String, // "tcp" or "udp"
+}
+
+pub fn parse_port_rule(p: &str) -> Option<PortRule> {
+    let (clean_p, protocol) = if p.ends_with("/udp") {
+        (&p[..p.len() - 4], "udp".to_string())
+    } else if p.ends_with("/tcp") {
+        (&p[..p.len() - 4], "tcp".to_string())
+    } else {
+        (p, "tcp".to_string())
+    };
+
+    let parts: Vec<&str> = clean_p.split(':').collect();
+    match parts.len() {
+        3 => {
+            Some(PortRule {
+                host_ip: Some(parts[0].to_string()),
+                host_port: parts[1].to_string(),
+                container_port: parts[2].to_string(),
+                protocol,
+            })
+        }
+        2 => {
+            Some(PortRule {
+                host_ip: None,
+                host_port: parts[0].to_string(),
+                container_port: parts[1].to_string(),
+                protocol,
+            })
+        }
+        1 => {
+            if parts[0].is_empty() {
+                None
+            } else {
+                Some(PortRule {
+                    host_ip: None,
+                    host_port: parts[0].to_string(),
+                    container_port: parts[0].to_string(),
+                    protocol,
+                })
+            }
+        }
+        _ => None,
+    }
+}
+
+fn load_env_file(compose_path: &str, env_file_val: &serde_yaml::Value) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    let compose_path_buf = Path::new(compose_path);
+    let parent_dir = compose_path_buf.parent().unwrap_or_else(|| Path::new("."));
+
+    let files = match env_file_val {
+        serde_yaml::Value::String(s) => vec![s.clone()],
+        serde_yaml::Value::Sequence(seq) => {
+            let mut v = Vec::new();
+            for item in seq {
+                if let Some(s) = item.as_str() {
+                    v.push(s.to_string());
+                }
+            }
+            v
+        }
+        _ => Vec::new(),
+    };
+
+    for file_name in files {
+        let f_path = parent_dir.join(&file_name);
+        if let Ok(content) = fs::read_to_string(f_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+                let parts: Vec<&str> = trimmed.splitn(2, '=').collect();
+                if parts.len() == 2 {
+                    let k = parts[0].trim().to_string();
+                    let v = parts[1].trim().to_string();
+                    let v_clean = if (v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')) {
+                        if v.len() >= 2 {
+                            v[1..v.len()-1].to_string()
+                        } else {
+                            v
+                        }
+                    } else {
+                        v
+                    };
+                    env.insert(k, v_clean);
+                }
+            }
+        }
+    }
+
+    env
+}
+
+fn inject_hosts_entries(
+    data_dir: &str,
+    container_id: &str,
+    services: &HashMap<String, ComposeService>,
+    current_name: &str,
+) -> Result<(), String> {
     let hosts_path = rootfs_dir(data_dir, container_id).join("etc/hosts");
     let mut data = fs::read_to_string(&hosts_path).unwrap_or_else(|_| "127.0.0.1 localhost\n".to_string());
 
@@ -2623,6 +2895,19 @@ fn inject_hosts_entries(data_dir: &str, container_id: &str, services: &HashMap<S
         }
         let cn = svc.container_name.as_ref().unwrap_or(svc_name);
         entries.push(format!("127.0.0.1\t{}\t{}", cn, svc_name));
+    }
+
+    if let Some(svc) = services.get(current_name) {
+        if let Some(ref eh) = svc.extra_hosts {
+            for entry in &eh.0 {
+                let parts: Vec<&str> = entry.splitn(2, ':').collect();
+                if parts.len() == 2 {
+                    let hostname = parts[0].trim();
+                    let ip = parts[1].trim();
+                    entries.push(format!("{}\t{}", ip, hostname));
+                }
+            }
+        }
     }
 
     if entries.is_empty() {
@@ -2681,17 +2966,35 @@ fn compose_up(path: &str) -> Result<String, String> {
             let _ = container_delete(container_name);
         }
 
-        let cmd_args = if let Some(ref command) = svc.command {
-            command.split_whitespace().map(|s| s.to_string()).collect()
-        } else {
-            default_cmd
+        let cmd_args = match (&svc.entrypoint, &svc.command) {
+            (Some(entrypoint), Some(command)) => {
+                let mut cmd = entrypoint.0.clone();
+                cmd.extend(command.0.clone());
+                cmd
+            }
+            (Some(entrypoint), None) => {
+                entrypoint.0.clone()
+            }
+            (None, Some(command)) => {
+                command.0.clone()
+            }
+            (None, None) => {
+                default_cmd
+            }
         };
 
-        let env = if let Some(ref e) = svc.environment {
+        let mut env = if let Some(ref e) = svc.environment {
             e.0.clone()
         } else {
             HashMap::new()
         };
+
+        if let Some(ref env_file_val) = svc.env_file {
+            let loaded_env = load_env_file(path, env_file_val);
+            for (k, v) in loaded_env {
+                env.entry(k).or_insert(v);
+            }
+        }
 
         let volumes = svc.volumes.clone().unwrap_or_default();
         let ports = if let Some(ref p) = svc.ports {
@@ -3100,6 +3403,105 @@ services:
         assert_eq!(ordered[0], "db");
         assert_eq!(ordered[1], "app");
         assert_eq!(ordered[2], "web");
+    }
+
+    #[test]
+    fn test_parse_port_rule() {
+        // Test parsing simple ports
+        let r1 = parse_port_rule("80").unwrap();
+        assert_eq!(r1.host_ip, None);
+        assert_eq!(r1.host_port, "80");
+        assert_eq!(r1.container_port, "80");
+        assert_eq!(r1.protocol, "tcp");
+
+        // Test host:container ports
+        let r2 = parse_port_rule("8080:80").unwrap();
+        assert_eq!(r2.host_ip, None);
+        assert_eq!(r2.host_port, "8080");
+        assert_eq!(r2.container_port, "80");
+        assert_eq!(r2.protocol, "tcp");
+
+        // Test IP:host:container ports
+        let r3 = parse_port_rule("127.0.0.1:8080:80").unwrap();
+        assert_eq!(r3.host_ip, Some("127.0.0.1".to_string()));
+        assert_eq!(r3.host_port, "8080");
+        assert_eq!(r3.container_port, "80");
+        assert_eq!(r3.protocol, "tcp");
+
+        // Test with protocol suffix
+        let r4 = parse_port_rule("127.0.0.1:8080:80/udp").unwrap();
+        assert_eq!(r4.host_ip, Some("127.0.0.1".to_string()));
+        assert_eq!(r4.host_port, "8080");
+        assert_eq!(r4.container_port, "80");
+        assert_eq!(r4.protocol, "udp");
+
+        // Test ranges
+        let r5 = parse_port_rule("80-82:80-82").unwrap();
+        assert_eq!(r5.host_ip, None);
+        assert_eq!(r5.host_port, "80-82");
+        assert_eq!(r5.container_port, "80-82");
+        assert_eq!(r5.protocol, "tcp");
+    }
+
+    #[test]
+    fn test_compose_yaml_deserialization_advanced() {
+        let yaml_content = r#"
+version: '3.8'
+services:
+  web:
+    image: nginx:latest
+    entrypoint: /usr/bin/nginx
+    command: ["-g", "daemon off;"]
+    ports:
+      - 80
+      - "8080:80"
+      - target: 9000
+        published: 9001
+        host_ip: 127.0.0.1
+        protocol: udp
+    environment:
+      DEBUG: true
+      PORT: 8080
+      DB_HOST: "postgres"
+    env_file:
+      - .env
+    extra_hosts:
+      somehost: "10.0.0.1"
+      otherhost: "10.0.0.2"
+volumes:
+  db_data: {}
+"#;
+        let cf: ComposeFile = serde_yaml::from_str(yaml_content).expect("Failed to parse advanced mock YAML");
+        let web = cf.services.get("web").unwrap();
+        
+        // Assert entrypoint and command
+        assert_eq!(web.entrypoint.as_ref().unwrap().0, vec!["/usr/bin/nginx".to_string()]);
+        assert_eq!(web.command.as_ref().unwrap().0, vec!["-g".to_string(), "daemon off;".to_string()]);
+
+        // Assert ports mapping
+        let ports = &web.ports.as_ref().unwrap().0;
+        assert_eq!(ports.len(), 3);
+        assert_eq!(ports[0], "80");
+        assert_eq!(ports[1], "8080:80");
+        assert_eq!(ports[2], "127.0.0.1:9001:9000/udp");
+
+        // Assert environment variables coercion
+        let env = &web.environment.as_ref().unwrap().0;
+        assert_eq!(env.get("DEBUG").unwrap(), "true");
+        assert_eq!(env.get("PORT").unwrap(), "8080");
+        assert_eq!(env.get("DB_HOST").unwrap(), "postgres");
+
+        // Assert env_file
+        let env_file = web.env_file.as_ref().unwrap();
+        assert_eq!(env_file.as_sequence().unwrap()[0].as_str().unwrap(), ".env");
+
+        // Assert extra_hosts
+        let extra_hosts = &web.extra_hosts.as_ref().unwrap().0;
+        assert!(extra_hosts.contains(&"somehost:10.0.0.1".to_string()));
+        assert!(extra_hosts.contains(&"otherhost:10.0.0.2".to_string()));
+
+        // Assert top-level volumes
+        assert!(cf.volumes.as_ref().unwrap().contains_key("db_data"));
     }
 }
 
