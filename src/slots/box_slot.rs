@@ -2928,6 +2928,13 @@ fn compose_up(path: &str) -> Result<String, String> {
     let f = File::open(path).map_err(|e| format!("Failed to read compose file: {}", e))?;
     let cf: ComposeFile = serde_yaml::from_reader(f).map_err(|e| format!("Failed to parse YAML: {}", e))?;
 
+    let compose_path_buf = Path::new(path);
+    let project_name = compose_path_buf
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "default".to_string());
+
     let ordered = order_services(&cf.services);
     let mut output = String::new();
 
@@ -2996,7 +3003,25 @@ fn compose_up(path: &str) -> Result<String, String> {
             }
         }
 
-        let volumes = svc.volumes.clone().unwrap_or_default();
+        let mut volumes = Vec::new();
+        if let Some(ref vols) = svc.volumes {
+            for v in vols {
+                let parts: Vec<&str> = v.splitn(2, ':').collect();
+                if parts.len() == 2 {
+                    let host_path = parts[0];
+                    let container_path = parts[1];
+                    let is_named_volume = !host_path.starts_with('/') && !host_path.starts_with('.') && !host_path.starts_with('~');
+                    if is_named_volume {
+                        volumes.push(format!("{}_{}:{}", project_name, host_path, container_path));
+                    } else {
+                        volumes.push(v.clone());
+                    }
+                } else {
+                    volumes.push(v.clone());
+                }
+            }
+        }
+
         let ports = if let Some(ref p) = svc.ports {
             p.0.clone()
         } else {
