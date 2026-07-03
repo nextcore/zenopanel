@@ -190,6 +190,7 @@ import {
   deleteUser,
   toggleUserPasswordVisibility,
 } from "./users.js";
+import {
   loadSettings,
   submitSaveSettings,
   loadServiceStatus,
@@ -502,6 +503,22 @@ const functionsToBind = {
   composeUp,
   composeDown,
   composePs,
+  loadComposeYaml,
+  loadComposeProjects,
+  selectComposeProject,
+  createComposeProject,
+  saveComposeYaml,
+  switchComposeFileTab,
+  deleteComposeProject,
+  closeCreateComposeModal,
+  submitCreateComposeProject,
+  exposeComposeViaProxy,
+  clearComposeConsole,
+  openComposeGitModal,
+  closeComposeGitModal,
+  saveComposeGitSettings,
+  syncComposeGit,
+  copyWebhookUrl,
   openContainerProxyModal,
   closeContainerProxyModal,
   submitContainerProxy,
@@ -523,27 +540,6 @@ const functionsToBind = {
 Object.entries(functionsToBind).forEach(([name, fn]) => {
   window[name] = fn;
 });
-
-// Also add compose functions to window
-window.composeUp = composeUp;
-window.composeDown = composeDown;
-window.composePs = composePs;
-window.loadComposeYaml = loadComposeYaml;
-window.loadComposeProjects = loadComposeProjects;
-window.selectComposeProject = selectComposeProject;
-window.createComposeProject = createComposeProject;
-window.saveComposeYaml = saveComposeYaml;
-window.switchComposeFileTab = switchComposeFileTab;
-window.deleteComposeProject = deleteComposeProject;
-window.closeCreateComposeModal = closeCreateComposeModal;
-window.submitCreateComposeProject = submitCreateComposeProject;
-window.exposeComposeViaProxy = exposeComposeViaProxy;
-window.clearComposeConsole = clearComposeConsole;
-window.openComposeGitModal = openComposeGitModal;
-window.closeComposeGitModal = closeComposeGitModal;
-window.saveComposeGitSettings = saveComposeGitSettings;
-window.syncComposeGit = syncComposeGit;
-window.copyWebhookUrl = copyWebhookUrl;
 
 // --- INITIALIZATION ROUTINE ---
 
@@ -619,13 +615,13 @@ window.addEventListener("DOMContentLoaded", () => {
   // Initialize Terminal Listener
   initTerminal();
 
-  // Load static metadata details
+  // Load static metadata details (cached in sessionStorage)
   loadStaticSystemInfo();
 
-  // Start chart and performance metrics polling
-  initPerformanceChart();
-  initTrafficChart();
-  startStatsPolling();
+  // NOTE: Chart init & stats SSE polling are intentionally NOT started here.
+  // They are lazy-started by runTabInit('dashboard') in navigation.js only when
+  // the Dashboard tab becomes active, avoiding wasted Chart.js GPU allocations
+  // and an always-open SSE connection regardless of active tab.
 
   // Close all action dropdown menus when clicking outside
   document.addEventListener("click", () => {

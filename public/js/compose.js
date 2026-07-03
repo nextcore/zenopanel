@@ -259,6 +259,8 @@ function getTemplateTipHtml(template) {
     tip = `Upload berkas compile package JAR Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app_data</strong>.<br>Beri nama berkas JAR tersebut <strong>app.jar</strong> agar kontainer Java Spring Boot dapat menjalankannya.`;
   } else if (template === "rust") {
     tip = `Upload binary Rust terkompilasi (target release-musl) ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app_data</strong>.<br>Beri nama berkas binary tersebut <strong>release-binary</strong>.`;
+  } else if (template === "elixir") {
+    tip = `Upload seluruh kode aplikasi Elixir Phoenix Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app_data</strong>.<br>Kontainer akan menjalankan <code>mix phx.server</code> secara default.`;
   }
 
   if (!tip) return "";
@@ -978,7 +980,7 @@ export function openComposeGitModal() {
       }
       
       modal.dataset.webhookToken = token;
-      modal.style.display = "flex";
+      modal.classList.add("active");
     })
     .catch((err) => {
       console.error("Error fetching Git config:", err);
@@ -988,7 +990,7 @@ export function openComposeGitModal() {
 
 export function closeComposeGitModal() {
   const modal = document.getElementById("compose-git-modal");
-  if (modal) modal.style.display = "none";
+  if (modal) modal.classList.remove("active");
 }
 
 export function saveComposeGitSettings() {

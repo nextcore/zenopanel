@@ -11,9 +11,10 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Chart.js for beautiful graphs -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
     <!-- HTMX for smooth dynamic loading -->
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+
     <!-- xterm.js for high-performance terminal emulator -->
     <link rel="stylesheet" href="/public/css/vendor/xterm.css" />
     <script src="/public/js/vendor/xterm.js"></script>
@@ -1203,7 +1204,20 @@
 
             /* Header responsive spacing */
             header {
-                padding: 12px 20px;
+                padding: 10px 16px;
+                gap: 10px;
+            }
+
+            /* Hide text labels in header buttons on mobile — icons only */
+            header .header-right .btn-action span,
+            header .header-right .btn-primary-action span {
+                display: none;
+            }
+
+            header .header-right .btn-action,
+            header .header-right .btn-primary-action {
+                padding: 8px 10px;
+                gap: 0;
             }
 
             .mobile-menu-toggle {
@@ -1216,13 +1230,13 @@
 
             /* Viewport responsive spacing */
             .viewport {
-                padding: 16px 20px;
+                padding: 14px 16px;
             }
 
             /* Grids layout to 1 column */
             .stats-grid {
-                grid-template-columns: 1fr;
-                gap: 16px;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
             }
 
             .dashboard-main-grid {
@@ -1257,6 +1271,37 @@
                 width: 100% !important;
             }
 
+            /* Compose container: stacked layout on mobile */
+            .compose-container {
+                flex-direction: column !important;
+                height: auto !important;
+                min-height: unset !important;
+            }
+
+            .compose-sidebar {
+                width: 100% !important;
+                height: auto !important;
+                max-height: 200px !important;
+                flex-shrink: unset !important;
+            }
+
+            .compose-main {
+                height: auto !important;
+                overflow: unset !important;
+            }
+
+            /* Compose toolbar buttons: wrap on mobile */
+            #subtab-compose > .compose-container .compose-main > div:first-child {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 10px !important;
+            }
+
+            #subtab-compose > .compose-container .compose-main > div:first-child > div:last-child {
+                flex-wrap: wrap !important;
+                gap: 6px !important;
+            }
+
             /* Form grids and flex structures */
             .flex-2col {
                 flex-direction: column !important;
@@ -1276,23 +1321,148 @@
             /* Modals card sizing */
             .modal-card {
                 width: 95% !important;
-                margin: 20px auto;
-                padding: 16px;
-                max-height: 90vh;
+                margin: 10px auto !important;
+                max-height: 95vh !important;
+                height: auto !important;
                 overflow-y: auto;
+                border-radius: 10px !important;
+            }
+
+            /* Modal footer: wrap buttons on mobile */
+            .modal-footer {
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                padding: 12px 16px !important;
+            }
+
+            .modal-footer .btn-action,
+            .modal-footer .btn-primary-action {
+                flex: 1 1 auto;
+                justify-content: center;
+            }
+
+            .modal-header {
+                padding: 12px 16px !important;
+            }
+
+            .modal-body {
+                padding: 14px 16px !important;
             }
 
             /* File manager toolbars */
             .fm-toolbar {
                 flex-direction: column;
                 align-items: stretch;
-                gap: 10px;
+                gap: 8px;
             }
 
             .fm-toolbar > div {
                 width: 100%;
                 justify-content: flex-start;
                 flex-wrap: wrap;
+            }
+
+            /* Card headers with action buttons — wrap on mobile */
+            .card-header {
+                flex-wrap: wrap !important;
+                gap: 10px !important;
+            }
+
+            .card-header > div {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            /* Security/Firewall header stacking */
+            #tab-security .card-header {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+            }
+
+            #tab-security .card-header > div {
+                width: 100%;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+            }
+
+            /* Managed tab header */
+            #tab-managed .card-header > div {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            /* Settings buttons row wrap */
+            [style*="justify-content:space-between"][style*="align-items:center"] {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            /* Toast: move to bottom-center on mobile */
+            .toast-container {
+                bottom: 16px;
+                right: 16px;
+                left: 16px;
+                align-items: stretch;
+            }
+
+            .toast {
+                width: 100%;
+            }
+
+            /* Terminal container height */
+            .terminal-container {
+                height: calc(100vh - 160px);
+            }
+
+            /* Table: ensure horizontal scroll works */
+            .table-container {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            /* Hide certain table columns on small screens to prevent overflow */
+            table.data-table th:nth-child(n+5),
+            table.data-table td:nth-child(n+5) {
+                display: none;
+            }
+
+            /* Exception: keep the last (Actions) column visible */
+            table.data-table th:last-child,
+            table.data-table td:last-child {
+                display: table-cell !important;
+            }
+        }
+
+        /* Very small screens (phones in portrait) */
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .viewport {
+                padding: 12px;
+            }
+
+            .glass-card {
+                padding: 14px;
+            }
+
+            header h1 {
+                font-size: 1.1rem !important;
+            }
+
+            /* Narrower modal on very small screens */
+            .modal-card {
+                width: 100% !important;
+                margin: 0 !important;
+                border-radius: 12px 12px 0 0 !important;
+                position: fixed !important;
+                bottom: 0 !important;
+                max-height: 92vh !important;
+            }
+
+            .modal-overlay {
+                align-items: flex-end !important;
             }
         }
     </style>

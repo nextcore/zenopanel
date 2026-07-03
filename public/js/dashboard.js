@@ -1,11 +1,20 @@
 import { getCSRFToken, escapeHtml } from './utils.js';
 import { showToast } from './toast.js';
 
-// Elements
+// Elements — cached once, reused on every SSE tick
 let cpuRing = null;
 let ramRing = null;
 let diskRing = null;
 let swapRing = null;
+let elCpuVal = null;
+let elRamVal = null;
+let elRamSub = null;
+let elDiskVal = null;
+let elDiskSub = null;
+let elSwapVal = null;
+let elSwapSub = null;
+let elNetRxVal = null;
+let elNetTxVal = null;
 
 // Stats history trackers
 export let sysStatsInterval = null;
@@ -23,6 +32,15 @@ function initRingElements() {
     if (!ramRing) ramRing = document.getElementById('ram-ring');
     if (!diskRing) diskRing = document.getElementById('disk-ring');
     if (!swapRing) swapRing = document.getElementById('swap-ring');
+    if (!elCpuVal) elCpuVal = document.getElementById('cpu-val');
+    if (!elRamVal) elRamVal = document.getElementById('ram-val');
+    if (!elRamSub) elRamSub = document.getElementById('ram-sub');
+    if (!elDiskVal) elDiskVal = document.getElementById('disk-val');
+    if (!elDiskSub) elDiskSub = document.getElementById('disk-sub');
+    if (!elSwapVal) elSwapVal = document.getElementById('swap-val');
+    if (!elSwapSub) elSwapSub = document.getElementById('swap-sub');
+    if (!elNetRxVal) elNetRxVal = document.getElementById('net-rx-val');
+    if (!elNetTxVal) elNetTxVal = document.getElementById('net-tx-val');
 }
 
 export function setRingProgress(ring, pct) {
@@ -219,61 +237,42 @@ export function updatePerformanceChart(cpuPct, ramPct) {
 }
 
 export function updateStatsUI(s) {
-    initRingElements();
-    
-    // Update values
-    const cpuValEl = document.getElementById('cpu-val');
-    if (cpuValEl) cpuValEl.innerText = s.cpu.toFixed(1) + '%';
+    // Use cached element refs — no getElementById on each tick
+    if (elCpuVal) elCpuVal.innerText = s.cpu.toFixed(1) + '%';
     setRingProgress(cpuRing, s.cpu);
 
-    const ramValEl = document.getElementById('ram-val');
-    if (ramValEl) ramValEl.innerText = s.mem_pct.toFixed(1) + '%';
+    if (elRamVal) elRamVal.innerText = s.mem_pct.toFixed(1) + '%';
     setRingProgress(ramRing, s.mem_pct);
-    
-    const ramSubEl = document.getElementById('ram-sub');
-    if (ramSubEl) ramSubEl.innerText = (s.mem_used / (1024*1024*1024)).toFixed(2) + ' / ' + (s.mem_total / (1024*1024*1024)).toFixed(2) + ' GB';
+    if (elRamSub) elRamSub.innerText = (s.mem_used / (1024*1024*1024)).toFixed(2) + ' / ' + (s.mem_total / (1024*1024*1024)).toFixed(2) + ' GB';
 
-    const diskValEl = document.getElementById('disk-val');
-    if (diskValEl) diskValEl.innerText = s.disk_pct.toFixed(1) + '%';
+    if (elDiskVal) elDiskVal.innerText = s.disk_pct.toFixed(1) + '%';
     setRingProgress(diskRing, s.disk_pct);
-    
-    const diskSubEl = document.getElementById('disk-sub');
-    if (diskSubEl) diskSubEl.innerText = (s.disk_used / (1024*1024*1024)).toFixed(1) + ' / ' + (s.disk_total / (1024*1024*1024)).toFixed(1) + ' GB';
+    if (elDiskSub) elDiskSub.innerText = (s.disk_used / (1024*1024*1024)).toFixed(1) + ' / ' + (s.disk_total / (1024*1024*1024)).toFixed(1) + ' GB';
 
-    // Update Swap
+    // Swap
     if (s.swap_total !== undefined) {
-        const swapValEl = document.getElementById('swap-val');
-        const swapSubEl = document.getElementById('swap-sub');
-        if (swapValEl) swapValEl.innerText = (s.swap_pct || 0).toFixed(1) + '%';
-        if (swapSubEl) {
+        if (elSwapVal) elSwapVal.innerText = (s.swap_pct || 0).toFixed(1) + '%';
+        if (elSwapSub) {
             const usedGB = (s.swap_used / (1024*1024*1024)).toFixed(2);
             const totalGB = (s.swap_total / (1024*1024*1024)).toFixed(2);
-            swapSubEl.innerText = usedGB + ' / ' + totalGB + ' GB';
+            elSwapSub.innerText = usedGB + ' / ' + totalGB + ' GB';
         }
         setRingProgress(swapRing, s.swap_pct || 0);
     }
 
-    // Net speed calculations
+    // Net speed
     const now = Date.now();
     if (lastNetCheckTime > 0) {
         const timeSec = (now - lastNetCheckTime) / 1000;
-        const rxDiff = s.net_rx - lastRxBytes;
-        const txDiff = s.net_tx - lastTxBytes;
-
-        const rxSpeedKB = (rxDiff / 1024) / timeSec;
-        const txSpeedKB = (txDiff / 1024) / timeSec;
-
-        const rxValEl = document.getElementById('net-rx-val');
-        const txValEl = document.getElementById('net-tx-val');
-        if (rxValEl) rxValEl.innerText = formatSpeed(rxSpeedKB);
-        if (txValEl) txValEl.innerText = formatSpeed(txSpeedKB);
+        const rxSpeedKB = ((s.net_rx - lastRxBytes) / 1024) / timeSec;
+        const txSpeedKB = ((s.net_tx - lastTxBytes) / 1024) / timeSec;
+        if (elNetRxVal) elNetRxVal.innerText = formatSpeed(rxSpeedKB);
+        if (elNetTxVal) elNetTxVal.innerText = formatSpeed(txSpeedKB);
     }
-
     lastRxBytes = s.net_rx;
     lastTxBytes = s.net_tx;
     lastNetCheckTime = now;
 
-    // Update chart
     updatePerformanceChart(s.cpu, s.mem_pct);
 }
 
@@ -296,40 +295,60 @@ export function formatSpeed(speedKB) {
     return speedKB.toFixed(1) + ' KB/s';
 }
 
+const STATIC_INFO_CACHE_KEY = 'zp_static_info';
+
 export function loadStaticSystemInfo() {
+    // Apply any cached data immediately (zero-latency render)
+    const cached = sessionStorage.getItem(STATIC_INFO_CACHE_KEY);
+    if (cached) {
+        try {
+            applyStaticInfo(JSON.parse(cached));
+        } catch(e) {
+            sessionStorage.removeItem(STATIC_INFO_CACHE_KEY);
+        }
+    }
+
+    // Always fetch to get latest uptime + update check, and refresh cache
     fetch('/api/info')
         .then(res => res.json())
         .then(res => {
             if (res.success && res.data) {
                 const d = res.data;
-                const sysOsEl = document.getElementById('sys-os');
-                const sysUptimeEl = document.getElementById('sys-uptime');
-                const cpuCoresEl = document.getElementById('cpu-cores');
-                const cpuModelEl = document.getElementById('cpu-model-name');
-                const cpuArchEl = document.getElementById('cpu-arch');
-                const sysHostEl = document.getElementById('sys-host');
-
-                if (sysOsEl) sysOsEl.innerText = d.os;
-                if (sysUptimeEl) sysUptimeEl.innerText = 'Uptime: ' + d.uptime;
-                if (cpuCoresEl) cpuCoresEl.innerText = d.cores + ' Cores';
-                if (cpuModelEl) cpuModelEl.innerText = d.cpu_model;
-                if (cpuArchEl) cpuArchEl.innerText = d.arch;
-                if (sysHostEl) sysHostEl.innerText = d.hostname;
-
-                // Update alert banner for new versions
-                const bannerEl = document.getElementById('update-alert-banner');
-                const latestVerStrEl = document.getElementById('latest-ver-str');
-                const currentVerStrEl = document.getElementById('current-ver-str');
-                if (bannerEl && d.update_available && d.latest_version) {
-                    if (latestVerStrEl) latestVerStrEl.innerText = 'v' + d.latest_version;
-                    if (currentVerStrEl) currentVerStrEl.innerText = 'v' + d.version;
-                    bannerEl.style.display = 'flex';
-                } else if (bannerEl) {
-                    bannerEl.style.display = 'none';
-                }
+                // Cache static fields (exclude uptime which changes every second)
+                const toCache = { os: d.os, cores: d.cores, cpu_model: d.cpu_model, arch: d.arch, hostname: d.hostname, version: d.version };
+                sessionStorage.setItem(STATIC_INFO_CACHE_KEY, JSON.stringify(toCache));
+                applyStaticInfo(d);
             }
         })
         .catch(err => console.error(err));
+}
+
+function applyStaticInfo(d) {
+    const sysOsEl = document.getElementById('sys-os');
+    const sysUptimeEl = document.getElementById('sys-uptime');
+    const cpuCoresEl = document.getElementById('cpu-cores');
+    const cpuModelEl = document.getElementById('cpu-model-name');
+    const cpuArchEl = document.getElementById('cpu-arch');
+    const sysHostEl = document.getElementById('sys-host');
+
+    if (sysOsEl && d.os) sysOsEl.innerText = d.os;
+    if (sysUptimeEl && d.uptime) sysUptimeEl.innerText = 'Uptime: ' + d.uptime;
+    if (cpuCoresEl && d.cores) cpuCoresEl.innerText = d.cores + ' Cores';
+    if (cpuModelEl && d.cpu_model) cpuModelEl.innerText = d.cpu_model;
+    if (cpuArchEl && d.arch) cpuArchEl.innerText = d.arch;
+    if (sysHostEl && d.hostname) sysHostEl.innerText = d.hostname;
+
+    // Update alert banner for new versions
+    const bannerEl = document.getElementById('update-alert-banner');
+    const latestVerStrEl = document.getElementById('latest-ver-str');
+    const currentVerStrEl = document.getElementById('current-ver-str');
+    if (bannerEl && d.update_available && d.latest_version) {
+        if (latestVerStrEl) latestVerStrEl.innerText = 'v' + d.latest_version;
+        if (currentVerStrEl) currentVerStrEl.innerText = 'v' + d.version;
+        bannerEl.style.display = 'flex';
+    } else if (bannerEl) {
+        bannerEl.style.display = 'none';
+    }
 }
 
 export function updateProcessesUI(procs) {
@@ -457,6 +476,9 @@ export function loadTrafficStats() {
 
 export function startStatsPolling() {
     loadContainerList();
+    
+    // Cache all dashboard DOM elements now (they exist since Dashboard tab just loaded)
+    initRingElements();
     
     if (statsEventSource) {
         return;

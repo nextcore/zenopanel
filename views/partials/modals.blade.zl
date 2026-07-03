@@ -879,7 +879,7 @@
             <div class="modal-title"><i class="fa-solid fa-folder-plus" style="color:var(--accent-primary); margin-right:8px;"></i>New Compose Project</div>
             <div class="modal-close" onclick="closeCreateComposeModal()">&times;</div>
         </div>
-        <div class="modal-body">
+        <div class="modal-body" style="overflow-y: auto;">
             <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Project Name</label>
                 <input type="text" id="new-compose-project-name" placeholder="e.g. my-node-app" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
