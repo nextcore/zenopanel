@@ -1439,7 +1439,11 @@ pub fn register(engine: &mut Engine) {
                 None
             };
 
-            if let Some(json) = handle.block_on(fetch_fut) {
+            let res = tokio::task::block_in_place(|| {
+                handle.block_on(fetch_fut)
+            });
+
+            if let Some(json) = res {
                 if let Some(results) = json.get("results").and_then(|r| r.as_array()) {
                     for res in results {
                         if let Some(name) = res.get("name").and_then(|n| n.as_str()) {
