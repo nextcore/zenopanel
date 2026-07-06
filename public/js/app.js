@@ -13,6 +13,7 @@ import {
   refreshCurrentTab,
   initNavigation,
   toggleMobileSidebar,
+  runTabInit,
 } from "./navigation.js";
 import {
   sysStatsInterval,
@@ -617,6 +618,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Load static metadata details (cached in sessionStorage)
   loadStaticSystemInfo();
+
+  // Run initial active tab setup (initializes charts and starts polling if active tab is dashboard)
+  runTabInit(currentTab);
 
   // NOTE: Chart init & stats SSE polling are intentionally NOT started here.
   // They are lazy-started by runTabInit('dashboard') in navigation.js only when

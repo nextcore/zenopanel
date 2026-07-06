@@ -5,6 +5,7 @@ import {
   stopStatsPolling,
   initPerformanceChart,
   initTrafficChart,
+  loadStaticSystemInfo,
 } from "./dashboard.js";
 import { loadFilesList, initFileManager } from "./filemanager.js";
 import { initDatabaseTab } from "./database.js";
@@ -38,7 +39,10 @@ export function switchTab(tab) {
 
   // Let HTMX load the content programmatically if it's not already loading it
   if (typeof htmx !== "undefined") {
-    htmx.ajax("GET", `/tab/${tab}`, "#viewport-container");
+    htmx.ajax("GET", `/tab/${tab}`, {
+      target: "#viewport-container",
+      swap: "innerHTML scroll:none show:none",
+    });
   }
 }
 
@@ -48,12 +52,25 @@ export function runTabInit(tab) {
     pageTitle.innerText = tab.charAt(0).toUpperCase() + tab.slice(1);
   }
 
+  // Force active viewport to scroll to top (prevents layout cut-off on swap/refresh)
+  const activeViewport = document.querySelector(".viewport.active");
+  if (activeViewport) {
+    activeViewport.scrollTop = 0;
+    // Reset scroll at multiple intervals to counteract layout shifts during charts and table rendering
+    [50, 150, 300, 600].forEach(delay => {
+      setTimeout(() => {
+        activeViewport.scrollTop = 0;
+      }, delay);
+    });
+  }
+
   // Manage all pollers (stop pollers of other tabs, start pollers of active tab)
   if (tab === "dashboard") {
     initPerformanceChart();
     initTrafficChart();
     loadSystemStats();
     startStatsPolling();
+    loadStaticSystemInfo();
   } else {
     stopStatsPolling();
   }
@@ -110,7 +127,10 @@ export function runTabInit(tab) {
 export function refreshCurrentTab() {
   if (typeof htmx !== "undefined") {
     // Re-request active tab content via HTMX
-    htmx.ajax("GET", `/tab/${currentTab}`, "#viewport-container");
+    htmx.ajax("GET", `/tab/${currentTab}`, {
+      target: "#viewport-container",
+      swap: "innerHTML scroll:none show:none",
+    });
   } else {
     runTabInit(currentTab);
   }
