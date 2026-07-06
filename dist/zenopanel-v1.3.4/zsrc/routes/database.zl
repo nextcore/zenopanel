@@ -1,0 +1,1060 @@
+# ==========================================
+# 1. Database Servers Management
+# ==========================================
+
+# List Database Servers
+http.get: '/api/database/servers' {
+    auth.guard
+    db.select: "SELECT id, name, driver, host, port, admin_user, is_remote FROM db_servers ORDER BY id DESC" { as: $servers }
+    http.ok: { data: $servers }
+}
+
+# Create / Register Database Server
+http.post: '/api/database/servers' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $name { val: $body.name }
+    var: $driver { val: $body.driver }
+    var: $host { val: $body.host }
+    var: $port { val: $body.port }
+    var: $admin_user { val: $body.admin_user }
+    var: $admin_password { val: $body.admin_password }
+
+    # Test connecting first before saving
+    db.connect: {
+        name: $name
+        driver: $driver
+        host: $host
+        port: $port
+        user: $admin_user
+        password: $admin_password
+        as: $test_conn
+    }
+
+    if: "$test_conn == true" {
+        then: {
+            db.execute: "INSERT INTO db_servers (name, driver, host, port, admin_user, admin_password) VALUES (?, ?, ?, ?, ?, ?)" {
+                bind: [$name, $driver, $host, $port, $admin_user, $admin_password]
+            }
+            http.created: { message: "Database server registered successfully" }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to connect to database server. Check your credentials and server status."
+                error: $test_conn
+            }
+        }
+    }
+}
+
+# Delete Database Server Registration
+http.post: '/api/database/servers/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT name FROM db_servers WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $server
+    }
+    if: $server {
+        then: {
+            # Disconnect active pool
+            db.disconnect: $server.name
+            # Delete from DB (CASCADE will handle db_databases if configured, but let's delete them manually to be safe)
+            db.execute: "DELETE FROM db_databases WHERE server_id = ?" { bind: [$id] }
+            db.execute: "DELETE FROM db_servers WHERE id = ?" { bind: [$id] }
+            http.ok: { message: "Database server registration removed" }
+        }
+        else: {
+            http.bad_request: { message: "Server not found" }
+        }
+    }
+}
+
+
+# ==========================================
+# 2. Database Instances & Lifecycle Management
+# ==========================================
+
+# List User Databases
+http.get: '/api/database/list' {
+    auth.guard
+    db.select: "SELECT d.id, d.server_id, s.name as server_name, s.driver as server_driver, d.db_name, d.db_user, d.db_password, d.access_type, d.description, d.created_at FROM db_databases d JOIN db_servers s ON d.server_id = s.id ORDER BY d.id DESC" { as: $databases }
+    http.ok: { data: $databases }
+}
+
+# Create User Database & Associated User
+http.post: '/api/database/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $server_id { val: $body.server_id }
+    var: $db_name { val: $body.db_name }
+    var: $db_user { val: $body.db_user }
+    var: $db_password { val: $body.db_password }
+    var: $access_type { val: $body.access_type }
+    var: $description { val: $body.description }
+    var: $charset { val: $body.charset }
+    var: $collation { val: $body.collation }
+
+    # Default charset/collation fallback
+    coalesce: $charset {
+        default: 'utf8mb4'
+        as: $charset
+    }
+    coalesce: $collation {
+        default: 'utf8mb4_unicode_ci'
+        as: $collation
+    }
+
+    # Fetch Server details
+    db.select: "SELECT name, driver FROM db_servers WHERE id = ?" {
+        bind: [$server_id]
+        first: true
+        as: $server
+    }
+
+    if: $server {
+        then: {
+            var: $driver { val: $server.driver }
+            var: $server_name { val: $server.name }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    # 1. Create Schema with charset/collation
+                    var: $q_create_db { val: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET ${charset} COLLATE ${collation}" }
+                    db.execute: $q_create_db { db: $server_name }
+
+                    # 2. Create User and Grant Privileges
+                    if: "$access_type == 'local'" {
+                        then: {
+                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost'" }
+                            db.execute: $q_create_user { db: $server_name }
+                            db.execute: $q_grant { db: $server_name }
+                        }
+                        else: {
+                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" }
+                            db.execute: $q_create_user { db: $server_name }
+                            db.execute: $q_grant { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_create_db { val: "CREATE DATABASE \"${db_name}\" ENCODING '${charset}'" }
+                    var: $q_create_user { val: "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}'" }
+                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON DATABASE \"${db_name}\" TO \"${db_user}\"" }
+
+                    db.execute: $q_create_db { db: $server_name }
+                    db.execute: $q_create_user { db: $server_name }
+                    db.execute: $q_grant { db: $server_name }
+                }
+            }
+
+            # Save info to ZenoPanel local DB
+            db.execute: "INSERT INTO db_databases (server_id, db_name, db_user, db_password, access_type, charset, collation, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)" {
+                bind: [$server_id, $db_name, $db_user, $db_password, $access_type, $charset, $collation, $description]
+            }
+
+            # Record the primary user into db_users table too
+            db.select: "SELECT last_insert_rowid() as last_id" { as: $last_rows }
+            var: $new_db_id { val: $db_last_id }
+            db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, ?, 'ALL')" {
+                bind: [$new_db_id, $db_user, $db_password, $access_type]
+            }
+
+            # Add dynamic connection pool specifically for this user database
+            db.connect: {
+                name: $db_name
+                driver: $driver
+                host: $body.host_ip
+                port: $body.host_port
+                user: $db_user
+                password: $db_password
+                database: $db_name
+            }
+
+            http.created: { message: "Database and User created successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Target database server not found" }
+        }
+    }
+}
+
+# Change User Database Password
+http.post: '/api/database/change-password' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+    var: $new_password { val: $body.password }
+
+    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
+        bind: [$id]
+        first: true
+        as: $db_info
+    }
+
+    if: $db_info {
+        then: {
+            var: $driver { val: $db_info.server_driver }
+            var: $server_name { val: $db_info.server_name }
+            var: $db_user { val: $db_info.db_user }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$db_info.access_type == 'local'" {
+                        then: {
+                            var: $q_alter { val: "ALTER USER '${db_user}'@'localhost' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                        else: {
+                            var: $q_alter { val: "ALTER USER '${db_user}'@'%' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_alter { val: "ALTER USER \"${db_user}\" WITH PASSWORD '${new_password}'" }
+                    db.execute: $q_alter { db: $server_name }
+                }
+            }
+
+            db.execute: "UPDATE db_databases SET db_password = ? WHERE id = ?" { bind: [$new_password, $id] }
+            http.ok: { message: "Database user password updated successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Database record not found" }
+        }
+    }
+}
+
+# Delete User Database
+http.post: '/api/database/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
+        bind: [$id]
+        first: true
+        as: $db_info
+    }
+
+    if: $db_info {
+        then: {
+            var: $driver { val: $db_info.server_driver }
+            var: $server_name { val: $db_info.server_name }
+            var: $db_name { val: $db_info.db_name }
+            var: $db_user { val: $db_info.db_user }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    var: $q_drop_db { val: "DROP DATABASE IF EXISTS `${db_name}`" }
+                    db.execute: $q_drop_db { db: $server_name }
+
+                    if: "$db_info.access_type == 'local'" {
+                        then: {
+                            var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'localhost'" }
+                            db.execute: $q_drop_user { db: $server_name }
+                        }
+                        else: {
+                            var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'%'" }
+                            db.execute: $q_drop_user { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_drop_db { val: "DROP DATABASE IF EXISTS \"${db_name}\"" }
+                    var: $q_drop_user { val: "DROP USER IF EXISTS \"${db_user}\"" }
+                    db.execute: $q_drop_db { db: $server_name }
+                    db.execute: $q_drop_user { db: $server_name }
+                }
+            }
+
+            db.execute: "DELETE FROM db_databases WHERE id = ?" { bind: [$id] }
+            db.disconnect: $db_name
+            http.ok: { message: "Database and associated user deleted successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Database record not found" }
+        }
+    }
+}
+
+
+# ==========================================
+# 3. Database Tables Explorer & Raw Queries
+# ==========================================
+
+# List Database Tables
+http.get: '/api/database/tables' {
+    auth.guard
+    http.query: 'connection' { as: $conn_param }
+    coalesce: $conn_param {
+        default: 'default'
+        as: $connection
+    }
+
+    # Fetch connection metadata to determine driver
+    db.select: "SELECT driver FROM db_servers WHERE name = ?" {
+        bind: [$connection]
+        first: true
+        as: $server_meta
+    }
+    coalesce: $server_meta {
+        default: { driver: 'not_found' }
+        as: $meta
+    }
+    var: $driver { val: $meta.driver }
+
+    if: "$driver == 'not_found'" {
+        then: {
+            db.select: "SELECT s.driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" {
+                bind: [$connection]
+                first: true
+                as: $db_meta
+            }
+            coalesce: $db_meta {
+                default: { driver: 'sqlite' }
+                as: $meta2
+            }
+            var: $driver { val: $meta2.driver }
+        }
+    }
+
+    var: $query { val: "SHOW TABLES" }
+    if: "$driver == 'sqlite'" {
+        then: {
+            var: $query { val: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'" }
+        }
+    }
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $query { val: "SELECT table_name as name FROM information_schema.tables WHERE table_schema='public'" }
+        }
+    }
+
+    db.select: $query {
+        db: $connection
+        as: $tables
+    }
+    http.ok: {
+        data: $tables
+        driver: $driver
+    }
+}
+
+# Execute Raw SQL Query
+http.post: '/api/database/query' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $sql { val: $body.sql }
+    var: $is_select { val: $body.is_select }
+    http.query: 'connection' { as: $conn_param }
+    coalesce: $conn_param {
+        default: 'default'
+        as: $connection
+    }
+
+    if: $is_select {
+        then: {
+            db.select: $sql {
+                db: $connection
+                as: $rows
+            }
+            http.ok: {
+                data: $rows
+                type: 'select'
+            }
+        }
+        else: {
+            db.execute: $sql { db: $connection }
+            http.ok: {
+                affected: $db_affected
+                last_id: $db_last_id
+                type: 'execute'
+            }
+        }
+    }
+}
+
+
+# ==========================================
+# 4. DB Users Management (Multi-user per DB)
+# ==========================================
+
+# List users for a specific database
+http.get: '/api/database/users' {
+    auth.guard
+    http.query: 'database_id' { as: $database_id }
+    db.select: "SELECT u.id, u.db_username, u.access_type, u.privileges, u.created_at FROM db_users u WHERE u.database_id = ? ORDER BY u.id ASC" {
+        bind: [$database_id]
+        as: $users
+    }
+    http.ok: { data: $users }
+}
+
+# Add a new user to an existing database
+http.post: '/api/database/users/add' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $database_id { val: $body.database_id }
+    var: $db_username { val: $body.db_username }
+    var: $db_password { val: $body.db_password }
+    var: $access_type { val: $body.access_type }
+    var: $privileges { val: $body.privileges }
+
+    # Fetch the database & server info
+    db.select: "SELECT d.db_name, s.name as server_name, s.driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
+        bind: [$database_id]
+        first: true
+        as: $db_info
+    }
+
+    if: $db_info {
+        then: {
+            var: $driver { val: $db_info.driver }
+            var: $server_name { val: $db_info.server_name }
+            var: $db_name { val: $db_info.db_name }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$access_type == 'local'" {
+                        then: {
+                            var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'localhost'" }
+                            db.execute: $q_create { db: $server_name }
+                            db.execute: $q_grant  { db: $server_name }
+                        }
+                        else: {
+                            var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'%' IDENTIFIED BY '${db_password}'" }
+                            var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'%'" }
+                            db.execute: $q_create { db: $server_name }
+                            db.execute: $q_grant  { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_create { val: "CREATE USER \"${db_username}\" WITH PASSWORD '${db_password}'" }
+                    var: $q_grant  { val: "GRANT ${privileges} ON DATABASE \"${db_name}\" TO \"${db_username}\"" }
+                    db.execute: $q_create { db: $server_name }
+                    db.execute: $q_grant  { db: $server_name }
+                }
+            }
+
+            db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, ?, ?)" {
+                bind: [$database_id, $db_username, $db_password, $access_type, $privileges]
+            }
+            http.created: { message: "Database user added successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Database not found" }
+        }
+    }
+}
+
+# Delete a DB user
+http.post: '/api/database/users/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $user_id { val: $body.user_id }
+
+    db.select: "SELECT u.db_username, u.access_type, d.db_name, s.name as server_name, s.driver FROM db_users u JOIN db_databases d ON u.database_id = d.id JOIN db_servers s ON d.server_id = s.id WHERE u.id = ?" {
+        bind: [$user_id]
+        first: true
+        as: $user_info
+    }
+
+    if: $user_info {
+        then: {
+            var: $driver { val: $user_info.driver }
+            var: $server_name { val: $user_info.server_name }
+            var: $db_username { val: $user_info.db_username }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$user_info.access_type == 'local'" {
+                        then: {
+                            var: $q_drop { val: "DROP USER IF EXISTS '${db_username}'@'localhost'" }
+                            db.execute: $q_drop { db: $server_name }
+                        }
+                        else: {
+                            var: $q_drop { val: "DROP USER IF EXISTS '${db_username}'@'%'" }
+                            db.execute: $q_drop { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_drop { val: "DROP USER IF EXISTS \"${db_username}\"" }
+                    db.execute: $q_drop { db: $server_name }
+                }
+            }
+
+            db.execute: "DELETE FROM db_users WHERE id = ?" { bind: [$user_id] }
+            http.ok: { message: "Database user removed" }
+        }
+        else: {
+            http.bad_request: { message: "User not found" }
+        }
+    }
+}
+
+# Change password for a specific DB user
+http.post: '/api/database/users/change-password' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $user_id { val: $body.user_id }
+    var: $new_password { val: $body.password }
+
+    db.select: "SELECT u.db_username, u.access_type, s.name as server_name, s.driver FROM db_users u JOIN db_databases d ON u.database_id = d.id JOIN db_servers s ON d.server_id = s.id WHERE u.id = ?" {
+        bind: [$user_id]
+        first: true
+        as: $user_info
+    }
+
+    if: $user_info {
+        then: {
+            var: $driver { val: $user_info.driver }
+            var: $server_name { val: $user_info.server_name }
+            var: $db_username { val: $user_info.db_username }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    if: "$user_info.access_type == 'local'" {
+                        then: {
+                            var: $q_alter { val: "ALTER USER '${db_username}'@'localhost' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                        else: {
+                            var: $q_alter { val: "ALTER USER '${db_username}'@'%' IDENTIFIED BY '${new_password}'" }
+                            db.execute: $q_alter { db: $server_name }
+                        }
+                    }
+                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_alter { val: "ALTER USER \"${db_username}\" WITH PASSWORD '${new_password}'" }
+                    db.execute: $q_alter { db: $server_name }
+                }
+            }
+
+            db.execute: "UPDATE db_users SET db_password = ? WHERE id = ?" { bind: [$new_password, $user_id] }
+            http.ok: { message: "User password updated" }
+        }
+        else: {
+            http.bad_request: { message: "User not found" }
+        }
+    }
+}
+
+
+# ==========================================
+# 5. Install DB Engine via Container
+# ==========================================
+
+http.post: '/api/database/install-server' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $engine { val: $body.engine }
+    var: $name   { val: $body.name }
+    var: $port   { val: $body.port }
+    var: $root_password { val: $body.root_password }
+    var: $data_dir { val: $body.data_dir }
+    coalesce: $body.is_remote {
+        default: 0
+        as: $is_remote
+    }
+
+    # Determine driver from engine string
+    # mariadb:* and mysql:* → driver 'mysql' (protocol-compatible)
+    # postgres:* → driver 'postgres'
+    var: $driver { val: 'mysql' }
+    if: { contains: $engine, value: 'postgres' } {
+        then: { var: $driver { val: 'postgres' } }
+    }
+
+    # Admin user and internal port differ per engine family
+    var: $admin_user { val: 'root' }
+    var: $db_port_internal { val: 3306 }
+    var: $env_block { val: "MYSQL_ROOT_PASSWORD=${root_password}" }
+    var: $data_volume { val: '/var/lib/mysql' }
+
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $env_block { val: "POSTGRES_PASSWORD=${root_password}" }
+            var: $admin_user { val: 'postgres' }
+            var: $db_port_internal { val: 5432 }
+            var: $data_volume { val: '/var/lib/postgresql/data' }
+        }
+    }
+
+    var: $bind_prefix { val: '127.0.0.1' }
+    if: "$is_remote == 1" {
+        then: {
+            var: $bind_prefix { val: '0.0.0.0' }
+        }
+    }
+
+    # Build Docker Compose YAML — format environment as YAML list items
+    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+        }
+    }
+
+    # Deploy container via compose
+    box.compose: 'up' {
+        yaml: $compose_yaml
+        project_name: $name
+        as: $compose_result
+    }
+
+    if: $compose_result.success {
+        then: {
+            # Wait a moment for DB to initialize, then test connection
+            db.connect: {
+                name: $name
+                driver: $driver
+                host: '127.0.0.1'
+                port: $port
+                user: $admin_user
+                password: $root_password
+                as: $test_conn
+            }
+
+            # Register the server regardless (it may need a few seconds; user can verify)
+            db.execute: "INSERT OR IGNORE INTO db_servers (name, driver, host, port, admin_user, admin_password, is_remote) VALUES (?, ?, '127.0.0.1', ?, ?, ?, ?)" {
+                bind: [$name, $driver, $port, $admin_user, $root_password, $is_remote]
+            }
+
+            db.select: "SELECT id, name, driver, host, port, admin_user, is_remote FROM db_servers" { as: $debug_servers }
+
+            http.created: {
+                message: "Database engine deployed and registered successfully"
+                server_name: $name
+                driver: $driver
+                connected: $test_conn
+                debug_servers: $debug_servers
+            }
+        }
+        else: {
+            http.bad_request: {
+                message: "Failed to deploy database container"
+                error: $compose_result.stderr
+            }
+        }
+    }
+}
+
+# ==========================================
+# 6. Database Backups & Restore Management
+# ==========================================
+
+# List Database Backups & Stats
+http.get: '/api/database/backups' {
+    auth.guard
+    db.select: "SELECT id, database_name, server_name, filename, size, status, created_at FROM db_backups ORDER BY id DESC" { as: $backups }
+    db.select: "SELECT COUNT(*) as count, SUM(size) as total_size FROM db_backups WHERE status = 'success'" {
+        first: true
+        as: $stats_ok
+    }
+    db.select: "SELECT created_at FROM db_backups WHERE status = 'success' ORDER BY id DESC LIMIT 1" {
+        first: true
+        as: $last_backup
+    }
+
+    coalesce: $stats_ok.count {
+        default: 0
+        as: $total_count
+    }
+    coalesce: $stats_ok.total_size {
+        default: 0
+        as: $total_size
+    }
+    coalesce: $last_backup.created_at {
+        default: '-'
+        as: $last_date
+    }
+
+    http.ok: {
+        success: true
+        data: $backups
+        stats: {
+            count: $total_count
+            total_size: $total_size
+            last_backup: $last_date
+        }
+    }
+}
+
+# Create a Database Backup
+http.post: '/api/database/backups/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $db_name { val: $body.database_name }
+
+    # Fetch settings for backup destination dir
+    db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" {
+        first: true
+        as: $dest_setting
+    }
+    coalesce: $dest_setting.value {
+        default: '/var/lib/zenopanel/backups'
+        as: $dest_dir
+    }
+    var: $db_backup_dir { val: "${dest_dir}/db" }
+
+    # Generate filename and path
+    util.datetime: { as: $timestamp }
+
+    if: "$db_name == 'default'" {
+        then: {
+            var: $driver { val: 'sqlite' }
+            var: $server_name { val: 'Default Panel DB (SQLite)' }
+            var: $filename { val: "backup_default_${timestamp}.db" }
+            var: $backup_path { val: "${db_backup_dir}/${filename}" }
+
+            db.backup: {
+                driver: $driver
+                database: $db_name
+                backup_path: $backup_path
+                as: $res
+            }
+
+            if: $res.success {
+                then: {
+                    db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, ?, 'success')" {
+                        bind: [$db_name, $server_name, $filename, $res.size]
+                    }
+                    http.created: { success: true, message: "Backup database SQLite berhasil dibuat" }
+                }
+                else: {
+                    db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, 0, ?)" {
+                        bind: [$db_name, $server_name, $filename, $res.error]
+                    }
+                    http.bad_request: { success: false, message: "Gagal mem-backup SQLite", error: $res.error }
+                }
+            }
+        }
+        else: {
+            # Find DB info and Server credentials
+            db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" {
+                bind: [$db_name]
+                first: true
+                as: $db_info
+            }
+
+            if: $db_info {
+                then: {
+                    var: $driver { val: $db_info.driver }
+                    var: $server_name { val: $db_info.server_name }
+                    var: $host { val: $db_info.host }
+                    var: $port { val: $db_info.port }
+                    var: $user { val: $db_info.admin_user }
+                    var: $password { val: $db_info.admin_password }
+                    var: $filename { val: "backup_${db_name}_${timestamp}.sql" }
+                    var: $backup_path { val: "${db_backup_dir}/${filename}" }
+
+                    db.backup: {
+                        driver: $driver
+                        host: $host
+                        port: $port
+                        user: $user
+                        password: $password
+                        database: $db_name
+                        backup_path: $backup_path
+                        as: $res
+                    }
+
+                    if: $res.success {
+                        then: {
+                            db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, ?, 'success')" {
+                                bind: [$db_name, $server_name, $filename, $res.size]
+                            }
+                            http.created: { success: true, message: "Backup database berhasil dibuat" }
+                        }
+                        else: {
+                            db.execute: "INSERT INTO db_backups (database_name, server_name, filename, size, status) VALUES (?, ?, ?, 0, ?)" {
+                                bind: [$db_name, $server_name, $filename, $res.error]
+                            }
+                            http.bad_request: { success: false, message: "Gagal mem-backup database", error: $res.error }
+                        }
+                    }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Database tidak ditemukan" }
+                }
+            }
+        }
+    }
+}
+
+# Restore a Database from Backup
+http.post: '/api/database/backups/restore' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT database_name, filename FROM db_backups WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $backup_info
+    }
+
+    if: $backup_info {
+        then: {
+            var: $db_name { val: $backup_info.database_name }
+            var: $filename { val: $backup_info.filename }
+
+            # Fetch backup destination dir
+            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" {
+                first: true
+                as: $dest_setting
+            }
+            coalesce: $dest_setting.value {
+                default: '/var/lib/zenopanel/backups'
+                as: $dest_dir
+            }
+            var: $backup_path { val: "${dest_dir}/db/${filename}" }
+
+            if: "$db_name == 'default'" {
+                then: {
+                    db.restore: {
+                        driver: 'sqlite'
+                        database: $db_name
+                        backup_path: $backup_path
+                        as: $res
+                    }
+
+                    if: $res.success {
+                        then: {
+                            http.ok: { success: true, message: "Database default berhasil di-restore" }
+                        }
+                        else: {
+                            http.bad_request: { success: false, message: "Gagal merestore SQLite", error: $res.error }
+                        }
+                    }
+                }
+                else: {
+                    db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" {
+                        bind: [$db_name]
+                        first: true
+                        as: $db_info
+                    }
+
+                    if: $db_info {
+                        then: {
+                            db.restore: {
+                                driver: $db_info.driver
+                                host: $db_info.host
+                                port: $db_info.port
+                                user: $db_info.admin_user
+                                password: $db_info.admin_password
+                                database: $db_name
+                                backup_path: $backup_path
+                                as: $res
+                            }
+
+                            if: $res.success {
+                                then: {
+                                    http.ok: { success: true, message: "Database berhasil di-restore" }
+                                }
+                                else: {
+                                    http.bad_request: { success: false, message: "Gagal merestore database", error: $res.error }
+                                }
+                            }
+                        }
+                        else: {
+                            http.bad_request: { success: false, message: "Informasi server database tujuan tidak ditemukan" }
+                        }
+                    }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Record backup tidak ditemukan" }
+        }
+    }
+}
+
+# Delete a Database Backup
+http.post: '/api/database/backups/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT filename FROM db_backups WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $backup_info
+    }
+
+    if: $backup_info {
+        then: {
+            var: $filename { val: $backup_info.filename }
+
+            # Fetch backup destination dir
+            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" {
+                first: true
+                as: $dest_setting
+            }
+            coalesce: $dest_setting.value {
+                default: '/var/lib/zenopanel/backups'
+                as: $dest_dir
+            }
+            var: $backup_path { val: "${dest_dir}/db/${filename}" }
+
+            # Delete physical file
+            io.file.delete: $backup_path
+
+            # Delete record
+            db.execute: "DELETE FROM db_backups WHERE id = ?" { bind: [$id] }
+
+            http.ok: { success: true, message: "File backup berhasil dihapus" }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Record backup tidak ditemukan" }
+        }
+    }
+}
+
+# ==========================================
+# 7. 1Panel Competitive Upgrades
+# ==========================================
+
+# Toggle Database Server Remote Access (ports binding and firewall sync)
+http.post: '/api/database/servers/toggle-remote' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+    var: $is_remote { val: $body.is_remote }
+
+    db.select: "SELECT name, driver, host, port, admin_user, admin_password FROM db_servers WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $server
+    }
+
+    if: $server {
+        then: {
+            var: $name { val: $server.name }
+            var: $port { val: $server.port }
+            var: $driver { val: $server.driver }
+            var: $admin_password { val: $server.admin_password }
+
+            # Retrieve current compose config
+            box.compose_get_yaml: {
+                project_name: $name
+                as: $yaml_res
+            }
+            var: $old_yaml { val: $yaml_res.yaml }
+
+            if: { not_empty: $old_yaml } {
+                then: {
+                    var: $db_port_internal { val: 3306 }
+                    var: $data_volume { val: '/var/lib/mysql' }
+                    var: $env_var_name { val: 'MYSQL_ROOT_PASSWORD' }
+                    var: $engine_image { val: 'mysql:latest' }
+
+                    if: "$driver == 'postgres'" {
+                        then: {
+                            var: $db_port_internal { val: 5432 }
+                            var: $data_volume { val: '/var/lib/postgresql/data' }
+                            var: $env_var_name { val: 'POSTGRES_PASSWORD' }
+                            var: $engine_image { val: 'postgres:latest' }
+                        }
+                    }
+
+                    var: $bind_prefix { val: '127.0.0.1' }
+                    if: "$is_remote == 1" {
+                        then: {
+                            var: $bind_prefix { val: '0.0.0.0' }
+                        }
+                    }
+
+                    # Reconstruct compose YAML with new bind prefix
+                    var: $new_compose { val: "services:\n  ${name}:\n    image: ${engine_image}\n    container_name: ${name}\n    environment:\n      - ${env_var_name}=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - /var/lib/zenopanel/volumes/${name}:${data_volume}\n    restart: unless-stopped\n" }
+
+                    box.compose: 'up' {
+                        yaml: $new_compose
+                        project_name: $name
+                        as: $rebuild_res
+                    }
+                }
+            }
+
+            # Update Host Firewall iptables Rules
+            if: "$is_remote == 1" {
+                then: {
+                    system.firewall_rule_add: {
+                        name: "DB Server: ${name}"
+                        port: $port
+                        protocol: "tcp"
+                        action: "ACCEPT"
+                    }
+                }
+                else: {
+                    system.firewall_rule_delete: {
+                        name: "DB Server: ${name}"
+                        port: $port
+                        protocol: "tcp"
+                        action: "ACCEPT"
+                    }
+                }
+            }
+
+            # Update SQLite state
+            db.execute: "UPDATE db_servers SET is_remote = ? WHERE id = ?" {
+                bind: [$is_remote, $id]
+            }
+
+            http.ok: { success: true, message: "Akses remote server database berhasil diperbarui." }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Server database tidak ditemukan." }
+        }
+    }
+}
+
+# Get Database Server Container Logs
+http.get: '/api/database/servers/logs' {
+    auth.guard
+    http.query: 'name' { as: $container_name }
+    box.logs: $container_name { as: $logs_res }
+    if: $logs_res.success {
+        then: {
+            http.ok: { success: true, logs: $logs_res.stdout }
+        }
+        else: {
+            http.ok: { success: true, logs: "Belum ada log kontainer yang tersedia." }
+        }
+    }
+}

@@ -253,6 +253,20 @@ http.post: '/api/containers/rmi' {
     }
 }
 
+# Prune Unused Image Layers
+http.post: '/api/containers/prune' {
+    auth.guard
+    box.prune: { as: $result }
+    if: $result.success {
+        then: {
+            http.ok: { message: "Unused image layers pruned successfully" }
+        }
+        else: {
+            http.bad_request: { message: "Failed to prune layers", error: $result.stderr }
+        }
+    }
+}
+
 # Delete Compose Project
 http.post: '/api/containers/compose/delete' {
     auth.guard

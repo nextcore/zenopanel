@@ -74,6 +74,7 @@ pub fn register(engine: &mut Engine) {
     register_box_compose_git_get(engine);
     register_box_compose_git_save(engine);
     register_box_compose_git_sync(engine);
+    register_box_prune(engine);
 }
 
 pub(crate) fn get_runc_bin() -> String {
@@ -469,6 +470,9 @@ async fn pull_image_rust(image: &str) -> Result<Vec<String>, String> {
             let tar = flate2::read::GzDecoder::new(tar_gz);
             let mut archive = tar::Archive::new(tar);
             archive.unpack(&layer_rootfs).map_err(|e| e.to_string())?;
+            
+            // Delete compressed .tar.gz archive to prevent double storage disk usage
+            let _ = fs::remove_file(&tar_gz_path);
         }
     }
 
@@ -657,8 +661,45 @@ fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> 
                 }
             }
         }
+        // Process OCI whiteouts after copying all layers to correctly handle deleted files
+        let _ = process_whiteouts(&dst_rootfs);
     }
 
+    Ok(())
+}
+
+fn process_whiteouts(dir: &Path) -> io::Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if file_name.starts_with(".wh.") {
+                    if file_name == ".wh..wh..opq" {
+                        let _ = fs::remove_file(&path);
+                    } else {
+                        let target_name = file_name.trim_start_matches(".wh.");
+                        let target_path = dir.join(target_name);
+                        if let Ok(meta) = target_path.symlink_metadata() {
+                            if meta.is_dir() {
+                                let _ = fs::remove_dir_all(&target_path);
+                            } else {
+                                let _ = fs::remove_file(&target_path);
+                            }
+                        }
+                        let _ = fs::remove_file(&path);
+                    }
+                } else if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() && !file_type.is_symlink() {
+                        let _ = process_whiteouts(&path);
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -945,11 +986,72 @@ fn container_create(
 
     mount_overlayfs(image, &data_dir, id)?;
 
+    let mut resolved_cwd = cwd.to_string();
+    let mut merged_env = env.clone();
+
+    let img_ref = parse_image_ref(image);
+    let cache_dir_name = format!("{}_{}", img_ref.repository, img_ref.tag)
+        .replace('/', "_")
+        .replace(':', "_");
+    let image_config_path = Path::new(&data_dir)
+        .join("images")
+        .join(&cache_dir_name)
+        .join("image-config.json");
+    if image_config_path.exists() {
+        if let Ok(file) = File::open(&image_config_path) {
+            if let Ok(cfg) = serde_json::from_reader::<_, serde_json::Value>(file) {
+                if resolved_cwd.is_empty() {
+                    if let Some(workdir) = cfg.get("config")
+                        .and_then(|c| c.get("WorkingDir"))
+                        .and_then(|w| w.as_str()) 
+                    {
+                        resolved_cwd = workdir.to_string();
+                    }
+                }
+
+                if let Some(env_array) = cfg.get("config")
+                    .and_then(|c| c.get("Env"))
+                    .and_then(|e| e.as_array())
+                {
+                    for item in env_array {
+                        if let Some(env_str) = item.as_str() {
+                            let parts: Vec<&str> = env_str.splitn(2, '=').collect();
+                            if parts.len() == 2 {
+                                let k = parts[0].to_string();
+                                let v = parts[1].to_string();
+                                merged_env.entry(k).or_insert(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Workaround for Bitnami image shadow-reinstall bug:
+    // If 'bitnami' user exists in /etc/passwd but 'bitnami' group is missing in /etc/group,
+    // inject the 'bitnami' group into /etc/group so that chown commands succeed.
+    let container_group_path = bundle_p.join("rootfs").join("etc").join("group");
+    let container_passwd_path = bundle_p.join("rootfs").join("etc").join("passwd");
+    if container_passwd_path.exists() && container_group_path.exists() {
+        if let Ok(passwd_content) = fs::read_to_string(&container_passwd_path) {
+            if passwd_content.contains("bitnami:") {
+                if let Ok(group_content) = fs::read_to_string(&container_group_path) {
+                    if !group_content.contains("bitnami:") {
+                        if let Ok(mut file) = fs::OpenOptions::new().append(true).open(&container_group_path) {
+                            let _ = writeln!(file, "bitnami:x:1000:");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     generate_config_json(
         &bundle_p,
         cmd.clone(),
-        env.clone(),
-        cwd,
+        merged_env.clone(),
+        &resolved_cwd,
         mounts.clone(),
         host_network,
         memory_limit,
@@ -970,9 +1072,9 @@ fn container_create(
         cmd,
         log_path: Some(c_log_path),
         ports: Some(ports),
-        env: Some(env),
+        env: Some(merged_env),
         mounts: Some(mounts),
-        cwd: Some(cwd.to_string()),
+        cwd: Some(resolved_cwd),
         host_network: Some(host_network),
         restart_policy: Some(restart_policy.to_string()),
         desired_status: Some("stopped".to_string()),
@@ -1760,6 +1862,94 @@ fn register_box_images(engine: &mut Engine) {
     );
 }
 
+fn prune_unused_layers() -> io::Result<()> {
+    let data_dir = get_data_dir();
+    let images_dir = Path::new(&data_dir).join("images");
+    if !images_dir.exists() {
+        return Ok(());
+    }
+
+    let mut used_layers = std::collections::HashSet::new();
+
+    // 1. Scan image metadata directories to find used layers
+    if let Ok(entries) = fs::read_dir(&images_dir) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_dir() && entry.file_name() != "layers" {
+                    let layers_json_path = path.join("layers.json");
+                    if layers_json_path.exists() {
+                        if let Ok(file) = File::open(&layers_json_path) {
+                            if let Ok(layers) = serde_json::from_reader::<_, Vec<String>>(file) {
+                                for layer in layers {
+                                    used_layers.insert(layer);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Scan layers directory and delete unused ones
+    let layers_dir = images_dir.join("layers");
+    if layers_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&layers_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let layer_name = entry.file_name().to_string_lossy().to_string();
+                        if !used_layers.contains(&layer_name) {
+                            let _ = fs::remove_dir_all(&path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn register_box_prune(engine: &mut Engine) {
+    engine.register(
+        "box.prune",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "prune_result".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    if let Some(ref v) = child.value {
+                        target = v.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+
+            let mut result = HashMap::new();
+            match prune_unused_layers() {
+                Ok(_) => {
+                    result.insert("success".to_string(), Value::Bool(true));
+                }
+                Err(e) => {
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert("stderr".to_string(), Value::String(e.to_string()));
+                }
+            }
+
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Prune unused OCI image layers".to_string(),
+            example: "box.prune: { as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
 fn register_box_rmi(engine: &mut Engine) {
     engine.register(
         "box.rmi",
@@ -1798,6 +1988,7 @@ fn register_box_rmi(engine: &mut Engine) {
                     result.insert("success".to_string(), Value::Bool(false));
                     result.insert("stderr".to_string(), Value::String(e.to_string()));
                 } else {
+                    let _ = prune_unused_layers();
                     result.insert("success".to_string(), Value::Bool(true));
                     result.insert("stdout".to_string(), Value::String("Image removed".to_string()));
                 }

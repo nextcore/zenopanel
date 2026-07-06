@@ -23,6 +23,7 @@ import {
 } from "./containers.js";
 import { loadUsers } from "./users.js";
 import { loadSettings, loadSecuritySettings } from "./settings.js";
+import { loadCronJobs } from "./cron.js";
 
 // Tab Navigation state
 export let currentTab = "dashboard";
@@ -112,6 +113,10 @@ export function runTabInit(tab) {
 
   if (tab === "users") {
     loadUsers();
+  }
+
+  if (tab === "cron") {
+    loadCronJobs();
   }
 
   if (tab === "settings") {

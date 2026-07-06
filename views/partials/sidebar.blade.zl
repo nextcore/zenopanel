@@ -34,6 +34,10 @@
             <i class="fa-solid fa-cube"></i>
             <span>Containers</span>
         </div>
+        <div class="nav-item" data-tab="cron" hx-get="/tab/cron" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-clock"></i>
+            <span>Cron Jobs</span>
+        </div>
         <div class="nav-item" data-tab="users" id="nav-users" style="display: none;" hx-get="/tab/users" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-users-gear"></i>
             <span>Users</span>

@@ -911,6 +911,60 @@
     </div>
 </div>
 
+<!-- Add Cron Job Modal -->
+<div class="modal-overlay" id="add-cron-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Cron Job</div>
+            <div class="modal-close" onclick="closeAddCronModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Nama Tugas (Job Name)</label>
+                <input type="text" id="cron-name" placeholder="e.g. Backup Harian" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Jadwal Acuan (Preset)</label>
+                <select id="cron-preset" onchange="applyCronPreset(this.value)" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                    <option value="custom">-- Kustom / Tulis Manual --</option>
+                    <option value="* * * * *">Setiap Menit (* * * * *)</option>
+                    <option value="*/5 * * * *">Setiap 5 Menit (*/5 * * * *)</option>
+                    <option value="*/15 * * * *">Setiap 15 Menit (*/15 * * * *)</option>
+                    <option value="0 * * * *">Setiap Jam (0 * * * *)</option>
+                    <option value="0 0 * * *">Setiap Hari (0 0 * * *)</option>
+                    <option value="0 2 * * *">Setiap Hari pukul 02:00 Pagi (0 2 * * *)</option>
+                    <option value="0 0 * * 0">Setiap Minggu (0 0 * * 0)</option>
+                    <option value="0 0 1 * *">Setiap Bulan (0 0 1 * *)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Ekspresi Cron (Cron Expression)</label>
+                <input type="text" id="cron-schedule" oninput="updateCronExplanation(this.value)" placeholder="e.g. 0 2 * * *" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family: monospace;">
+                <div id="cron-explanation" style="font-size: 0.8rem; color: #a1a1aa; margin-top: 6px; font-style: italic;">Silakan pilih preset atau ketik manual.</div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Template Perintah (Command Template)</label>
+                <select id="cron-command-preset" onchange="applyCronCommandPreset(this.value)" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                    <option value="custom">-- Perintah Kustom (Tulis Manual) --</option>
+                    <option value="/opt/zenopanel/scripts/backup.sh">Database Backup Script (/opt/zenopanel/scripts/backup.sh)</option>
+                    <option value="zeno log:clean">ZenoPanel Log Cache Cleaner (zeno log:clean)</option>
+                    <option value="zeno cert:renew">SSL Let's Encrypt Cert Renewal (zeno cert:renew)</option>
+                    <option value="php artisan optimize:clear">Laravel Cache Clear (php artisan optimize:clear)</option>
+                    <option value="npm run build">Build Node.js Production Bundle (npm run build)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Perintah untuk Dijalankan (Command)</label>
+                <input type="text" id="cron-command" placeholder="e.g. /opt/zenopanel/scripts/backup.sh" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family: monospace;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddCronModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitAddCron()">Save Cron Job</button>
+        </div>
+    </div>
+</div>
+
 <!-- Notification Toasts -->
 <div class="toast-container" id="toast-bin"></div>
 

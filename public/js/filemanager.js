@@ -435,7 +435,12 @@ export function editFile(path) {
     if (fnEl) fnEl.innerText = 'Editing: ' + path;
     
     fetch('/api/files/read?path=' + encodeURIComponent(path))
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) {
+                throw new Error('HTTP ' + res.status);
+            }
+            return res.json();
+        })
         .then(res => {
             if (res.success) {
                 const taEl = document.getElementById('editor-textarea-field');
@@ -445,6 +450,36 @@ export function editFile(path) {
             } else {
                 showToast('error', 'Gagal membaca isi file');
             }
+        })
+        .catch(err => {
+            showToast('warning', 'File tidak ditemukan. Membuat berkas skrip baru...');
+            
+            // Auto-create directory and file with template content
+            fetch('/api/files/write', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({
+                    path: path,
+                    content: '#!/bin/bash\n\n# Tulis perintah skrip Anda di bawah ini\n'
+                })
+            })
+            .then(wRes => wRes.json())
+            .then(wRes => {
+                if (wRes.success) {
+                    const taEl = document.getElementById('editor-textarea-field');
+                    if (taEl) taEl.value = '#!/bin/bash\n\n# Tulis perintah skrip Anda di bawah ini\n';
+                    const modal = document.getElementById('editor-modal');
+                    if (modal) modal.classList.add('active');
+                } else {
+                    showToast('error', 'Gagal membuat file skrip baru');
+                }
+            })
+            .catch(wErr => {
+                showToast('error', 'Gagal membuat file: ' + wErr.message);
+            });
         });
 }
 

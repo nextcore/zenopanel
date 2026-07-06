@@ -222,6 +222,19 @@ import {
   submitAddRegistry,
   deleteRegistry,
 } from "./settings.js";
+import {
+  loadCronJobs,
+  renderCronJobs,
+  openAddCronModal,
+  closeAddCronModal,
+  submitAddCron,
+  toggleCronJob,
+  deleteCronJob,
+  runCronJob,
+  applyCronPreset,
+  updateCronExplanation,
+  applyCronCommandPreset,
+} from "./cron.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
 // This ensures any inline blade HTML template access matches module variables dynamically.
@@ -536,6 +549,17 @@ const functionsToBind = {
   closeAddNetworkModal,
   submitAddNetwork,
   deleteNetwork,
+  loadCronJobs,
+  renderCronJobs,
+  openAddCronModal,
+  closeAddCronModal,
+  submitAddCron,
+  toggleCronJob,
+  deleteCronJob,
+  runCronJob,
+  applyCronPreset,
+  updateCronExplanation,
+  applyCronCommandPreset,
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {

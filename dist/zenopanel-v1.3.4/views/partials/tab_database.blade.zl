@@ -1,0 +1,193 @@
+<!-- 3. DATABASE TAB -->
+<div class="viewport" id="tab-database">
+    <div class="card" style="margin-top:0;">
+        <!-- Sub-tab Navigation -->
+        <div class="sub-tab-container" style="display:flex; gap:6px; border-bottom:1px solid var(--card-border); padding-bottom:10px; margin-bottom:15px;">
+            <button class="sub-tab-btn active" id="subtab-db-databases-btn" onclick="switchDatabaseSubTab('databases')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:rgba(59,130,246,0.1); color:var(--accent-primary); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-database"></i> Databases
+            </button>
+            <button class="sub-tab-btn" id="subtab-db-servers-btn" onclick="switchDatabaseSubTab('servers')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-server"></i> Database Servers
+            </button>
+            <button class="sub-tab-btn" id="subtab-db-console-btn" onclick="switchDatabaseSubTab('console')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-code"></i> SQL Query Console
+            </button>
+            <button class="sub-tab-btn" id="subtab-db-backups-btn" onclick="switchDatabaseSubTab('backups')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text-muted); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-box-archive"></i> Backup &amp; Restore
+            </button>
+        </div>
+
+        <!-- Databases Sub-tab -->
+        <div id="subtab-db-databases">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-database" style="color:var(--accent-primary);"></i> Databases List
+                </h3>
+                <button class="btn-primary-action" onclick="openAddDatabaseModal()">
+                    <i class="fa-solid fa-plus"></i> Create Database
+                </button>
+            </div>
+            <div class="table-container" style="min-height:260px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Database Name</th>
+                            <th>Driver / Server</th>
+                            <th>DB User</th>
+                            <th>Password</th>
+                            <th>Charset</th>
+                            <th>Access Type</th>
+                            <th>Description</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="db-databases-table-body">
+                        <!-- Dynamically populated -->
+                        <tr>
+                            <td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">Loading databases...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Database Servers Sub-tab -->
+        <div id="subtab-db-servers" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-server" style="color:var(--accent-primary);"></i> Registered Database Servers
+                </h3>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-action" onclick="openInstallDbEngineModal()" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2); display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-rocket"></i> Install DB Engine
+                    </button>
+                    <button class="btn-primary-action" onclick="openAddDbServerModal()">
+                        <i class="fa-solid fa-plus"></i> Register Server
+                    </button>
+                </div>
+            </div>
+            <div class="table-container" style="min-height:260px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Server Name</th>
+                            <th>Engine / Driver</th>
+                            <th>Host &amp; Port</th>
+                            <th>Admin Username</th>
+                            <th>Remote Access</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="db-servers-table-body">
+                        <!-- Dynamically populated -->
+                        <tr>
+                            <td colspan="5" style="text-align:center; padding:32px; color:var(--text-muted);">Loading database servers...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SQL Console Sub-tab -->
+        <div id="subtab-db-console" style="display:none;">
+            <div class="db-layout" style="display:flex; gap:16px;">
+                <!-- Tables list sidebar -->
+                <div class="db-sidebar" style="width:240px; flex-shrink:0; background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:12px;">
+                    <div style="margin-bottom:12px;">
+                        <label style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); display:block; margin-bottom:6px;">Select Connection</label>
+                        <select id="db-console-connection-select" onchange="onConsoleConnectionChange()" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); font-size:0.85rem; outline:none; cursor:pointer;">
+                            <option value="default">Default Panel DB (SQLite)</option>
+                        </select>
+                    </div>
+                    <div style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>Tables</span>
+                        <span id="db-driver-badge" class="badge badge-sleeping">SQLITE</span>
+                    </div>
+                    <div id="db-tables-list" style="max-height:350px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+                        <div style="padding:16px; text-align:center; color:var(--text-muted); font-size:0.8rem;">Loading tables...</div>
+                    </div>
+                </div>
+
+                <!-- Query area and results -->
+                <div class="db-main" style="flex-grow:1; display:flex; flex-direction:column; gap:16px;">
+                    <div class="glass-card query-box" style="padding:16px; background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px;">
+                        <div class="panel-title" style="margin-bottom:12px; font-weight:600; display:flex; align-items:center; gap:8px;">
+                            <i class="fa-solid fa-code" style="color:var(--accent-primary);"></i>
+                            <span>SQL Query Editor</span>
+                        </div>
+                        <textarea class="sql-textarea" id="sql-query-input" placeholder="SELECT * FROM my_table LIMIT 10;" style="width:100%; height:120px; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.6); color:#f8f8f2; font-family:var(--font-code); font-size:0.85rem; outline:none; resize:vertical; line-height:1.5;"></textarea>
+                        <div class="db-actions" style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
+                            <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer; user-select:none;">
+                                <input type="checkbox" id="sql-is-select" checked style="accent-color:var(--accent-primary); width:16px; height:16px; cursor:pointer;">
+                                <span>SELECT / Read Query</span>
+                            </label>
+                            <button class="btn-primary-action" onclick="runSqlQuery()" style="padding:8px 16px; display:flex; align-items:center; gap:6px;">
+                                <i class="fa-solid fa-play"></i>
+                                <span>Execute Query</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="glass-card db-results-card" style="padding:16px; background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px;">
+                        <div class="panel-title" style="margin-bottom:12px; font-weight:600; display:flex; align-items:center; gap:8px;">
+                            <i class="fa-solid fa-table" style="color:var(--accent-primary);"></i>
+                            <span>Query Results</span>
+                        </div>
+                        <div class="table-container" id="db-results-container" style="min-height:150px; max-height:400px; overflow:auto;">
+                            <div style="padding:32px; text-align:center; color:var(--text-muted); font-size:0.85rem;">Run a query above to see results.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Backups Sub-tab -->
+        <div id="subtab-db-backups" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-box-archive" style="color:var(--accent-primary);"></i> Database Backups
+                </h3>
+                <button class="btn-primary-action" onclick="openCreateBackupModal()">
+                    <i class="fa-solid fa-plus"></i> Create Backup
+                </button>
+            </div>
+
+            <!-- Summary stats row -->
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:18px;">
+                <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.15); border-radius:8px; padding:14px;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total Backups</div>
+                    <div id="backup-stat-count" style="font-size:1.6rem; font-weight:700; color:var(--accent-primary);">—</div>
+                </div>
+                <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.15); border-radius:8px; padding:14px;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total Size</div>
+                    <div id="backup-stat-size" style="font-size:1.6rem; font-weight:700; color:#10b981;">—</div>
+                </div>
+                <div style="background:rgba(167,139,250,0.06); border:1px solid rgba(167,139,250,0.15); border-radius:8px; padding:14px;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Last Backup</div>
+                    <div id="backup-stat-last" style="font-size:0.95rem; font-weight:600; color:#a78bfa; margin-top:4px;">—</div>
+                </div>
+            </div>
+
+            <div class="table-container" style="min-height:260px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Database</th>
+                            <th>Server</th>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th>Status</th>
+                            <th>Created At</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="db-backups-table-body">
+                        <tr>
+                            <td colspan="7" style="text-align:center; padding:32px; color:var(--text-muted);">Loading backups...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>

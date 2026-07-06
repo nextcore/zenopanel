@@ -386,6 +386,46 @@ fn main() {
     .await
     .expect("Failed to create db_backups table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cron_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            schedule TEXT NOT NULL,
+            command TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            last_run TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create cron_jobs table");
+
+    let cron_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cron_jobs")
+        .fetch_one(&default_pool)
+        .await
+        .unwrap_or((0,));
+
+    if cron_count.0 == 0 {
+        let _ = sqlx::query("INSERT INTO cron_jobs (name, schedule, command) VALUES (?, ?, ?)")
+            .bind("Database Backup")
+            .bind("0 2 * * *")
+            .bind("/opt/zenopanel/scripts/backup.sh")
+            .execute(&default_pool).await;
+
+        let _ = sqlx::query("INSERT INTO cron_jobs (name, schedule, command) VALUES (?, ?, ?)")
+            .bind("Log Cache Cleaner")
+            .bind("*/15 * * * *")
+            .bind("zeno log:clean")
+            .execute(&default_pool).await;
+
+        let _ = sqlx::query("INSERT INTO cron_jobs (name, schedule, command) VALUES (?, ?, ?)")
+            .bind("SSL Cert Renewal")
+            .bind("0 0 1 * *")
+            .bind("zeno cert:renew")
+            .execute(&default_pool).await;
+    }
+
     // Load registered database servers at startup
     if let Ok(servers) = sqlx::query_as::<_, (String, String, String, i32, String, String)>("SELECT name, driver, host, port, admin_user, admin_password FROM db_servers")
         .fetch_all(&default_pool)
@@ -876,6 +916,9 @@ fn main() {
 
     // Start Pingora Reverse Proxy Gateway
     let mut pingora_server = pingora::server::Server::new(None).unwrap();
+    if let Some(conf) = std::sync::Arc::get_mut(&mut pingora_server.configuration) {
+        conf.grace_period_seconds = Some(2);
+    }
     pingora_server.bootstrap();
 
     let gateway = gateway::ZenoGateway::new(state.clone());
