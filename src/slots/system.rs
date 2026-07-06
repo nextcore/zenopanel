@@ -68,9 +68,13 @@ pub fn register(engine: &mut Engine) {
         "system.info",
         Arc::new(|_engine, _ctx, node, scope| {
             let mut target = "sys_info".to_string();
+            let mut force = false;
             for child in &node.children {
                 if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                } else if child.name == "force" {
+                    let val = _engine.resolve_shorthand_value(child, scope);
+                    force = val.to_bool() || val.to_string_coerce() == "true";
                 }
             }
 
@@ -90,6 +94,41 @@ pub fn register(engine: &mut Engine) {
                 .unwrap_or_else(|_| "zeno".to_string());
 
             spawn_update_checker();
+            
+            if force {
+                let latest = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let client = reqwest::Client::builder()
+                            .user_agent(concat!("ZenoPanel-Update-Checker/", env!("CARGO_PKG_VERSION")))
+                            .timeout(std::time::Duration::from_secs(5))
+                            .build()
+                            .unwrap_or_else(|_| reqwest::Client::new());
+                        
+                        match client.get("https://raw.githubusercontent.com/nextcore/zenopanel/main/Cargo.toml")
+                            .send()
+                            .await
+                        {
+                            Ok(resp) => {
+                                if let Ok(text) = resp.text().await {
+                                    if let Some(line) = text.lines().find(|l| l.trim().starts_with("version =")) {
+                                        if let Some(ver) = line.split('"').nth(1) {
+                                            return Some(ver.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[Update Checker] Manual check failed: {}", e);
+                            }
+                        }
+                        None
+                    })
+                });
+                if let Some(ref ver_str) = latest {
+                    *get_latest_version_cache().lock().unwrap() = Some(ver_str.clone());
+                }
+            }
+
             let latest_ver = get_latest_version_cache().lock().unwrap().clone();
             let current_ver = env!("CARGO_PKG_VERSION").to_string();
 

@@ -1,7 +1,15 @@
 # 2. System Info API
 http.get: '/api/info' {
     auth.guard
-    system.info: { as: $info }
+    http.query: 'force' { as: $force_query }
+    coalesce: $force_query {
+        default: 'false'
+        as: $force_str
+    }
+    system.info: {
+        force: $force_str
+        as: $info
+    }
     http.ok: { data: $info }
 }
 

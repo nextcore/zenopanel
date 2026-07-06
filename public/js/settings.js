@@ -788,9 +788,10 @@ export async function toggleFirewallLockdown() {
     }
 }
 
-export async function loadUpdateStatus() {
+export async function loadUpdateStatus(force = false) {
     try {
-        const response = await fetch('/api/info');
+        const url = force ? '/api/info?force=true' : '/api/info';
+        const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to fetch version info');
         const res = await response.json();
         
@@ -832,7 +833,7 @@ export async function checkUpdateManual() {
     try {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
-        await loadUpdateStatus();
+        await loadUpdateStatus(true);
         showToast('success', 'Pemeriksaan pembaruan selesai');
     } catch (err) {
         showToast('error', 'Gagal memeriksa pembaruan: ' + err.message);
