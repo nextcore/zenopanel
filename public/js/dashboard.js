@@ -354,30 +354,33 @@ function applyStaticInfo(d) {
 export function updateProcessesUI(procs) {
     const tbody = document.getElementById('process-table-body');
     if (!tbody) return;
-    tbody.innerHTML = '';
+    
+    let html = '';
     procs.forEach(p => {
-        const tr = document.createElement('tr');
-        
         // Determine badge state
         let stateClass = 'badge-sleeping';
         let stateLabel = 'Sleeping';
         if (p.status === 'R' || p.status === 'Running') { stateClass = 'badge-running'; stateLabel = 'Running'; }
         if (p.status === 'T' || p.status === 'Stopped') { stateClass = 'badge-stopped'; stateLabel = 'Stopped'; }
 
-        tr.innerHTML = `
-            <td style="font-family:var(--font-code); font-weight:600;">${p.pid}</td>
-            <td style="font-family:var(--font-code); max-width:240px; overflow:hidden; text-overflow:ellipsis;" title="${p.name}">${p.name}</td>
-            <td>${p.cpu.toFixed(1)}%</td>
-            <td>${p.memory.toFixed(1)}%</td>
-            <td><span class="badge ${stateClass}">${stateLabel}</span></td>
-            <td style="text-align:right;">
-                <button class="btn-icon" onclick="killProcess(${p.pid})" title="Kill process">
-                    <i class="fa-solid fa-skull"></i>
-                </button>
-            </td>
+        const safeName = escapeHtml(p.name);
+
+        html += `
+            <tr>
+                <td style="font-family:var(--font-code); font-weight:600;">${p.pid}</td>
+                <td style="font-family:var(--font-code); max-width:240px; overflow:hidden; text-overflow:ellipsis;" title="${safeName}">${safeName}</td>
+                <td>${p.cpu.toFixed(1)}%</td>
+                <td>${p.memory.toFixed(1)}%</td>
+                <td><span class="badge ${stateClass}">${stateLabel}</span></td>
+                <td style="text-align:right;">
+                    <button class="btn-icon" onclick="killProcess(${p.pid})" title="Kill process">
+                        <i class="fa-solid fa-skull"></i>
+                    </button>
+                </td>
+            </tr>
         `;
-        tbody.appendChild(tr);
     });
+    tbody.innerHTML = html;
 }
 
 export function loadProcesses() {

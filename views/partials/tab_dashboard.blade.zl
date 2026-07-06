@@ -241,15 +241,15 @@
             <span>Top Running Processes</span>
         </div>
         <div class="table-container">
-            <table>
+            <table style="table-layout: fixed; width: 100%;">
                 <thead>
                     <tr>
-                        <th>PID</th>
-                        <th>Command</th>
-                        <th>CPU %</th>
-                        <th>Memory %</th>
-                        <th>Status</th>
-                        <th style="text-align:right;">Action</th>
+                        <th style="width: 10%;">PID</th>
+                        <th style="width: 45%;">Command</th>
+                        <th style="width: 12%;">CPU %</th>
+                        <th style="width: 13%;">Memory %</th>
+                        <th style="width: 12%;">Status</th>
+                        <th style="text-align:right; width: 8%;">Action</th>
                     </tr>
                 </thead>
                 <tbody id="process-table-body">
