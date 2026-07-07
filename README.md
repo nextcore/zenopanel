@@ -92,12 +92,14 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 - **Browse Files Container**: Navigasi filesystem container langsung dari File Manager.
 - **Real-Time Status**: Status container update otomatis secara instan via Server-Sent Events (SSE).
 - **Rootless Mode**: Container bisa jalan tanpa root (menggunakan user namespace).
+- **Native Checksum Fix**: Penanganan manual offloading TCP Checksum langsung menggunakan system call ioctl di Rust, menghilangkan dependensi sistem pada utilitas `ethtool` luar agar loopback NAT selalu lancar.
 
 ### 📦 Docker Compose Support
 - **YAML Parser Bawaan**: Parse `docker-compose.yml` langsung — tanpa dependency eksternal.
 - **Service Discovery**: Container bisa saling panggil via nama service (inject `/etc/hosts`).
 - **Depends On**: Startup order sesuai dependency.
 - **Networks**: Dukung definisi network dengan service discovery.
+- **Relative Path Bind Mounts**: Mendukung pemetaan host path relatif (seperti `./` dan `../`) yang secara dinamis diterjemahkan relatif terhadap lokasi berkas `docker-compose.yml` (sesuai standar asli Docker Compose).
 - **Command Lengkap**: `compose up`, `compose down`, `compose ps` dari CLI & UI.
 - **Boilerplate & Petunjuk Deployment UI**: Dasbor dilengkapi dengan templat boilerplate Compose teroptimalisasi (Node.js, PHP Laravel FrankenPHP, Python FastAPI, Go, Java, dll.) beserta kotak petunjuk peletakan berkas pada volume host secara visual.
 
@@ -162,10 +164,10 @@ ZenoPanel dibangun di atas fondasi teknologi Rust yang kokoh untuk menjamin efis
 - **Resource Limits**: Mengatur dan memperbarui batas penggunaan memori (RAM) dan CPU secara dinamis per kontainer.
 - **Health Checks & Auto-Restart**: Pemantauan kesehatan berkala dan restart otomatis kontainer yang mati yang dikelola langsung oleh ZenoPanel.
 - **Self-Update Satu-Klik**: Mengunduh dan memperbarui versi ZenoPanel secara mandiri via antarmuka web panel.
+- **Network Bridge**: Isolasi jaringan antar container (veth pair) tingkat lanjut dengan dynamic route localnet loopback NAT.
 
 ### 🚧 Sedang Dikembangkan
 - **Container Build**: Build image dari Dockerfile.
-- **Network Bridge**: Isolasi jaringan antar container (veth pair) tingkat lanjut.
 - **Container Registry Private**: Dukung login ke registry privat.
 
 ---

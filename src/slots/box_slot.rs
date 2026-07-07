@@ -1127,22 +1127,67 @@ fn save_networks(data_dir: &str, nets: &[NetworkConfig]) -> Result<(), String> {
 }
 
 fn setup_bridge() -> Result<(), String> {
-    let output = Command::new("ip").args(&["link", "show", "zenobr0"]).output();
-    if output.is_ok() && output.unwrap().status.success() {
-        return Ok(());
-    }
+    // Enable IP forwarding — required for container port mapping via iptables DNAT to work.
+    // This must run every boot (sysctl settings are not persistent across reboots).
+    let _ = std::fs::write("/proc/sys/net/ipv4/ip_forward", "1");
 
-    let _ = run_cmd_status_silent("ip", &["link", "add", "name", "zenobr0", "type", "bridge"]);
-    let _ = run_cmd_status_silent("ip", &["addr", "add", "172.20.0.1/16", "dev", "zenobr0"]);
-    let _ = run_cmd_status_silent("ip", &["link", "set", "zenobr0", "up"]);
-
-    // Check if POSTROUTING rule exists first to prevent duplication
-    let rule_exists = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"])
-        .map(|s| s.success())
+    let bridge_exists = Command::new("ip").args(&["link", "show", "zenobr0"]).output()
+        .map(|o| o.status.success())
         .unwrap_or(false);
 
-    if !rule_exists {
+    if !bridge_exists {
+        let _ = run_cmd_status_silent("ip", &["link", "add", "name", "zenobr0", "type", "bridge"]);
+        let _ = run_cmd_status_silent("ip", &["addr", "add", "172.20.0.1/16", "dev", "zenobr0"]);
+        let _ = run_cmd_status_silent("ip", &["link", "set", "zenobr0", "up"]);
+    }
+
+    // Enable route_localnet on zenobr0 bridge to allow loopback NAT MASQUERADE.
+    // Without this, the Linux kernel treats loopback-sourced NAT packets as Martians and drops them.
+    let _ = std::fs::write("/proc/sys/net/ipv4/conf/zenobr0/route_localnet", "1");
+
+    // Always ensure POSTROUTING MASQUERADE rule exists (needed for container internet access).
+    // Check first to prevent duplicate entries.
+    let masq_exists = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !masq_exists {
         let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", "172.20.0.0/16", "!", "-o", "zenobr0", "-j", "MASQUERADE"]);
+    }
+
+    // Always ensure FORWARD rules exist for zenobr0 so that DNAT port-mapped traffic
+    // can actually reach the container. Without this, packets are dropped by the
+    // FORWARD chain even though DNAT re-routes them correctly.
+    let fwd_in_exists = run_cmd_status_silent("iptables", &["-C", "FORWARD", "-i", "zenobr0", "-j", "ACCEPT"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !fwd_in_exists {
+        let _ = run_cmd_status_silent("iptables", &["-A", "FORWARD", "-i", "zenobr0", "-j", "ACCEPT"]);
+    }
+
+    let fwd_out_exists = run_cmd_status_silent("iptables", &["-C", "FORWARD", "-o", "zenobr0", "-j", "ACCEPT"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !fwd_out_exists {
+        let _ = run_cmd_status_silent("iptables", &["-A", "FORWARD", "-o", "zenobr0", "-j", "ACCEPT"]);
+    }
+
+    // Always ensure loopback requests to port-forwarded ports on zenobr0 are masqueraded.
+    // This translates the source IP from 127.0.0.1 to the bridge gateway IP (172.20.0.1)
+    // so the packet doesn't get dropped by kernel Martian filters and can route back to host.
+    let local_masq_exists = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-o", "zenobr0", "-s", "127.0.0.1", "-j", "MASQUERADE"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !local_masq_exists {
+        let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-o", "zenobr0", "-s", "127.0.0.1", "-j", "MASQUERADE"]);
+    }
+
+    // Always ensure CHECKSUM fill rule exists for zenobr0.
+    // This resolves the bad TCP checksum drop issue when accessing container ports from localhost.
+    let chk_exists = run_cmd_status_silent("iptables", &["-t", "mangle", "-C", "POSTROUTING", "-o", "zenobr0", "-p", "tcp", "-j", "CHECKSUM", "--fill-checksum"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !chk_exists {
+        let _ = run_cmd_status_silent("iptables", &["-t", "mangle", "-A", "POSTROUTING", "-o", "zenobr0", "-p", "tcp", "-j", "CHECKSUM", "--fill-checksum"]);
     }
 
     Ok(())
@@ -1178,6 +1223,73 @@ fn find_available_ip(data_dir: &str, subnet: &str, gateway: &str) -> Result<Stri
     }
 
     Err("No available IP addresses".to_string())
+}
+
+unsafe extern "C" {
+    fn ioctl(
+        fd: std::os::raw::c_int,
+        request: std::os::raw::c_ulong,
+        ...
+    ) -> std::os::raw::c_int;
+}
+
+fn disable_checksum_offloading(iface: &str) -> Result<(), String> {
+    use std::os::unix::io::AsRawFd;
+
+    #[repr(C)]
+    struct EthtoolValue {
+        cmd: u32,
+        data: u32,
+    }
+
+    #[repr(C)]
+    struct IfreqEthtool {
+        ifr_name: [u8; 16],
+        ifr_data: *mut EthtoolValue,
+    }
+
+    const SIOCETHTOOL: std::os::raw::c_ulong = 0x8946;
+    const ETHTOOL_SRXCSUM: u32 = 0x00000015;
+    const ETHTOOL_STXCSUM: u32 = 0x00000017;
+
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0")
+        .map_err(|e| format!("Failed to create socket: {}", e))?;
+    let fd = socket.as_raw_fd();
+
+    let mut ifr_name = [0u8; 16];
+    let bytes = iface.as_bytes();
+    if bytes.len() >= 16 {
+        return Err("Interface name too long".to_string());
+    }
+    ifr_name[..bytes.len()].copy_from_slice(bytes);
+
+    // Disable RX checksumming
+    let mut rx_val = EthtoolValue {
+        cmd: ETHTOOL_SRXCSUM,
+        data: 0,
+    };
+    let mut ifr_rx = IfreqEthtool {
+        ifr_name,
+        ifr_data: &mut rx_val,
+    };
+    unsafe {
+        let _ = ioctl(fd, SIOCETHTOOL, &mut ifr_rx);
+    }
+
+    // Disable TX checksumming
+    let mut tx_val = EthtoolValue {
+        cmd: ETHTOOL_STXCSUM,
+        data: 0,
+    };
+    let mut ifr_tx = IfreqEthtool {
+        ifr_name,
+        ifr_data: &mut tx_val,
+    };
+    unsafe {
+        let _ = ioctl(fd, SIOCETHTOOL, &mut ifr_tx);
+    }
+
+    Ok(())
 }
 
 fn configure_container_network(
@@ -1233,6 +1345,12 @@ fn configure_container_network(
     if !status.success() {
         return Err("Failed to create veth pair".to_string());
     }
+
+    // Disable TX and RX checksum offloading on both host and guest veth interfaces
+    // to prevent bad/blank TCP checksums from dropping packets inside the container.
+    // We do this directly via raw ioctls in Rust, completely removing the dependency on external ethtool bin.
+    let _ = disable_checksum_offloading(&veth_host);
+    let _ = disable_checksum_offloading(&veth_guest);
 
     let status = run_cmd_status_silent("ip", &["link", "set", &veth_host, "master", &bridge_id])
         .map_err(|e| format!("Failed to bind host interface to bridge: {}", e))?;
@@ -1708,6 +1826,10 @@ fn create_bridge_network(data_dir: &str, name: &str) -> Result<String, String> {
     let _ = run_cmd_status_silent("ip", &["addr", "add", &format!("{}/16", gateway), "dev", &bridge_id]);
     let _ = run_cmd_status_silent("ip", &["link", "set", &bridge_id, "up"]);
 
+    // Enable route_localnet on the custom bridge to allow loopback NAT MASQUERADE.
+    let route_localnet_path = format!("/proc/sys/net/ipv4/conf/{}/route_localnet", bridge_id);
+    let _ = std::fs::write(&route_localnet_path, "1");
+
     // Check if the NAT rule already exists before appending to prevent duplicates
     let rule_exists = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-s", &subnet, "!", "-o", &bridge_id, "-j", "MASQUERADE"])
         .map(|s| s.success())
@@ -1715,6 +1837,38 @@ fn create_bridge_network(data_dir: &str, name: &str) -> Result<String, String> {
 
     if !rule_exists {
         let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-s", &subnet, "!", "-o", &bridge_id, "-j", "MASQUERADE"]);
+    }
+
+    // Ensure FORWARD rules exist for this custom bridge so DNAT port-mapped traffic
+    // can reach containers.
+    let fwd_in_exists = run_cmd_status_silent("iptables", &["-C", "FORWARD", "-i", &bridge_id, "-j", "ACCEPT"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !fwd_in_exists {
+        let _ = run_cmd_status_silent("iptables", &["-A", "FORWARD", "-i", &bridge_id, "-j", "ACCEPT"]);
+    }
+
+    let fwd_out_exists = run_cmd_status_silent("iptables", &["-C", "FORWARD", "-o", &bridge_id, "-j", "ACCEPT"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !fwd_out_exists {
+        let _ = run_cmd_status_silent("iptables", &["-A", "FORWARD", "-o", &bridge_id, "-j", "ACCEPT"]);
+    }
+
+    // Ensure loopback requests to port-forwarded ports on this custom bridge are masqueraded.
+    let local_masq_exists = run_cmd_status_silent("iptables", &["-t", "nat", "-C", "POSTROUTING", "-o", &bridge_id, "-s", "127.0.0.1", "-j", "MASQUERADE"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !local_masq_exists {
+        let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-A", "POSTROUTING", "-o", &bridge_id, "-s", "127.0.0.1", "-j", "MASQUERADE"]);
+    }
+
+    // Always ensure CHECKSUM fill rule exists for this custom bridge.
+    let chk_exists = run_cmd_status_silent("iptables", &["-t", "mangle", "-C", "POSTROUTING", "-o", &bridge_id, "-p", "tcp", "-j", "CHECKSUM", "--fill-checksum"])
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !chk_exists {
+        let _ = run_cmd_status_silent("iptables", &["-t", "mangle", "-A", "POSTROUTING", "-o", &bridge_id, "-p", "tcp", "-j", "CHECKSUM", "--fill-checksum"]);
     }
 
     let new_net = NetworkConfig {
@@ -1753,6 +1907,10 @@ fn delete_bridge_network(data_dir: &str, name: &str) -> Result<(), String> {
     let _ = run_cmd_status_silent("ip", &["link", "set", &net.id, "down"]);
     let _ = run_cmd_status_silent("ip", &["link", "delete", &net.id]);
     let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "POSTROUTING", "-s", &net.subnet, "!", "-o", &net.id, "-j", "MASQUERADE"]);
+    let _ = run_cmd_status_silent("iptables", &["-t", "nat", "-D", "POSTROUTING", "-o", &net.id, "-s", "127.0.0.1", "-j", "MASQUERADE"]);
+    let _ = run_cmd_status_silent("iptables", &["-t", "mangle", "-D", "POSTROUTING", "-o", &net.id, "-p", "tcp", "-j", "CHECKSUM", "--fill-checksum"]);
+    let _ = run_cmd_status_silent("iptables", &["-D", "FORWARD", "-i", &net.id, "-j", "ACCEPT"]);
+    let _ = run_cmd_status_silent("iptables", &["-D", "FORWARD", "-o", &net.id, "-j", "ACCEPT"]);
 
     networks.remove(idx);
     save_networks(data_dir, &networks)?;
@@ -3355,7 +3513,23 @@ fn compose_up(path: &str) -> Result<String, String> {
                     if is_named_volume {
                         volumes.push(format!("{}_{}:{}", project_name, host_path, container_path));
                     } else {
-                        volumes.push(v.clone());
+                        // Resolve relative paths (starting with .) relative to the directory containing the docker-compose.yml file.
+                        // This mirrors Docker Compose behavior where relative mounts are resolved relative to the compose file.
+                        let resolved_path = if host_path.starts_with('.') {
+                            if let Some(parent) = compose_path_buf.parent() {
+                                let abs_path = parent.join(host_path);
+                                if let Ok(canonical) = fs::canonicalize(&abs_path) {
+                                    canonical.to_string_lossy().to_string()
+                                } else {
+                                    abs_path.to_string_lossy().to_string()
+                                }
+                            } else {
+                                host_path.to_string()
+                            }
+                        } else {
+                            host_path.to_string()
+                        };
+                        volumes.push(format!("{}:{}", resolved_path, container_path));
                     }
                 } else {
                     volumes.push(v.clone());
