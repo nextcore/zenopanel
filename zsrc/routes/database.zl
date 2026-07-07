@@ -590,6 +590,14 @@ http.post: '/api/database/install-server' {
         default: 0
         as: $is_remote
     }
+    coalesce: $body.mem_limit {
+        default: ''
+        as: $mem_limit
+    }
+    coalesce: $body.cpus {
+        default: ''
+        as: $cpus
+    }
 
     # Determine driver from engine string
     # mariadb:* and mysql:* → driver 'mysql' (protocol-compatible)
@@ -621,12 +629,33 @@ http.post: '/api/database/install-server' {
         }
     }
 
+    # Ensure config dir exists for MySQL/MariaDB config mapping
+    if: "$driver == 'mysql'" {
+        then: {
+            var: $conf_dir { val: "/var/lib/zenopanel/db/${name}_conf" }
+            io.dir.create: $conf_dir
+        }
+    }
+
+    # Build resource limits YAML block
+    var: $limits_yaml { val: "    oom_score_adj: -1000\n" }
+    if: "$mem_limit != ''" {
+        then: {
+            var: $limits_yaml { val: "${limits_yaml}    mem_limit: ${mem_limit}\n" }
+        }
+    }
+    if: "$cpus != ''" {
+        then: {
+            var: $limits_yaml { val: "${limits_yaml}    cpus: ${cpus}\n" }
+        }
+    }
+
     # Build Docker Compose YAML — format environment as YAML list items
-    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n${limits_yaml}" }
 
     if: "$driver == 'postgres'" {
         then: {
-            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n" }
+            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n${limits_yaml}" }
         }
     }
 
@@ -1057,4 +1086,406 @@ http.get: '/api/database/servers/logs' {
             http.ok: { success: true, logs: "Belum ada log kontainer yang tersedia." }
         }
     }
+}
+
+# 1. Get Live Database Storage Size
+http.get: '/api/database/size' {
+    auth.guard
+    http.query: 'server_name' { as: $server_name }
+    http.query: 'db_name' { as: $db_name }
+    http.query: 'driver' { as: $driver }
+
+    var: $query { val: "" }
+    if: "$driver == 'mysql'" {
+        then: {
+            var: $query { val: "SELECT SUM(data_length + index_length) AS size FROM information_schema.tables WHERE table_schema = '${db_name}'" }
+        }
+    }
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $query { val: "SELECT pg_database_size('${db_name}') AS size" }
+        }
+    }
+    if: "$driver == 'sqlite'" {
+        then: {
+            var: $query { val: "SELECT page_count * page_size AS size FROM pragma_page_count(), pragma_page_size()" }
+        }
+    }
+
+    if: { not_empty: $query } {
+        then: {
+            db.select: $query {
+                db: $server_name
+                first: true
+                as: $res
+            }
+
+            coalesce: $res.size {
+                default: 0
+                as: $size
+            }
+
+            http.ok: {
+                success: true,
+                size: $size
+            }
+        }
+        else: {
+            http.ok: {
+                success: true,
+                size: 0
+            }
+        }
+    }
+}
+
+# 2. Database Maintenance Operations (Analyze, Optimize, Repair)
+http.post: '/api/database/maintenance' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $server_name { val: $body.server_name }
+    var: $db_name { val: $body.db_name }
+    var: $driver { val: $body.driver }
+    var: $action { val: $body.action }
+
+    var: $query { val: "" }
+    if: "$driver == 'mysql'" {
+        then: {
+            if: "$action == 'check'" {
+                then: { var: $query { val: "ANALYZE TABLE `${db_name}`" } }
+            }
+            if: "$action == 'optimize'" {
+                then: { var: $query { val: "OPTIMIZE TABLE `${db_name}`" } }
+            }
+            if: "$action == 'repair'" {
+                then: { var: $query { val: "REPAIR TABLE `${db_name}`" } }
+            }
+        }
+    }
+    if: "$driver == 'postgres'" {
+        then: {
+            if: "$action == 'optimize'" {
+                then: { var: $query { val: "VACUUM ANALYZE" } }
+            }
+            if: "$action == 'check'" {
+                then: { var: $query { val: "ANALYZE" } }
+            }
+        }
+    }
+
+    if: { not_empty: $query } {
+        then: {
+            db.execute: $query { db: $server_name }
+            http.ok: { success: true, message: "Operasi ${action} berhasil dijalankan." }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Operasi tidak didukung untuk driver ini." }
+        }
+    }
+}
+
+# 3. Get Database Server Live Status (Uptime, Connection count, Version)
+http.get: '/api/database/servers/status' {
+    auth.guard
+    http.query: 'name' { as: $server_name }
+    http.query: 'driver' { as: $driver }
+
+    var: $q_connections { val: "" }
+    var: $q_uptime { val: "" }
+    var: $q_version { val: "" }
+
+    if: "$driver == 'mysql'" {
+        then: {
+            var: $q_connections { val: "SHOW STATUS LIKE 'Threads_connected'" }
+            var: $q_uptime { val: "SHOW STATUS LIKE 'Uptime'" }
+            var: $q_version { val: "SELECT VERSION() as val" }
+        }
+    }
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $q_connections { val: "SELECT count(*) as val FROM pg_stat_activity" }
+            var: $q_uptime { val: "SELECT extract(epoch from now() - pg_postmaster_start_time()) as val" }
+            var: $q_version { val: "SELECT version() as val" }
+        }
+    }
+
+    if: { not_empty: $q_connections } {
+        then: {
+            db.select: $q_connections { db: $server_name, first: true, as: $res_conn }
+            db.select: $q_uptime { db: $server_name, first: true, as: $res_upt }
+            db.select: $q_version { db: $server_name, first: true, as: $res_ver }
+
+            var: $connections { val: 0 }
+            if: "$driver == 'mysql'" {
+                then: { coalesce: $res_conn.Value { default: '0', as: $connections_str } var: $connections { val: $connections_str } }
+                else: { coalesce: $res_conn.val { default: 0, as: $connections_int } var: $connections { val: $connections_int } }
+            }
+
+            var: $uptime { val: 0 }
+            if: "$driver == 'mysql'" {
+                then: { coalesce: $res_upt.Value { default: '0', as: $uptime_str } var: $uptime { val: $uptime_str } }
+                else: { coalesce: $res_upt.val { default: 0, as: $uptime_float } var: $uptime { val: $uptime_float } }
+            }
+
+            coalesce: $res_ver.val { default: 'Unknown', as: $version }
+
+            http.ok: {
+                success: true,
+                connections: $connections,
+                uptime: $uptime,
+                version: $version
+            }
+        }
+        else: {
+            http.ok: {
+                success: true,
+                connections: 0,
+                uptime: 0,
+                version: 'SQLite'
+            }
+        }
+    }
+}
+
+# 4. Get Database Server Configuration & Live Limits
+http.get: '/api/database/servers/config' {
+    auth.guard
+    http.query: 'id' { as: $id }
+
+    db.select: "SELECT id, name, driver, host, port FROM db_servers WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $server
+    }
+
+    if: $server {
+        then: {
+            var: $name { val: $server.name }
+            var: $driver { val: $server.driver }
+            var: $config_content { val: "" }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    var: $file_path { val: "/var/lib/zenopanel/db/${name}_conf/z_custom.cnf" }
+                    io.file.read: $file_path { as: $content }
+                    coalesce: $content { default: "", as: $config_content }
+                }
+            }
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $file_path { val: "/var/lib/zenopanel/db/${name}/postgresql.conf" }
+                    io.file.read: $file_path { as: $content }
+                    coalesce: $content { default: "", as: $config_content }
+                }
+            }
+
+            var: $q_max_conn { val: "" }
+            var: $q_buffer_pool { val: "" }
+            var: $q_packet { val: "" }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    var: $q_max_conn { val: "SHOW VARIABLES LIKE 'max_connections'" }
+                    var: $q_buffer_pool { val: "SHOW VARIABLES LIKE 'innodb_buffer_pool_size'" }
+                    var: $q_packet { val: "SHOW VARIABLES LIKE 'max_allowed_packet'" }
+                }
+            }
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $q_max_conn { val: "SHOW max_connections" }
+                    var: $q_buffer_pool { val: "SHOW shared_buffers" }
+                    var: $q_packet { val: "SHOW work_mem" }
+                }
+            }
+
+            var: $live_max_connections { val: "Unknown" }
+            var: $live_buffer_pool { val: "Unknown" }
+            var: $live_packet { val: "Unknown" }
+
+            if: { not_empty: $q_max_conn } {
+                then: {
+                    db.select: $q_max_conn { db: $name, first: true, as: $res_max_conn }
+                    db.select: $q_buffer_pool { db: $name, first: true, as: $res_buf }
+                    db.select: $q_packet { db: $name, first: true, as: $res_pkt }
+
+                    if: "$driver == 'mysql'" {
+                          then: {
+                              coalesce: $res_max_conn.Value { default: '151', as: $live_max_connections }
+                              coalesce: $res_buf.Value { default: '0', as: $live_buffer_pool }
+                              coalesce: $res_pkt.Value { default: '0', as: $live_packet }
+                          }
+                          else: {
+                              coalesce: $res_max_conn.max_connections { default: '100', as: $live_max_connections }
+                              coalesce: $res_buf.shared_buffers { default: '128MB', as: $live_buffer_pool }
+                              coalesce: $res_pkt.work_mem { default: '4MB', as: $live_packet }
+                          }
+                    }
+                }
+            }
+
+            http.ok: {
+                success: true,
+                name: $name,
+                driver: $driver,
+                config: $config_content,
+                live_max_connections: $live_max_connections,
+                live_buffer_pool: $live_buffer_pool,
+                live_packet: $live_packet
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Server tidak ditemukan." }
+        }
+    }
+}
+
+# 5. Save Database Server Configuration and Restart
+http.post: '/api/database/servers/config/save' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+    var: $raw_config { val: $body.config }
+    var: $max_connections { val: $body.max_connections }
+    var: $buffer_pool_size { val: $body.buffer_pool_size }
+    var: $max_allowed_packet { val: $body.max_allowed_packet }
+
+    db.select: "SELECT id, name, driver FROM db_servers WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $server
+    }
+
+    if: $server {
+        then: {
+            var: $name { val: $server.name }
+            var: $driver { val: $server.driver }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    var: $conf_dir { val: "/var/lib/zenopanel/db/${name}_conf" }
+                    io.dir.create: $conf_dir
+                    var: $file_path { val: "${conf_dir}/z_custom.cnf" }
+
+                    var: $config_data { val: $raw_config }
+                    if: { is_empty: $config_data } {
+                        then: {
+                            var: $config_data { val: "[mysqld]\nmax_connections = ${max_connections}\ninnodb_buffer_pool_size = ${buffer_pool_size}\nmax_allowed_packet = ${max_allowed_packet}\n" }
+                        }
+                    }
+
+                    io.file.write: {
+                        path: $file_path
+                        content: $config_data
+                    }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $file_path { val: "/var/lib/zenopanel/db/${name}/postgresql.conf" }
+                    var: $config_data { val: $raw_config }
+                    
+                    if: { is_empty: $config_data } {
+                        then: {
+                            io.file.read: $file_path { as: $orig_content }
+                            coalesce: $orig_content { default: "", as: $orig_content }
+                            var: $config_data { val: "${orig_content}\n\n# Added by ZenoPanel\nmax_connections = ${max_connections}\nshared_buffers = '${buffer_pool_size}'\nwork_mem = '${max_allowed_packet}'\n" }
+                        }
+                    }
+
+                    io.file.write: {
+                        path: $file_path
+                        content: $config_data
+                    }
+                }
+            }
+
+            var: $cmd { val: "docker restart ${name}" }
+            system.exec: $cmd { as: $restart_res }
+
+            http.ok: { success: true, message: "Konfigurasi disimpan. Container database '${name}' berhasil direstart." }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Server tidak ditemukan." }
+        }
+    }
+}
+
+# ==========================================
+# 10. Database Backup Schedules
+# ==========================================
+
+# GET /api/database/backup-schedules
+http.get: '/api/database/backup-schedules' {
+    auth.guard
+    db.select: "SELECT id, database_name, schedule, retention, is_active, last_run FROM db_backup_schedules ORDER BY id DESC" { as: $schedules }
+    http.ok: { success: true, data: $schedules }
+}
+
+# POST /api/database/backup-schedules/create
+http.post: '/api/database/backup-schedules/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $db_name { val: $body.database_name }
+    var: $schedule { val: $body.schedule }
+    var: $retention { val: $body.retention }
+
+    var: $exists { val: false }
+    if: "$db_name == 'default'" {
+        then: {
+            var: $exists { val: true }
+        }
+        else: {
+            db.select: "SELECT id FROM db_databases WHERE db_name = ?" {
+                bind: [$db_name]
+                first: true
+                as: $db_info
+            }
+            if: $db_info {
+                then: {
+                    var: $exists { val: true }
+                }
+            }
+        }
+    }
+
+    if: $exists {
+        then: {
+            db.select: "SELECT id FROM db_backup_schedules WHERE database_name = ?" {
+                bind: [$db_name]
+                first: true
+                as: $existing_sched
+            }
+
+            if: $existing_sched {
+                then: {
+                    db.execute: "UPDATE db_backup_schedules SET schedule = ?, retention = ?, is_active = 1 WHERE database_name = ?" {
+                        bind: [$schedule, $retention, $db_name]
+                    }
+                    http.ok: { success: true, message: "Jadwal backup database berhasil diperbarui." }
+                }
+                else: {
+                    db.execute: "INSERT INTO db_backup_schedules (database_name, schedule, retention, is_active) VALUES (?, ?, ?, 1)" {
+                        bind: [$db_name, $schedule, $retention]
+                    }
+                    http.created: { success: true, message: "Jadwal backup database berhasil dibuat." }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Database tidak ditemukan." }
+        }
+    }
+}
+
+# POST /api/database/backup-schedules/delete
+http.post: '/api/database/backup-schedules/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.execute: "DELETE FROM db_backup_schedules WHERE id = ?" {
+        bind: [$id]
+    }
+    http.ok: { success: true, message: "Jadwal backup database berhasil dihapus." }
 }

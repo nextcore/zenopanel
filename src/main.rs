@@ -387,6 +387,21 @@ fn main() {
     .expect("Failed to create db_backups table");
 
     sqlx::query(
+        "CREATE TABLE IF NOT EXISTS db_backup_schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            database_name TEXT NOT NULL,
+            schedule TEXT NOT NULL,
+            retention INTEGER NOT NULL DEFAULT 7,
+            is_active INTEGER DEFAULT 1,
+            last_run TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create db_backup_schedules table");
+
+    sqlx::query(
         "CREATE TABLE IF NOT EXISTS cron_jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -1690,7 +1705,14 @@ pub(crate) async fn start_dynamic_proxy_listeners(
             if !rule.enabled {
                 continue;
             }
-            for host_str in &[&rule.domain, &rule.alternative_domain] {
+            let mut hosts = vec![rule.domain.as_str()];
+            for alt in rule.alternative_domain.split(',') {
+                let trimmed = alt.trim();
+                if !trimmed.is_empty() {
+                    hosts.push(trimmed);
+                }
+            }
+            for host_str in hosts {
                 let (_, port_opt) = proxyman::parse_host_port(host_str);
                 if let Some(p) = port_opt {
                     // Do not bind to main port or standard SSL ports

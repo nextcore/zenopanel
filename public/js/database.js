@@ -12,6 +12,7 @@ export function initDatabaseTab() {
     updateConnectionSelector();
     loadDatabaseTables();
     loadDatabaseBackups();
+    loadDatabaseBackupSchedules();
 }
 
 export function switchDatabaseSubTab(tabName) {
@@ -42,6 +43,7 @@ export function switchDatabaseSubTab(tabName) {
         loadDatabaseTables();
     } else if (tabName === 'backups') {
         loadDatabaseBackups();
+        loadDatabaseBackupSchedules();
     }
 }
 
@@ -72,7 +74,7 @@ function renderDatabaseServers() {
     if (registeredServers.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" style="text-align:center; padding:32px; color:var(--text-muted);">
+                <td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">
                     No database servers registered. Register one to manage databases.
                 </td>
             </tr>
@@ -85,6 +87,8 @@ function renderDatabaseServers() {
             <td style="font-weight:600; color:var(--text-main);">${escapeHtml(server.name)}</td>
             <td><span class="badge ${server.driver === 'postgres' ? 'badge-running' : 'badge-starting'}">${server.driver.toUpperCase()}</span></td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(server.host)}:${server.port}</td>
+            <td id="db-server-uptime-${server.name}" style="font-size:0.8rem; color:var(--text-muted);">-</td>
+            <td id="db-server-connections-${server.name}" style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">-</td>
             <td>${escapeHtml(server.admin_user)}</td>
             <td>
                 <span class="badge ${server.is_remote === 1 ? 'badge-running' : 'badge-sleeping'}" style="cursor:pointer; user-select:none;" onclick="toggleDatabaseRemoteAccess(${server.id}, ${server.is_remote === 1 ? 0 : 1})">
@@ -93,6 +97,9 @@ function renderDatabaseServers() {
             </td>
             <td style="text-align:right;">
                 <div style="display:flex; justify-content:flex-end; gap:6px;">
+                    <button class="btn-action" onclick="openDatabaseConfigModal(${server.id}, '${escapeHtml(server.name)}', '${server.driver}')" style="color:#eab308; border-color:rgba(234,179,8,0.2);" title="Configure parameters">
+                        <i class="fa-solid fa-sliders"></i> Config
+                    </button>
                     <button class="btn-action" onclick="openDatabaseLogsModal('${escapeHtml(server.name)}')" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2);">
                         <i class="fa-solid fa-terminal"></i> Logs
                     </button>
@@ -103,6 +110,29 @@ function renderDatabaseServers() {
             </td>
         </tr>
     `).join('');
+
+    // Dynamically fetch live status for each database server container
+    registeredServers.forEach(server => {
+        fetch(`/api/database/servers/status?name=${encodeURIComponent(server.name)}&driver=${encodeURIComponent(server.driver)}`)
+            .then(res => res.json())
+            .then(res => {
+                const elUpt = document.getElementById(`db-server-uptime-${server.name}`);
+                const elConn = document.getElementById(`db-server-connections-${server.name}`);
+                if (res.success) {
+                    if (elUpt) elUpt.innerText = formatUptime(res.uptime);
+                    if (elConn) elConn.innerText = res.connections;
+                } else {
+                    if (elUpt) elUpt.innerText = 'Offline';
+                    if (elConn) elConn.innerText = 'Offline';
+                }
+            })
+            .catch(() => {
+                const elUpt = document.getElementById(`db-server-uptime-${server.name}`);
+                const elConn = document.getElementById(`db-server-connections-${server.name}`);
+                if (elUpt) elUpt.innerText = 'Offline';
+                if (elConn) elConn.innerText = 'Offline';
+            });
+    });
 }
 
 export function openAddDbServerModal() {
@@ -223,7 +253,7 @@ function renderUserDatabases() {
     if (userDatabases.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">
+                <td colspan="9" style="text-align:center; padding:32px; color:var(--text-muted);">
                     No databases created yet. Click "Create Database" to start.
                 </td>
             </tr>
@@ -238,6 +268,7 @@ function renderUserDatabases() {
                 <div style="font-weight:500; font-size:0.85rem;">${escapeHtml(db.server_name)}</div>
                 <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">${escapeHtml(db.server_driver)}</div>
             </td>
+            <td id="db-size-${db.db_name}" style="color:var(--text-muted); font-size:0.85rem;">-</td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(db.db_user)}</td>
             <td>
                 <div style="display:flex; align-items:center; gap:8px;">
@@ -253,6 +284,9 @@ function renderUserDatabases() {
             <td style="font-size:0.8rem; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(db.description || '')}">${escapeHtml(db.description || '-')}</td>
             <td style="text-align:right;">
                 <div style="display:flex; justify-content:flex-end; gap:6px;">
+                    <button class="btn-action" onclick="openDatabaseMaintenanceModal('${escapeHtml(db.db_name)}', '${escapeHtml(db.server_name)}', '${db.server_driver}')" style="color:#eab308; border-color:rgba(234,179,8,0.2);" title="Database Maintenance">
+                        <i class="fa-solid fa-screwdriver-wrench"></i>
+                    </button>
                     <button class="btn-action" onclick="openManageDbUsersModal(${db.id}, '${escapeHtml(db.db_name)}')" style="color:#a78bfa; border-color:rgba(167,139,250,0.2);">
                         <i class="fa-solid fa-users"></i> Users
                     </button>
@@ -269,6 +303,22 @@ function renderUserDatabases() {
             </td>
         </tr>
     `).join('');
+
+    // Dynamically fetch storage size for each user database
+    userDatabases.forEach(db => {
+        fetch(`/api/database/size?server_name=${encodeURIComponent(db.server_name)}&db_name=${encodeURIComponent(db.db_name)}&driver=${encodeURIComponent(db.server_driver)}`)
+            .then(res => res.json())
+            .then(res => {
+                const el = document.getElementById(`db-size-${db.db_name}`);
+                if (el) {
+                    el.innerText = res.success ? formatBytes(res.size) : 'Error';
+                }
+            })
+            .catch(() => {
+                const el = document.getElementById(`db-size-${db.db_name}`);
+                if (el) el.innerText = 'Error';
+            });
+    });
 }
 
 window.togglePasswordVisibility = function(id) {
@@ -475,13 +525,21 @@ export function onConsoleConnectionChange() {
 
 export function loadDatabaseTables() {
     const select = document.getElementById('db-console-connection-select');
-    const connection = select ? select.value : 'default';
+    const connection = select ? select.value : '';
+
+    const list = document.getElementById('db-tables-list');
+    if (!list) return;
+
+    if (!connection) {
+        list.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted); font-size:0.8rem;">Pilih koneksi terlebih dahulu.</div>';
+        const badge = document.getElementById('db-driver-badge');
+        if (badge) badge.innerText = 'NONE';
+        return;
+    }
 
     fetch(`/api/database/tables?connection=${encodeURIComponent(connection)}`)
         .then(res => res.json())
         .then(res => {
-            const list = document.getElementById('db-tables-list');
-            if (!list) return;
             list.innerHTML = '';
             
             const badge = document.getElementById('db-driver-badge');
@@ -524,7 +582,6 @@ export function loadDatabaseTables() {
             }
         })
         .catch(err => {
-            const list = document.getElementById('db-tables-list');
             if (list) {
                 list.innerHTML = '<div style="padding:16px; text-align:center; color:var(--danger); font-size:0.8rem;">Error loading tables</div>';
             }
@@ -533,11 +590,16 @@ export function loadDatabaseTables() {
 
 export function runSqlQuery() {
     const select = document.getElementById('db-console-connection-select');
-    const connection = select ? select.value : 'default';
+    const connection = select ? select.value : '';
     const sqlInput = document.getElementById('sql-query-input');
     const isSelectInput = document.getElementById('sql-is-select');
     const sql = sqlInput ? sqlInput.value : '';
     const isSelect = isSelectInput ? isSelectInput.checked : true;
+
+    if (!connection) {
+        showToast('error', 'Silakan pilih koneksi database terlebih dahulu');
+        return;
+    }
 
     if (!sql.trim()) {
         showToast('error', 'Masukkan query SQL terlebih dahulu');
@@ -844,6 +906,8 @@ export function submitInstallDbEngine() {
     const port = parseInt(document.getElementById('install-db-port').value) || 3306;
     const root_password = document.getElementById('install-db-root-password').value;
     const data_dir = document.getElementById('install-db-data-dir').value.trim();
+    const mem_limit = document.getElementById('install-db-mem-limit').value;
+    const cpus = document.getElementById('install-db-cpu-limit').value;
 
     if (!name || !root_password || !data_dir) {
         showToast('error', 'Semua field wajib diisi');
@@ -861,7 +925,7 @@ export function submitInstallDbEngine() {
     fetch('/api/database/install-server', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
-        body: JSON.stringify({ engine, name, port, root_password, data_dir })
+        body: JSON.stringify({ engine, name, port, root_password, data_dir, mem_limit, cpus })
     })
     .then(res => res.json())
     .then(res => {
@@ -901,16 +965,16 @@ function updateConnectionSelector() {
 
     const currentVal = select.value;
     
-    let optionsHtml = '<option value="default">Default Panel DB (SQLite)</option>';
+    let optionsHtml = '<option value="">Pilih Koneksi...</option>';
     
-    // Add registered raw servers
-    registeredServers.forEach(server => {
-        optionsHtml += `<option value="${escapeHtml(server.name)}">${escapeHtml(server.name)} (Server Admin - ${server.driver.toUpperCase()})</option>`;
-    });
-
     // Add created user databases specifically
     userDatabases.forEach(db => {
         optionsHtml += `<option value="${escapeHtml(db.db_name)}">${escapeHtml(db.db_name)} (User DB - ${db.server_driver.toUpperCase()})</option>`;
+    });
+
+    // Add registered raw servers
+    registeredServers.forEach(server => {
+        optionsHtml += `<option value="${escapeHtml(server.name)}">${escapeHtml(server.name)} (Server Admin - ${server.driver.toUpperCase()})</option>`;
     });
 
     select.innerHTML = optionsHtml;
@@ -1019,7 +1083,7 @@ export function openCreateBackupModal() {
     const select = document.getElementById('db-backup-select');
     if (!select) return;
 
-    let optionsHtml = '<option value="default">Default Panel DB (SQLite)</option>';
+    let optionsHtml = '';
     userDatabases.forEach(db => {
         optionsHtml += `<option value="${escapeHtml(db.db_name)}">${escapeHtml(db.db_name)} (${escapeHtml(db.server_name)} - ${db.server_driver.toUpperCase()})</option>`;
     });
@@ -1288,9 +1352,355 @@ export function downloadDatabaseBackup(filename) {
     window.location.href = `/api/files/download?path=${encodeURIComponent(path)}`;
 }
 
+// ==========================================
+// 8. Database Server Configuration Tuning
+// ==========================================
+
+let activeConfigServerId = null;
+
+export function openDatabaseConfigModal(serverId, name, driver) {
+    activeConfigServerId = serverId;
+    document.getElementById('db-config-server-id').value = serverId;
+    document.getElementById('db-config-server-name').innerText = name;
+    document.getElementById('db-config-server-driver').value = driver;
+
+    // Reset tabs
+    switchDbConfigTab('visual');
+
+    // Update labels/hints based on database driver
+    const isPostgres = driver === 'postgres';
+    document.getElementById('db-config-buffer-label').innerText = isPostgres ? 'Shared Buffers' : 'Buffer Pool Size';
+    document.getElementById('db-config-packet-label').innerText = isPostgres ? 'Work Memory' : 'Max Allowed Packet';
+
+    // Populate with defaults / placeholders
+    document.getElementById('db-config-max-connections').value = isPostgres ? '100' : '150';
+    document.getElementById('db-config-buffer-pool').value = isPostgres ? '128MB' : '128M';
+    document.getElementById('db-config-max-packet').value = isPostgres ? '4MB' : '16M';
+    document.getElementById('db-config-raw-content').value = '';
+
+    // Show loading indicators for live values
+    document.getElementById('db-config-live-connections').innerText = '...';
+    document.getElementById('db-config-live-buffer').innerText = '...';
+    document.getElementById('db-config-live-packet').innerText = '...';
+
+    document.getElementById('db-server-config-modal').classList.add('active');
+
+    // Fetch config values from API
+    fetch(`/api/database/servers/config?id=${serverId}`)
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                document.getElementById('db-config-live-connections').innerText = res.live_max_connections;
+                document.getElementById('db-config-live-buffer').innerText = res.live_buffer_pool;
+                document.getElementById('db-config-live-packet').innerText = res.live_packet;
+
+                if (res.live_max_connections && res.live_max_connections !== 'Unknown') {
+                    document.getElementById('db-config-max-connections').value = res.live_max_connections;
+                }
+                if (res.live_buffer_pool && res.live_buffer_pool !== 'Unknown') {
+                    document.getElementById('db-config-buffer-pool').value = res.live_buffer_pool;
+                }
+                if (res.live_packet && res.live_packet !== 'Unknown') {
+                    document.getElementById('db-config-max-packet').value = res.live_packet;
+                }
+
+                document.getElementById('db-config-raw-content').value = res.config;
+            } else {
+                showToast('error', 'Gagal memuat konfigurasi server');
+            }
+        })
+        .catch(err => showToast('error', 'Gagal memuat konfigurasi: ' + err.toString()));
+}
+
+export function closeDatabaseConfigModal() {
+    document.getElementById('db-server-config-modal').classList.remove('active');
+    activeConfigServerId = null;
+}
+
+export function switchDbConfigTab(tabName) {
+    const visualTab = document.getElementById('db-config-tab-visual');
+    const rawTab = document.getElementById('db-config-tab-raw');
+    const visualBtn = document.getElementById('db-config-tab-visual-btn');
+    const rawBtn = document.getElementById('db-config-tab-raw-btn');
+
+    if (tabName === 'visual') {
+        if (visualTab) visualTab.style.display = 'block';
+        if (rawTab) rawTab.style.display = 'none';
+        if (visualBtn) visualBtn.classList.add('active');
+        if (rawBtn) rawBtn.classList.remove('active');
+    } else {
+        if (visualTab) visualTab.style.display = 'none';
+        if (rawTab) rawTab.style.display = 'block';
+        if (visualBtn) visualBtn.classList.remove('active');
+        if (rawBtn) rawBtn.classList.add('active');
+    }
+}
+
+export function submitDatabaseConfig() {
+    const id = activeConfigServerId;
+    if (!id) return;
+
+    const max_connections = document.getElementById('db-config-max-connections').value.trim();
+    const buffer_pool_size = document.getElementById('db-config-buffer-pool').value.trim();
+    const max_allowed_packet = document.getElementById('db-config-max-packet').value.trim();
+    
+    const rawBtn = document.getElementById('db-config-tab-raw-btn');
+    const isRawActive = rawBtn && rawBtn.classList.contains('active');
+    const config = isRawActive ? document.getElementById('db-config-raw-content').value : '';
+
+    const btn = document.getElementById('db-config-save-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+    }
+
+    showToast('info', 'Sedang menyimpan konfigurasi dan merestart database...');
+
+    fetch('/api/database/servers/config/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+        body: JSON.stringify({ id, config, max_connections, buffer_pool_size, max_allowed_packet })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-save"></i> Save &amp; Restart';
+        }
+        if (res.success) {
+            showToast('success', res.message);
+            closeDatabaseConfigModal();
+            loadDatabaseServers();
+        } else {
+            showToast('error', res.message || 'Gagal menyimpan konfigurasi');
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-save"></i> Save &amp; Restart';
+        }
+        showToast('error', 'API error: ' + err.toString());
+    });
+}
+
+// ==========================================
+// 9. Database Maintenance Actions
+// ==========================================
+
+export function openDatabaseMaintenanceModal(dbName, serverName, driver) {
+    document.getElementById('db-maint-db-name').value = dbName;
+    document.getElementById('db-maint-server-name').value = serverName;
+    document.getElementById('db-maint-driver').value = driver;
+
+    document.getElementById('db-maint-label-dbname').innerText = dbName;
+    document.getElementById('db-maint-label-driver').innerText = driver;
+    document.getElementById('db-maint-output').innerText = 'Pilih salah satu operasi di atas untuk memulai perawatan database.';
+
+    const repairBtn = document.getElementById('maint-btn-repair');
+    if (repairBtn) {
+        repairBtn.style.display = driver === 'postgres' ? 'none' : 'flex';
+    }
+
+    document.getElementById('db-maintenance-modal').classList.add('active');
+}
+
+export function closeDatabaseMaintenanceModal() {
+    document.getElementById('db-maintenance-modal').classList.remove('active');
+}
+
+export function runDatabaseMaintenanceAction(action) {
+    const dbName = document.getElementById('db-maint-db-name').value;
+    const serverName = document.getElementById('db-maint-server-name').value;
+    const driver = document.getElementById('db-maint-driver').value;
+    const outputDiv = document.getElementById('db-maint-output');
+
+    if (outputDiv) {
+        outputDiv.innerHTML = `<span style="color:var(--accent-primary);"><i class="fa-solid fa-spinner fa-spin"></i> Running ${action} database...</span>`;
+    }
+
+    fetch('/api/database/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+        body: JSON.stringify({ server_name: serverName, db_name: dbName, driver, action })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (outputDiv) {
+            if (res.success) {
+                outputDiv.innerHTML = `<span style="color:#10b981; font-weight:600;"><i class="fa-solid fa-circle-check"></i> Sukses!</span>\n\n${res.message}`;
+                fetch(`/api/database/size?server_name=${encodeURIComponent(serverName)}&db_name=${encodeURIComponent(dbName)}&driver=${encodeURIComponent(driver)}`)
+                    .then(r => r.json())
+                    .then(r => {
+                        const el = document.getElementById(`db-size-${dbName}`);
+                        if (el && r.success) el.innerText = formatBytes(r.size);
+                    });
+            } else {
+                outputDiv.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fa-solid fa-circle-xmark"></i> Gagal!</span>\n\n${res.message}`;
+            }
+        }
+    })
+    .catch(err => {
+        if (outputDiv) {
+            outputDiv.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fa-solid fa-triangle-exclamation"></i> API Error</span>\n\n${err.toString()}`;
+        }
+    });
+}
+
+// Uptime Formatter Helper
+function formatUptime(seconds) {
+    if (!seconds || seconds === '0' || seconds === 0) return '0s';
+    const s = parseInt(seconds, 10);
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    
+    let res = '';
+    if (d > 0) res += `${d}d `;
+    if (h > 0) res += `${h}h `;
+    if (m > 0) res += `${m}m `;
+    if (res === '') res = `${s}s`;
+    return res.trim();
+}
+
 window.toggleDatabaseRemoteAccess = toggleDatabaseRemoteAccess;
 window.openDatabaseLogsModal = openDatabaseLogsModal;
 window.closeDatabaseLogsModal = closeDatabaseLogsModal;
 window.downloadDatabaseBackup = downloadDatabaseBackup;
+
+window.openDatabaseConfigModal = openDatabaseConfigModal;
+window.closeDatabaseConfigModal = closeDatabaseConfigModal;
+window.switchDbConfigTab = switchDbConfigTab;
+window.submitDatabaseConfig = submitDatabaseConfig;
+window.openDatabaseMaintenanceModal = openDatabaseMaintenanceModal;
+window.closeDatabaseMaintenanceModal = closeDatabaseMaintenanceModal;
+window.runDatabaseMaintenanceAction = runDatabaseMaintenanceAction;
+
+// ==========================================
+// 10. Database Scheduled Backups Management
+// ==========================================
+
+export function loadDatabaseBackupSchedules() {
+    const tbody = document.getElementById('db-backup-schedules-table-body');
+    if (!tbody) return;
+
+    fetch('/api/database/backup-schedules')
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data) {
+                if (res.data.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">No auto-backup schedules configured.</td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                tbody.innerHTML = res.data.map(sched => {
+                    const lastRun = sched.last_run ? sched.last_run.replace('T', ' ').substring(0, 19) : '-';
+                    return `
+                        <tr>
+                            <td style="font-weight:600; color:var(--text-main);">${escapeHtml(sched.database_name)}</td>
+                            <td style="text-transform:capitalize;">${escapeHtml(sched.schedule)}</td>
+                            <td>${sched.retention} files</td>
+                            <td style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(lastRun)}</td>
+                            <td style="text-align:right;">
+                                <button class="btn-action" onclick="deleteDatabaseBackupSchedule(${sched.id})" style="color:#ef4444; border-color:rgba(239,68,68,0.2); padding:3px 8px; font-size:0.75rem;">
+                                    <i class="fa-solid fa-trash"></i> Delete
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--danger); padding:20px;">Gagal memuat jadwal: ${escapeHtml(res.message || 'Error')}</td></tr>`;
+            }
+        })
+        .catch(err => {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--danger); padding:20px;">Gagal memuat jadwal: ${escapeHtml(err.toString())}</td></tr>`;
+        });
+}
+
+export function openCreateBackupScheduleModal() {
+    const select = document.getElementById('db-backup-sched-database');
+    if (!select) return;
+
+    // Populate dropdown with user databases (excluding SQLite)
+    let optionsHtml = '';
+    userDatabases.forEach(db => {
+        optionsHtml += `<option value="${escapeHtml(db.db_name)}">${escapeHtml(db.db_name)} (${escapeHtml(db.server_name)})</option>`;
+    });
+
+    select.innerHTML = optionsHtml;
+    document.getElementById('db-backup-sched-retention').value = '7';
+    document.getElementById('create-db-backup-schedule-modal').classList.add('active');
+}
+
+export function closeCreateBackupScheduleModal() {
+    document.getElementById('create-db-backup-schedule-modal').classList.remove('active');
+}
+
+export function submitCreateBackupSchedule() {
+    const database_name = document.getElementById('db-backup-sched-database').value;
+    const schedule = document.getElementById('db-backup-sched-period').value;
+    const retention = parseInt(document.getElementById('db-backup-sched-retention').value, 10);
+
+    if (!database_name) {
+        showToast('error', 'Silakan pilih database terlebih dahulu.');
+        return;
+    }
+    if (isNaN(retention) || retention < 1) {
+        showToast('error', 'Batas retensi tidak valid.');
+        return;
+    }
+
+    fetch('/api/database/backup-schedules/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+        body: JSON.stringify({ database_name, schedule, retention })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast('success', res.message);
+            closeCreateBackupScheduleModal();
+            loadDatabaseBackupSchedules();
+        } else {
+            showToast('error', res.message || 'Gagal menyimpan jadwal backup.');
+        }
+    })
+    .catch(err => {
+        showToast('error', 'API error: ' + err.toString());
+    });
+}
+
+export function deleteDatabaseBackupSchedule(id) {
+    if (!confirm('Apakah Anda yakin ingin menghapus jadwal backup ini?')) return;
+
+    fetch('/api/database/backup-schedules/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+        body: JSON.stringify({ id })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast('success', res.message);
+            loadDatabaseBackupSchedules();
+        } else {
+            showToast('error', res.message || 'Gagal menghapus jadwal backup.');
+        }
+    })
+    .catch(err => {
+        showToast('error', 'API error: ' + err.toString());
+    });
+}
+
+window.loadDatabaseBackupSchedules = loadDatabaseBackupSchedules;
+window.openCreateBackupScheduleModal = openCreateBackupScheduleModal;
+window.closeCreateBackupScheduleModal = closeCreateBackupScheduleModal;
+window.submitCreateBackupSchedule = submitCreateBackupSchedule;
+window.deleteDatabaseBackupSchedule = deleteDatabaseBackupSchedule;
 
 

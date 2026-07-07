@@ -33,6 +33,7 @@
                         <tr>
                             <th>Database Name</th>
                             <th>Driver / Server</th>
+                            <th>Size</th>
                             <th>DB User</th>
                             <th>Password</th>
                             <th>Charset</th>
@@ -44,7 +45,7 @@
                     <tbody id="db-databases-table-body">
                         <!-- Dynamically populated -->
                         <tr>
-                            <td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">Loading databases...</td>
+                            <td colspan="9" style="text-align:center; padding:32px; color:var(--text-muted);">Loading databases...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -73,6 +74,8 @@
                             <th>Server Name</th>
                             <th>Engine / Driver</th>
                             <th>Host &amp; Port</th>
+                            <th>Uptime</th>
+                            <th>Connections</th>
                             <th>Admin Username</th>
                             <th>Remote Access</th>
                             <th style="text-align:right;">Actions</th>
@@ -81,7 +84,7 @@
                     <tbody id="db-servers-table-body">
                         <!-- Dynamically populated -->
                         <tr>
-                            <td colspan="5" style="text-align:center; padding:32px; color:var(--text-muted);">Loading database servers...</td>
+                            <td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">Loading database servers...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -96,7 +99,7 @@
                     <div style="margin-bottom:12px;">
                         <label style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); display:block; margin-bottom:6px;">Select Connection</label>
                         <select id="db-console-connection-select" onchange="onConsoleConnectionChange()" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); font-size:0.85rem; outline:none; cursor:pointer;">
-                            <option value="default">Default Panel DB (SQLite)</option>
+                            <option value="">Pilih Koneksi...</option>
                         </select>
                     </div>
                     <div style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
@@ -186,6 +189,36 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Auto-Backup Schedules Section -->
+            <div class="card" style="margin-top:24px; padding:20px; background:rgba(255,255,255,0.01); border:1px solid var(--card-border); border-radius:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:12px; margin-bottom:16px;">
+                    <h4 style="margin:0; font-size:0.95rem; font-weight:600; display:flex; align-items:center; gap:8px;">
+                        <i class="fa-solid fa-clock" style="color:var(--accent-primary);"></i> Auto-Backup Schedules
+                    </h4>
+                    <button class="btn-primary-action" onclick="openCreateBackupScheduleModal()" style="font-size:0.75rem; padding:6px 12px;">
+                        <i class="fa-solid fa-plus"></i> Add Schedule
+                    </button>
+                </div>
+                <div class="table-container" style="min-height:120px;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Database Name</th>
+                                <th>Period / Interval</th>
+                                <th>Retention Limit</th>
+                                <th>Last Execution</th>
+                                <th style="text-align:right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="db-backup-schedules-table-body">
+                            <tr>
+                                <td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">No auto-backup schedules configured.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 

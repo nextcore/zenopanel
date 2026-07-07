@@ -121,7 +121,10 @@ export function renderProxyRules(rules) {
             </td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">
                 ${rule.domain && rule.domain !== '*' ? `<a href="${rule.ssl_enabled ? 'https' : 'http'}://${rule.domain}${rule.path}" target="_blank" style="color:var(--text-main); text-decoration:none; border-bottom:1px dashed var(--text-muted);">${escapeHtml(rule.domain)}</a>` : (rule.domain ? escapeHtml(rule.domain) : '*')}
-                ${rule.alternative_domain ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Alt: <a href="${rule.ssl_enabled ? 'https' : 'http'}://${rule.alternative_domain}${rule.path}" target="_blank" style="color:var(--text-muted); text-decoration:none; border-bottom:1px dashed rgba(255,255,255,0.2);">${escapeHtml(rule.alternative_domain)}</a></div>` : ''}
+                ${rule.alternative_domain ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Alt: ${rule.alternative_domain.split(',').map(dom => {
+                    const trimmed = dom.trim();
+                    return `<a href="${rule.ssl_enabled ? 'https' : 'http'}://${trimmed}${rule.path}" target="_blank" style="color:var(--text-muted); text-decoration:none; border-bottom:1px dashed rgba(255,255,255,0.2);">${escapeHtml(trimmed)}</a>`;
+                }).join(', ')}</div>` : ''}
             </td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(rule.path)}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--accent-primary);">${escapeHtml(rule.target)}</td>
@@ -287,6 +290,7 @@ function onProxyRuleTypeChange() {
     const groupStrip = document.getElementById('proxy-group-strip-path');
     const labelTarget = document.getElementById('proxy-target-label');
     const inputTarget = document.getElementById('proxy-target');
+    const dirPickerBtn = document.getElementById('proxy-dir-picker-btn');
 
     if (ruleType === 'static') {
         if (groupProcess) groupProcess.style.display = 'none';
@@ -295,6 +299,7 @@ function onProxyRuleTypeChange() {
         if (inputTarget) {
             inputTarget.placeholder = 'e.g. /var/www/my-site';
         }
+        if (dirPickerBtn) dirPickerBtn.style.setProperty('display', 'flex', 'important');
     } else {
         if (groupProcess) groupProcess.style.display = 'block';
         if (groupStrip) groupStrip.style.display = 'flex';
@@ -302,6 +307,7 @@ function onProxyRuleTypeChange() {
         if (inputTarget) {
             inputTarget.placeholder = 'e.g. http://127.0.0.1:8000';
         }
+        if (dirPickerBtn) dirPickerBtn.style.setProperty('display', 'none', 'important');
     }
 }
 
@@ -409,7 +415,9 @@ export function submitAddProxy() {
     const id = idVal ? idVal.value : '';
     const name = nameInput ? nameInput.value.trim() : '';
     const domain = domInput ? sanitizeHost(domInput.value) : '';
-    const alternative_domain = alternativeDomInput ? sanitizeHost(alternativeDomInput.value) : '';
+    const alternative_domain = alternativeDomInput 
+        ? alternativeDomInput.value.split(',').map(s => sanitizeHost(s)).filter(s => s).join(', ') 
+        : '';
     const path = pathInput ? pathInput.value.trim() : '';
     const target = targetInput ? targetInput.value.trim() : '';
     const strip_path = spCheck ? spCheck.checked : false;

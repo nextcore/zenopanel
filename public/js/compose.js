@@ -247,6 +247,8 @@ function getTemplateTipHtml(template) {
     tip = `Upload file kode Node.js Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app_data</strong>.<br>Pastikan ada file entrypoint <strong>server.js</strong> dan berkas dependencies <strong>package.json</strong> di folder tersebut.`;
   } else if (template === "laravel") {
     tip = `Upload seluruh kode framework Laravel Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app_data</strong>.<br>Zeno Box akan melayani aplikasi Anda menggunakan <strong>FrankenPHP secara asinkron</strong> pada port 8000.`;
+  } else if (template === "php-serversideup") {
+    tip = `Upload berkas PHP Anda ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app_data/public/index.php</strong> (atau folder root). Kontainer serversideup/php akan langsung melayani aplikasi PHP Anda.`;
   } else if (template === "dotnet") {
     tip = `Publish aplikasi Anda terlebih dahulu, lalu upload hasilnya ke <strong>/var/lib/zeno-container/volumes/[nama_proyek]_app_data</strong>.<br>Ubah nama DLL target di file YAML setelah proyek dibuat (default: <code>app-name.dll</code>).`;
   } else if (template === "python") {
@@ -292,51 +294,51 @@ export function initComposeTemplateOptionsListener() {
     optionsDiv.style.display = "block";
     let html = "";
 
-    if (template === "laravel") {
+    if (template === "php") {
       html = `
         <div class="form-group" style="margin-bottom:12px;">
-            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Web Server / Engine</label>
-            <select id="compose-opt-laravel-server" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none; cursor:pointer;">
-                <option value="frankenphp">FrankenPHP (Standalone, Asynchronous)</option>
+            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Variation / Web Server</label>
+            <select id="compose-opt-php-server" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none; cursor:pointer;">
+                <option value="fpm-nginx">FPM-NGINX (Recommended, serversideup/php:X.Y-fpm-nginx)</option>
+                <option value="frankenphp">FrankenPHP (serversideup/php:8.4-frankenphp)</option>
+                <option value="fpm-apache">FPM-Apache (serversideup/php:X.Y-fpm-apache)</option>
+                <option value="fpm">FPM only (serversideup/php:X.Y-fpm)</option>
             </select>
         </div>
         <div class="form-group" style="margin-bottom:12px;">
-            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">PHP Version</label>
-            <select id="compose-opt-laravel-phpver" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none; cursor:pointer;">
+            <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">PHP Version Tag</label>
+            <select id="compose-opt-php-ver" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(15,23,42,0.9); color:var(--text-main); font-size:0.8rem; outline:none; cursor:pointer;">
                 <!-- Dynamically loaded -->
             </select>
         </div>
         <div class="form-group" style="margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap;">
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
-                <input type="checkbox" id="compose-opt-laravel-db-mysql" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MySQL Database
+                <input type="checkbox" id="compose-opt-php-db-mysql" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MySQL Database
             </label>
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
-                <input type="checkbox" id="compose-opt-laravel-db-postgres" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add PostgreSQL
+                <input type="checkbox" id="compose-opt-php-db-postgres" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add PostgreSQL
             </label>
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
-                <input type="checkbox" id="compose-opt-laravel-db-mariadb" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MariaDB
+                <input type="checkbox" id="compose-opt-php-db-mariadb" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add MariaDB
             </label>
             <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
-                <input type="checkbox" id="compose-opt-laravel-redis" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add Redis Cache/Queue
-            </label>
-        </div>
-        <div class="form-group" style="margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap;">
-            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
-                <input type="checkbox" id="compose-opt-laravel-scheduler" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add Scheduler Daemon
-            </label>
-            <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
-                <input type="checkbox" id="compose-opt-laravel-queue" checked style="cursor:pointer; width:14px; height:14px; margin:0;"> Add Queue Worker
+                <input type="checkbox" id="compose-opt-php-redis" style="cursor:pointer; width:14px; height:14px; margin:0;"> Add Redis
             </label>
         </div>
       `;
-      html += getTemplateTipHtml("laravel");
+      html += getTemplateTipHtml("php");
       optionsDiv.innerHTML = html;
 
       // Fetch dynamic PHP tags
-      const serverSelect = document.getElementById("compose-opt-laravel-server");
+      const serverSelect = document.getElementById("compose-opt-php-server");
       const loadPhpTags = () => {
-        // FrankenPHP tags look like: latest-php8.3-alpine or latest-php8.4-alpine
-        loadDynamicDockerTags("dunglas/frankenphp", "compose-opt-laravel-phpver", ["latest-php8.3-alpine", "latest-php8.2-alpine", "latest-php8.4-alpine"], /^(?:1|latest)-php(?:8\.[1234])-alpine$/);
+        const val = serverSelect.value;
+        let defaultTags = ["8.3-" + val, "8.4-" + val, "8.2-" + val];
+        if (val === "frankenphp") {
+          defaultTags = ["8.4-frankenphp", "8.3-frankenphp"];
+        }
+        const filterRegex = new RegExp("^(?:8\\\\.[2-5])-" + val + "$");
+        loadDynamicDockerTags("serversideup/php", "compose-opt-php-ver", defaultTags, filterRegex);
       };
 
       serverSelect.addEventListener("change", loadPhpTags);
@@ -530,27 +532,19 @@ export function submitCreateComposeProject() {
     if (addPostgres) defaultYaml += `  postgres_data:\n`;
     if (addMariadb) defaultYaml += `  mariadb_data:\n`;
 
-  } else if (template === "laravel") {
-    const phpServer = document.getElementById("compose-opt-laravel-server")?.value || "frankenphp";
-    const phpVer = document.getElementById("compose-opt-laravel-phpver")?.value || "8.3";
-    const addMysql = document.getElementById("compose-opt-laravel-db-mysql")?.checked;
-    const addPostgres = document.getElementById("compose-opt-laravel-db-postgres")?.checked;
-    const addMariadb = document.getElementById("compose-opt-laravel-db-mariadb")?.checked;
-    const addRedis = document.getElementById("compose-opt-laravel-redis")?.checked;
-    const addScheduler = document.getElementById("compose-opt-laravel-scheduler")?.checked;
-    const addQueue = document.getElementById("compose-opt-laravel-queue")?.checked;
+  } else if (template === "php") {
+    const phpServer = document.getElementById("compose-opt-php-server")?.value || "fpm-nginx";
+    const phpVer = document.getElementById("compose-opt-php-ver")?.value || ("8.3-" + phpServer);
+    const addMysql = document.getElementById("compose-opt-php-db-mysql")?.checked;
+    const addPostgres = document.getElementById("compose-opt-php-db-postgres")?.checked;
+    const addMariadb = document.getElementById("compose-opt-php-db-mariadb")?.checked;
+    const addRedis = document.getElementById("compose-opt-php-redis")?.checked;
 
-    let appImage = "";
-    if (phpServer === "frankenphp") {
-      appImage = `dunglas/frankenphp:${phpVer}`;
-    } else if (phpServer === "fpm-nginx") {
-      appImage = `webdevops/php-nginx:${phpVer}`;
-    } else {
-      appImage = `webdevops/php-apache:${phpVer}`;
-    }
+    let appImage = `serversideup/php:${phpVer}`;
+    let portMapping = phpServer === "fpm" ? "9000:9000" : "8080:8080";
 
-    // Build the php-app environment variables
-    let envVars = `      SERVER_NAME: :80\n      APP_ENV: production\n      APP_DEBUG: 'false'`;
+    // Build the php environment variables
+    let envVars = `      PHP_UPLOAD_MAX_FILE_SIZE: "250M"\n      PHP_OPCACHE_ENABLE: "0"`;
 
     if (addMysql) {
       envVars += `\n      DB_CONNECTION: mysql\n      DB_HOST: mysql\n      DB_PORT: 3306\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
@@ -560,11 +554,7 @@ export function submitCreateComposeProject() {
       envVars += `\n      DB_CONNECTION: pgsql\n      DB_HOST: postgres\n      DB_PORT: 5432\n      DB_DATABASE: ${cleanName}_db\n      DB_USERNAME: root\n      DB_PASSWORD: secretpassword`;
     }
 
-    if (addRedis) {
-      envVars += `\n      REDIS_HOST: redis\n      REDIS_PORT: 6379`;
-    }
-
-    defaultYaml = `version: '3.8'\n\nservices:\n  php-app:\n    image: ${appImage}\n    container_name: ${cleanName}_php_app\n    ports:\n      - "8000:80"\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
+    defaultYaml = `version: '3.8'\n\nservices:\n  php-app:\n    image: ${appImage}\n    container_name: ${cleanName}_php_app\n    ports:\n      - "${portMapping}"\n    volumes:\n      - app_data:/var/www/html\n    env_file:\n      - .env\n    environment:\n${envVars}\n    memory: 512m\n    cpus: 0.5\n`;
 
     if (addMysql) {
       defaultYaml += `\n  mysql:\n    image: mysql:8.0\n    container_name: ${cleanName}_mysql\n    ports:\n      - "3306:3306"\n    environment:\n      MYSQL_ROOT_PASSWORD: secretpassword\n      MYSQL_DATABASE: ${cleanName}_db\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: always\n`;
@@ -577,14 +567,6 @@ export function submitCreateComposeProject() {
     }
     if (addRedis) {
       defaultYaml += `\n  redis:\n    image: redis:alpine\n    container_name: ${cleanName}_redis\n    ports:\n      - "6379:6379"\n    volumes:\n      - redis_data:/data\n    restart: always\n`;
-    }
-
-    if (addScheduler) {
-      defaultYaml += `\n  scheduler:\n    image: ${appImage}\n    container_name: ${cleanName}_scheduler\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    command: sh -c "while [ true ]; do php artisan schedule:run --no-interaction & sleep 60; done"\n    restart: always\n`;
-    }
-
-    if (addQueue) {
-      defaultYaml += `\n  queue-worker:\n    image: ${appImage}\n    container_name: ${cleanName}_queue_worker\n    volumes:\n      - app_data:/app\n    env_file:\n      - .env\n    environment:\n${envVars}\n    command: php artisan queue:work --verbose --tries=3 --timeout=90\n    restart: always\n`;
     }
 
     defaultYaml += `\nvolumes:\n  app_data:\n`;

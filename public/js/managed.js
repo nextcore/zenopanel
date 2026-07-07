@@ -10,6 +10,7 @@ export const managedState = {
     allManagedProcesses: []
 };
 export let dpCurrentPath = '.';
+let dirPickerTargetInputId = 'proc-cwd';
 
 export function loadManagedProcesses() {
     fetch('/api/managed/list')
@@ -241,8 +242,10 @@ export function deleteProcess(id) {
     });
 }
 
-export function openDirPicker() {
-    let currentVal = document.getElementById('proc-cwd').value.trim();
+export function openDirPicker(targetInputId = 'proc-cwd') {
+    dirPickerTargetInputId = targetInputId;
+    const inputEl = document.getElementById(targetInputId);
+    let currentVal = inputEl ? inputEl.value.trim() : '';
     dpCurrentPath = currentVal || '.';
     loadDirPickerFiles();
     const modal = document.getElementById('dir-picker-modal');
@@ -255,7 +258,7 @@ export function closeDirPicker() {
 }
 
 export function confirmDirSelection() {
-    const cwdInput = document.getElementById('proc-cwd');
+    const cwdInput = document.getElementById(dirPickerTargetInputId);
     if (cwdInput) cwdInput.value = dpCurrentPath;
     closeDirPicker();
 }

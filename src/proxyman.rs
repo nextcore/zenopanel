@@ -221,7 +221,12 @@ impl ProxyManager {
         let ssl_status = if ssl_enabled { "pending".to_string() } else { "none".to_string() };
 
         let clean_domain = sanitize_host(&domain);
-        let clean_alt_domain = sanitize_host(&alternative_domain);
+        let clean_alt_domain = alternative_domain
+            .split(',')
+            .map(|s| sanitize_host(s.trim()))
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<String>>()
+            .join(", ");
 
         let mut clean_path = path.trim().to_string();
         if !clean_path.starts_with('/') {
@@ -284,7 +289,12 @@ impl ProxyManager {
         let ssl_enabled_int = if ssl_enabled { 1 } else { 0 };
 
         let clean_domain = sanitize_host(&domain);
-        let clean_alt_domain = sanitize_host(&alternative_domain);
+        let clean_alt_domain = alternative_domain
+            .split(',')
+            .map(|s| sanitize_host(s.trim()))
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<String>>()
+            .join(", ");
 
         let mut clean_path = path.trim().to_string();
         if !clean_path.starts_with('/') {
@@ -396,7 +406,6 @@ impl ProxyManager {
 
                 // Parse rule's domain and alternative_domain into (host, Option<port>)
                 let (domain_host, domain_port) = parse_host_port(&rule.domain);
-                let (alt_host, alt_port) = parse_host_port(&rule.alternative_domain);
 
                 let domain_match = if rule.domain.is_empty() || rule.domain == "*" {
                     true
@@ -412,12 +421,19 @@ impl ProxyManager {
                 let alt_match = if rule.alternative_domain.is_empty() {
                     false
                 } else {
-                    let host_matches = alt_host.eq_ignore_ascii_case(host);
-                    let port_matches = match alt_port {
-                        Some(p) => p == request_port,
-                        None => true, // Match any port if not specified
-                    };
-                    host_matches && port_matches
+                    // Split by comma to support multiple alternative domains (e.g. "domain2.com, domain3.com")
+                    rule.alternative_domain
+                        .split(',')
+                        .map(|s| s.trim())
+                        .any(|alt_domain_str| {
+                            let (alt_host, alt_port) = parse_host_port(alt_domain_str);
+                            let host_matches = alt_host.eq_ignore_ascii_case(host);
+                            let port_matches = match alt_port {
+                                Some(p) => p == request_port,
+                                None => true, // Match any port if not specified
+                            };
+                            host_matches && port_matches
+                        })
                 };
 
                 if !domain_match && !alt_match {

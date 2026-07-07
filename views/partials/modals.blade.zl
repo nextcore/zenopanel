@@ -153,7 +153,12 @@
             </div>
             <div class="form-group" style="margin-bottom:15px;">
                 <label id="proxy-target-label" style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Destination URL</label>
-                <input type="text" id="proxy-target" placeholder="e.g. http://127.0.0.1:8000" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="proxy-target" placeholder="e.g. http://127.0.0.1:8000" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <button class="btn-action" id="proxy-dir-picker-btn" onclick="openDirPicker('proxy-target')" style="padding:0 15px; display:none; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-folder-open"></i> Browse
+                    </button>
+                </div>
             </div>
             <div class="form-group" id="proxy-group-strip-path" style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
                 <input type="checkbox" id="proxy-strip-path" style="cursor:pointer; width:16px; height:16px;">
@@ -614,12 +619,151 @@
                 <input type="text" id="install-db-data-dir" placeholder="/var/lib/zenopanel/db/mysql-main" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
                 <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Data akan di-mount ke path ini pada host.</div>
             </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; margin-bottom:4px;">
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">RAM Memory Limit</label>
+                    <select id="install-db-mem-limit" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                        <option value="">Default (No Limit)</option>
+                        <option value="512m">512 MB</option>
+                        <option value="1g">1 GB</option>
+                        <option value="2g" selected>2 GB (Recommended)</option>
+                        <option value="4g">4 GB</option>
+                        <option value="8g">8 GB</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">CPU Cores Limit</label>
+                    <select id="install-db-cpu-limit" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                        <option value="">Default (No Limit)</option>
+                        <option value="0.5">0.5 Cores</option>
+                        <option value="1.0" selected>1.0 Cores (Recommended)</option>
+                        <option value="2.0">2.0 Cores</option>
+                        <option value="4.0">4.0 Cores</option>
+                    </select>
+                </div>
+            </div>
         </div>
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
             <button class="btn-action" onclick="closeInstallDbEngineModal()">Cancel</button>
             <button class="btn-primary-action" id="install-db-submit-btn" onclick="submitInstallDbEngine()">
                 <i class="fa-solid fa-rocket"></i> Deploy & Register
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Database Server Config Tuning Modal -->
+<div class="modal-overlay" id="db-server-config-modal">
+    <div class="modal-card" style="max-width:640px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-sliders" style="color:var(--accent-primary); margin-right:8px;"></i>Config Tuning: <span id="db-config-server-name"></span></div>
+            <div class="modal-close" onclick="closeDatabaseConfigModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+            <input type="hidden" id="db-config-server-id">
+            <input type="hidden" id="db-config-server-driver">
+
+            <!-- Sub-tabs within Config Modal -->
+            <div style="display:flex; gap:8px; margin-bottom:15px; border-bottom:1px solid var(--card-border); padding-bottom:10px;">
+                <button id="db-config-tab-visual-btn" class="btn-action active" onclick="switchDbConfigTab('visual')" style="padding:6px 12px; font-size:0.8rem;">Visual Tuner</button>
+                <button id="db-config-tab-raw-btn" class="btn-action" onclick="switchDbConfigTab('raw')" style="padding:6px 12px; font-size:0.8rem;">Raw Config Editor</button>
+            </div>
+
+            <!-- Visual Tuner Section -->
+            <div id="db-config-tab-visual">
+                <div style="background:rgba(234,179,8,0.06); border:1px solid rgba(234,179,8,0.2); border-radius:8px; padding:12px; margin-bottom:18px; font-size:0.8rem; color:var(--text-muted); line-height:1.4;">
+                    <i class="fa-solid fa-triangle-exclamation" style="color:#eab308; margin-right:6px;"></i>
+                    Menyimpan perubahan akan <strong>merestart container database</strong> secara otomatis untuk menerapkan konfigurasi baru.
+                </div>
+
+                <div class="form-group" style="margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                        <label style="font-weight:500; font-size:0.9rem;">Max Connections</label>
+                        <span style="font-size:0.8rem; color:var(--text-muted);">Live default: <strong id="db-config-live-connections" style="color:var(--accent-primary);">151</strong></span>
+                    </div>
+                    <input type="number" id="db-config-max-connections" value="150" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Jumlah koneksi maksimal yang diijinkan secara simultan.</div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                        <label style="font-weight:500; font-size:0.9rem;"><span id="db-config-buffer-label">Buffer Pool Size</span></label>
+                        <span style="font-size:0.8rem; color:var(--text-muted);">Live default: <strong id="db-config-live-buffer" style="color:var(--accent-primary);">128M</strong></span>
+                    </div>
+                    <input type="text" id="db-config-buffer-pool" value="128M" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">RAM cache database. Untuk MySQL: e.g. 256M, 512M, 1G. Untuk Postgres: e.g. 128MB, 256MB.</div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                        <label style="font-weight:500; font-size:0.9rem;"><span id="db-config-packet-label">Max Allowed Packet</span></label>
+                        <span style="font-size:0.8rem; color:var(--text-muted);">Live default: <strong id="db-config-live-packet" style="color:var(--accent-primary);">16M</strong></span>
+                    </div>
+                    <input type="text" id="db-config-max-packet" value="16M" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Untuk MySQL: batas ukuran paket query (e.g. 64M). Untuk Postgres: work_mem (e.g. 4MB).</div>
+                </div>
+            </div>
+
+            <!-- Raw Config Editor Section -->
+            <div id="db-config-tab-raw" style="display:none;">
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Raw Config File Content</label>
+                    <textarea id="db-config-raw-content" style="width:100%; height:260px; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.6); color:#f8f8f2; font-family:var(--font-code); font-size:0.82rem; outline:none; resize:vertical; line-height:1.5;"></textarea>
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Isi file konfigurasi kustom yang akan di-mount pada container database.</div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeDatabaseConfigModal()">Cancel</button>
+            <button class="btn-primary-action" id="db-config-save-btn" onclick="submitDatabaseConfig()">
+                <i class="fa-solid fa-save"></i> Save &amp; Restart
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Database Maintenance & Health Modal -->
+<div class="modal-overlay" id="db-maintenance-modal">
+    <div class="modal-card" style="max-width:540px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-screwdriver-wrench" style="color:var(--accent-primary); margin-right:8px;"></i>Database Maintenance</div>
+            <div class="modal-close" onclick="closeDatabaseMaintenanceModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="db-maint-db-name">
+            <input type="hidden" id="db-maint-server-name">
+            <input type="hidden" id="db-maint-driver">
+
+            <div style="font-size:0.9rem; color:var(--text-main); margin-bottom:12px;">
+                Database: <strong id="db-maint-label-dbname" style="color:var(--accent-primary);"></strong> (<span id="db-maint-label-driver" style="text-transform:uppercase; font-size:0.8rem; font-weight:600;"></span>)
+            </div>
+
+            <!-- Maintenance Actions Rows -->
+            <div style="display:flex; gap:10px; margin-bottom:20px;">
+                <button class="btn-action" id="maint-btn-check" onclick="runDatabaseMaintenanceAction('check')" style="flex:1; padding:10px; display:flex; flex-direction:column; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-magnifying-glass" style="font-size:1.2rem; color:var(--accent-primary);"></i>
+                    <span style="font-weight:600; font-size:0.85rem;">Check Database</span>
+                </button>
+                <button class="btn-action" id="maint-btn-optimize" onclick="runDatabaseMaintenanceAction('optimize')" style="flex:1; padding:10px; display:flex; flex-direction:column; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-arrows-spin" style="font-size:1.2rem; color:#10b981;"></i>
+                    <span style="font-weight:600; font-size:0.85rem;">Optimize Space</span>
+                </button>
+                <button class="btn-action" id="maint-btn-repair" onclick="runDatabaseMaintenanceAction('repair')" style="flex:1; padding:10px; display:flex; flex-direction:column; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-kit-medical" style="font-size:1.2rem; color:#ef4444;"></i>
+                    <span style="font-weight:600; font-size:0.85rem;">Repair Tables</span>
+                </button>
+            </div>
+
+            <!-- Results Output Area -->
+            <div class="glass-card" style="padding:14px; background:rgba(0,0,0,0.2); border:1px solid var(--card-border); border-radius:6px;">
+                <div style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px;">Execution Output</div>
+                <div id="db-maint-output" style="font-family:var(--font-code); font-size:0.8rem; min-height:120px; max-height:220px; overflow-y:auto; color:#f8f8f2; white-space:pre-wrap; line-height:1.5;">
+                    Pilih salah satu operasi di atas untuk memulai perawatan database.
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeDatabaseMaintenanceModal()">Close</button>
         </div>
     </div>
 </div>
@@ -891,7 +1035,7 @@
                     <option value="custom">Blank / Custom Template</option>
                     <option value="node">Node.js App Environment</option>
                     <option value="python">Python FastAPI Environment</option>
-                    <option value="laravel">PHP Laravel Environment</option>
+                    <option value="php">PHP (serversideup/php) Environment</option>
                     <option value="go">Go App Binary Environment</option>
                     <option value="ruby">Ruby on Rails Environment</option>
                     <option value="java">Java Spring Boot Environment</option>
@@ -961,6 +1105,40 @@
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
             <button class="btn-action" onclick="closeAddCronModal()">Cancel</button>
             <button class="btn-primary-action" onclick="submitAddCron()">Save Cron Job</button>
+        </div>
+    </div>
+</div>
+
+<!-- Create Database Backup Schedule Modal -->
+<div class="modal" id="create-db-backup-schedule-modal">
+    <div class="modal-content" style="max-width:480px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Create Database Auto-Backup Schedule</h3>
+            <button class="close-btn" onclick="closeCreateBackupScheduleModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:15px 0;">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Database</label>
+                <select id="db-backup-sched-database" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                    <!-- Populated dynamically with user databases -->
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Period / Interval</label>
+                <select id="db-backup-sched-period" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                    <option value="hourly">Hourly (Setiap Jam)</option>
+                    <option value="daily" selected>Daily (Setiap Hari)</option>
+                    <option value="weekly">Weekly (Setiap Minggu)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Retention Limit (files count to keep)</label>
+                <input type="number" id="db-backup-sched-retention" value="7" min="1" max="100" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeCreateBackupScheduleModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitCreateBackupSchedule()">Save Schedule</button>
         </div>
     </div>
 </div>

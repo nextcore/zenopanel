@@ -1724,10 +1724,15 @@ pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
                             }
                         }
                         if !alt_domain.is_empty() {
-                            if let (_, Some(p)) = crate::proxyman::parse_host_port(&alt_domain) {
-                                let p_str = p.to_string();
-                                if !ports.contains(&p_str) {
-                                    ports.push(p_str);
+                            for part in alt_domain.split(',') {
+                                let trimmed = part.trim();
+                                if !trimmed.is_empty() {
+                                    if let (_, Some(p)) = crate::proxyman::parse_host_port(trimmed) {
+                                        let p_str = p.to_string();
+                                        if !ports.contains(&p_str) {
+                                            ports.push(p_str);
+                                        }
+                                    }
                                 }
                             }
                         }
