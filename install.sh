@@ -106,7 +106,7 @@ cd "$INSTALL_DIR" || { log_error "Gagal masuk ke direktori $INSTALL_DIR"; exit 1
 # ------------------------------------------------------------------------------
 # 3. Proses Pengunduhan Paket & Checksum
 # ------------------------------------------------------------------------------
-REPO_URL="https://raw.githubusercontent.com/nextcore/zenopanel/main/dist"
+REPO_URL="https://github.com/nextcore/zenopanel/releases/download/${VERSION}"
 TARBALL_FILE="zenopanel-${VERSION}.tar.gz"
 CHECKSUM_FILE="zenopanel-${VERSION}.tar.gz.sha256"
 
