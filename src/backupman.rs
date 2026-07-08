@@ -272,6 +272,7 @@ struct DbBackupSchedule {
     database_name: String,
     schedule: String,
     retention: i64,
+    #[allow(dead_code)]
     is_active: i64,
     last_run: Option<String>,
 }
