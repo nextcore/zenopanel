@@ -176,6 +176,81 @@
                         Script will be executed with the generated .tar.gz path as the first argument.
                     </small>
                 </div>
+
+                <!-- Remote Backups Checkbox -->
+                <div class="form-group" style="display:flex; align-items:center; gap:10px; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
+                    <input type="checkbox" id="settings-backup-remote-enabled" onchange="toggleRemoteBackupFields()" style="width:16px; height:16px; cursor:pointer;">
+                    <label for="settings-backup-remote-enabled" style="font-weight:600; font-size:0.9rem; color:var(--text-main); cursor:pointer; user-select:none;">
+                        Enable Remote Uploads
+                    </label>
+                </div>
+
+                <!-- Conditional Remote Backups Fields -->
+                <div id="remote-backup-settings-fields" style="display:none; flex-direction:column; gap:15px;">
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">
+                            Remote Storage Provider
+                        </label>
+                        <select id="settings-backup-remote-provider" onchange="toggleRemoteProviderFields()" style="width:100%; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; font-size:0.85rem;">
+                            <option value="s3">S3-Compatible Object Storage</option>
+                            <option value="gdrive">Google Drive (Service Account)</option>
+                        </select>
+                    </div>
+
+                    <!-- S3 Fields -->
+                    <div id="remote-backup-s3-fields" style="display:flex; flex-direction:column; gap:15px;">
+                        <div class="form-group">
+                            <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">
+                                S3 Endpoint URL
+                            </label>
+                            <input type="text" id="settings-backup-s3-endpoint" placeholder="e.g. https://<account>.r2.cloudflarestorage.com" style="width:100%; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family:var(--font-code); font-size:0.85rem;">
+                        </div>
+                        <div class="grid-2col" style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                            <div class="form-group">
+                                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">
+                                    S3 Bucket Name
+                                </label>
+                                <input type="text" id="settings-backup-s3-bucket" placeholder="e.g. my-backups" style="width:100%; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;">
+                            </div>
+                            <div class="form-group">
+                                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">
+                                    S3 Access Key ID
+                                </label>
+                                <input type="text" id="settings-backup-s3-access-key" placeholder="Access Key ID" style="width:100%; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem; font-family:var(--font-code);">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">
+                                S3 Secret Access Key
+                            </label>
+                            <input type="password" id="settings-backup-s3-secret-key" placeholder="Secret Access Key" style="width:100%; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem;">
+                        </div>
+                    </div>
+
+                    <!-- Google Drive Fields -->
+                    <div id="remote-backup-gdrive-fields" style="display:none; flex-direction:column; gap:15px;">
+                        <div class="form-group">
+                            <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">
+                                Google Drive Folder ID (Optional)
+                            </label>
+                            <input type="text" id="settings-backup-gdrive-folder-id" placeholder="Folder ID dari URL Google Drive" style="width:100%; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family:var(--font-code); font-size:0.85rem;">
+                        </div>
+                        <div class="form-group">
+                            <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.85rem; color:var(--text-muted);">
+                                Google Service Account JSON Key
+                            </label>
+                            <textarea id="settings-backup-gdrive-credentials" placeholder='Paste contents of service_account.json here' rows="4" style="width:100%; padding:10px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family:var(--font-code); font-size:0.8rem; resize:vertical;"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Keep Local Copy -->
+                    <div class="form-group" style="display:flex; align-items:center; gap:10px;">
+                        <input type="checkbox" id="settings-backup-keep-local" style="width:16px; height:16px; cursor:pointer;" checked>
+                        <label for="settings-backup-keep-local" style="font-weight:500; font-size:0.85rem; color:var(--text-muted); cursor:pointer; user-select:none;">
+                            Keep a local copy of backups on this server
+                        </label>
+                    </div>
+                </div>
             </div>
 
             <!-- Status Box -->

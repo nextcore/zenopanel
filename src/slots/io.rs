@@ -367,6 +367,8 @@ pub fn register(engine: &mut Engine) {
         Arc::new(|engine, _ctx, node, scope| {
             let mut path = String::new();
             let mut target = "file_content".to_string();
+            let mut optional = false;
+            let mut default_val = String::new();
 
             if node.value.is_some() {
                 path = resolve_node_value(engine, node, scope).to_string_coerce();
@@ -376,6 +378,11 @@ pub fn register(engine: &mut Engine) {
                 let val = engine.resolve_shorthand_value(child, scope);
                 if child.name == "path" {
                     path = val.to_string_coerce();
+                } else if child.name == "optional" {
+                    optional = val.to_bool();
+                } else if child.name == "default" {
+                    default_val = val.to_string_coerce();
+                    optional = true;
                 } else if child.name == "as" {
                     target = child
                         .value
@@ -386,14 +393,23 @@ pub fn register(engine: &mut Engine) {
                 }
             }
 
-            let content = std::fs::read_to_string(&path).map_err(|e| Diagnostic {
-                r#type: "error".to_string(),
-                message: format!("io.file.read failed: {}", e),
-                filename: node.filename.clone(),
-                line: node.line,
-                col: node.col,
-                slot: Some("io.file.read".to_string()),
-            })?;
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    if optional {
+                        default_val
+                    } else {
+                        return Err(Diagnostic {
+                            r#type: "error".to_string(),
+                            message: format!("io.file.read failed: {}", e),
+                            filename: node.filename.clone(),
+                            line: node.line,
+                            col: node.col,
+                            slot: Some("io.file.read".to_string()),
+                        });
+                    }
+                }
+            };
 
             scope.set(&target, Value::String(content));
             Ok(())

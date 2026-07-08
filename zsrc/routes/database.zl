@@ -1175,8 +1175,18 @@ http.post: '/api/database/maintenance' {
 
     if: { not_empty: $query } {
         then: {
-            db.execute: $query { db: $server_name }
-            http.ok: { success: true, message: "Operasi ${action} berhasil dijalankan." }
+            if: "$driver == 'mysql'" {
+                then: {
+                    db.select: $query { db: $server_name, as: $maint_result }
+                    http.ok: { success: true, message: "Operasi ${action} berhasil dijalankan." }
+                }
+            }
+            if: "$driver == 'postgres'" {
+                then: {
+                    db.execute: $query { db: $server_name }
+                    http.ok: { success: true, message: "Operasi ${action} berhasil dijalankan." }
+                }
+            }
         }
         else: {
             http.bad_request: { success: false, message: "Operasi tidak didukung untuk driver ini." }
@@ -1267,14 +1277,14 @@ http.get: '/api/database/servers/config' {
             if: "$driver == 'mysql'" {
                 then: {
                     var: $file_path { val: "/var/lib/zenopanel/db/${name}_conf/z_custom.cnf" }
-                    io.file.read: $file_path { as: $content }
+                    io.file.read: $file_path { optional: true, as: $content }
                     coalesce: $content { default: "", as: $config_content }
                 }
             }
             if: "$driver == 'postgres'" {
                 then: {
                     var: $file_path { val: "/var/lib/zenopanel/db/${name}/postgresql.conf" }
-                    io.file.read: $file_path { as: $content }
+                    io.file.read: $file_path { optional: true, as: $content }
                     coalesce: $content { default: "", as: $config_content }
                 }
             }
@@ -1387,7 +1397,7 @@ http.post: '/api/database/servers/config/save' {
                     
                     if: { is_empty: $config_data } {
                         then: {
-                            io.file.read: $file_path { as: $orig_content }
+                            io.file.read: $file_path { optional: true, as: $orig_content }
                             coalesce: $orig_content { default: "", as: $orig_content }
                             var: $config_data { val: "${orig_content}\n\n# Added by ZenoPanel\nmax_connections = ${max_connections}\nshared_buffers = '${buffer_pool_size}'\nwork_mem = '${max_allowed_packet}'\n" }
                         }

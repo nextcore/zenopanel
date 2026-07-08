@@ -1110,11 +1110,11 @@
 </div>
 
 <!-- Create Database Backup Schedule Modal -->
-<div class="modal" id="create-db-backup-schedule-modal">
-    <div class="modal-content" style="max-width:480px;">
+<div class="modal-overlay" id="create-db-backup-schedule-modal">
+    <div class="modal-card" style="max-width:480px;">
         <div class="modal-header">
-            <h3 class="modal-title">Create Database Auto-Backup Schedule</h3>
-            <button class="close-btn" onclick="closeCreateBackupScheduleModal()">&times;</button>
+            <div class="modal-title">Create Database Auto-Backup Schedule</div>
+            <div class="modal-close" onclick="closeCreateBackupScheduleModal()">&times;</div>
         </div>
         <div class="modal-body" style="padding:15px 0;">
             <div class="form-group" style="margin-bottom:15px;">

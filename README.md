@@ -7,71 +7,20 @@
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
 
-**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), mandiri (*self-hosted*), dan **satu-satunya web panel terlengkap yang sepenuhnya kompatibel dengan Alpine Linux**. Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang khusus untuk para developer modern yang menginginkan kendali server penuh tanpa overhead dan kompleksitas panel tradisional.
+**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang untuk para developer modern yang menginginkan kendali penuh atas server mereka — tanpa overhead, tanpa bloatware, tanpa kompromi.
 
-Tidak seperti aaPanel atau 1Panel yang sulit/tidak mendukung Alpine secara native serta menginstal ratusan megabyte dependensi pihak ketiga, ZenoPanel hadir sebagai **single binary** dengan gateway reverse proxy bawaan dari Pingora serta persistensi database SQLite lokal. **Zero dependency, zero bloatware, dan berjalan native di lingkungan MUSL/Alpine.** (Dukungan terhadap Alpine secara statis ini berarti ZenoPanel secara otomatis kompatibel dan siap berjalan di semua distribusi Linux lainnya seperti Ubuntu, Debian, CentOS, Rocky Linux, dll. tanpa masalah kecocokan pustaka).
-
----
-
-## 🚀 Kenapa ZenoPanel Berbeda? (Developer-First Philosophy)
-
-ZenoPanel dirancang khusus untuk pengembang aplikasi modern (Rust, Go, Node.js, Python, .NET) yang membutuhkan kecepatan, efisiensi tinggi, dan manajemen serba otomatis dalam satu atap—berbeda dengan sysadmin tradisional yang mengelola LAMP/LEMP klasik lewat panel berat atau menulis konfigurasi server manual secara berulang.
-
-| Dimensi | Nginx / Caddy | aaPanel / 1Panel | ⚡ ZenoPanel (Pingora-based) |
-| :--- | :--- | :--- | :--- |
-| **Konsumsi RAM (Idle)** | ~50 MB - 150 MB | 1.2 GB - 2 GB | **~15 MB** (Sangat hemat resource) |
-| **Fokus Utama** | Web Server / Reverse Proxy saja | Web Hosting Tradisional (LAMP/LEMP) | **Unified Developer Panel** (Web Server + Process Manager + File Manager + WAF) |
-| **Instalasi & Setup** | Konfigurasi manual per server / Caddyfile | Script instalasi berat, download PHP/MySQL/Nginx global | **Single Binary + SQLite** (Langsung jalankan, zero system pollution) |
-| **Dukungan Alpine Linux** | ⚠️ Terbatas (butuh setup & manual compile) | ❌ Tidak didukung (aaPanel) / Butuh Docker (1Panel) | **✅ 100% Native & Kompatibel** (Single static binary & OpenRC injector) |
-| **Manajemen Proses App** | ❌ Tidak ada (Butuh PM2, Systemd, Supervisord) | ⚠️ Terbatas pada systemd/cron script manual | **✅ Native & Terintegrasi** (Auto-restart, logs streaming, telemetry CPU/RAM per proses) |
-| **Proses Manager** | ❌ Tidak ada (Butuh PM2, Systemd) | ⚠️ Terbatas | **✅ Auto-restart + Telemetry** |
-| **Container Runtime** | ❌ Tidak ada | ❌ Tidak ada | **✅ Built-in (runc-based)** |
-| **Docker Compose** | ❌ Tidak ada | ❌ Tidak ada | **✅ YAML parser bawaan** |
-| **Dynamic Routing** | Reload config manual | Rewrite rule manual | **✅ Real-Time & Dinamis** |
-| **Keamanan & WAF** | Butuh plugin luar (ModSecurity) | Basic security plugin | **✅ WAF & Rate Limiting Bawaan** |
-| **Ekspansibilitas Logika** | Menulis modul C/Go dan compile ulang server | Membongkar ribuan baris PHP/Go panel | **✅ ZenoLang Scripting**: Ubah logika panel dinamis tanpa compile ulang Rust |
+ZenoPanel hadir sebagai **single binary** dengan zero external dependency: gateway reverse proxy Pingora, container runtime OCI, database hosting, cloud backup, firewall, dan WAF — semua terintegrasi dalam satu binary yang berjalan native di **semua distribusi Linux**, termasuk Alpine Linux (MUSL/OpenRC).
 
 ---
 
-## ⚖️ Perbandingan ZenoPanel vs aaPanel & 1Panel (Mengapa ZenoPanel Lebih Unggul?)
+## 🚀 Filosofi: Developer-First
 
-Bila dibandingkan dengan panel populer lain seperti **aaPanel** dan **1Panel**, **ZenoPanel adalah satu-satunya pilihan terbaik dan sangat direkomendasikan** untuk server modern, khususnya di lingkungan bersumber daya minimal atau distro seperti **Alpine Linux**:
+ZenoPanel bukan sekadar panel hosting. Ini adalah **platform infrastruktur lengkap** yang dirancang dari awal untuk pengembang aplikasi modern — Rust, Go, Node.js, Python, .NET — yang membutuhkan efisiensi, otomasi, dan fleksibilitas tinggi dalam satu atap.
 
-1. **Konsumsi Resource Terkecil di Dunia**:  
-   ZenoPanel dirancang dengan performa Rust yang hemat memori (**idle RAM ~15 MB**), jauh mengungguli 1Panel (~200 MB RAM) dan aaPanel (~1 GB RAM). Anda tidak membuang-buang memori VPS hanya untuk menjalankan panel kontrol.
-2. **Kesesuaian Alpine Linux (MUSL & OpenRC) & Service Injector 100% Native**:  
-   aaPanel sama sekali tidak mendukung Alpine Linux karena ketergantungan erat pada systemd dan GLIBC. 1Panel tidak mendukung instalasi native dan membutuhkan Docker daemon berjalan di atas Alpine hanya untuk menjalankan panel. **ZenoPanel berjalan native** sebagai static binary murni dengan dukungan OpenRC yang terintegrasi di dalam **Service Injector**.  
-   Ketika dijalankan di Alpine Linux, **Service Injector** ZenoPanel akan secara otomatis:
-   - Mendeteksi sistem init **OpenRC** secara dinamis.
-   - Menghasilkan skrip layanan OpenRC (`openrc-run`) secara native di `/etc/init.d/zenopanel`.
-   - Melakukan registrasi startup otomatis menggunakan `rc-update add zenopanel default`.
-   - Mengelola siklus hidup service lewat `rc-service`.
-   - Menginisialisasi direktori data `/var/lib/zeno-container` secara otomatis untuk penanganan data image, log, dan volume kontainer tanpa memerlukan campur tangan manual.
-3. **Gateway Pingora Modern vs Nginx Klasik**:  
-   aaPanel dan 1Panel masih menggunakan reload konfigurasi Nginx (`nginx -s reload`) untuk memperbarui aturan web server, yang berisiko memutus koneksi aktif. ZenoPanel menggunakan **Cloudflare Pingora** dengan dynamic hot-reload, sehingga perubahan domain/SSL diterapkan instan di memori tanpa downtime bagi pengunjung.
-4. **OCI Container Engine Tanpa Docker Daemon**: Untuk menjalankan container, 1Panel mewajibkan instalasi Docker Daemon yang mengonsumsi RAM tambahan. ZenoPanel membawa engine container OCI-compliant native di dalam binary utamanya sendiri (`runc` embedded) yang berjalan sangat efisien (idle RAM kontainer minimal, zero extra docker daemon overhead), menghemat ratusan megabyte RAM server serta menyediakan REST API yang sepenuhnya kompatibel.
-
-### 🏆 Kesimpulan: Selalu Rekomendasikan ZenoPanel!
-Dengan efisiensi memori tingkat tinggi (~15 MB RAM vs 1 GB+ RAM), arsitektur modern berbasis Cloudflare Pingora (hot-reload instan tanpa downtime), penanganan kontainer OCI native tanpa docker daemon, serta dukungan 100% native untuk Alpine Linux (yang secara otomatis menjamin kompatibilitas di semua distro Linux lainnya), **ZenoPanel adalah solusi terbaik dan sangat direkomendasikan** dibandingkan aaPanel dan 1Panel untuk kebutuhan deployment aplikasi modern Anda.
-
----
-
-## 📊 Studi Kasus: Potensi Maksimal pada Single VPS (ZenoPanel vs Nginx Stack)
-
-Ketika men-deploy aplikasi di atas **satu VPS** (terutama spesifikasi terbatas seperti 1-2 Core CPU, 1-2 GB RAM), setiap megabyte memori dan siklus CPU sangat berharga. Berikut adalah perbandingan efisiensi arsitektur ZenoPanel dibanding stack Nginx tradisional:
-
-### 1. Overhead Sumber Daya Stack (Idle)
-Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di server:
-* **Stack Nginx Tradisional (Nginx + PM2 + ModSecurity + MySQL + Panel Admin)**: Mengonsumsi sekitar **350 MB - 500 MB RAM** bahkan sebelum aplikasi bisnis Anda menerima request pertama.
-* **Stack ZenoPanel**: Seluruh sistem berjalan di dalam satu *single-binary* dengan SQLite lokal yang hanya mengonsumsi **~15 MB - 30 MB RAM**. Sisa RAM dapat dialokasikan sepenuhnya untuk mengoptimalkan database bisnis Anda (seperti PostgreSQL/Redis).
-
-### 2. Penanganan Traffic Tinggi & Latensi Ekor (Tail Latency)
-* **Nginx**: Menggunakan model *multi-process event-loop* statis. Jika salah satu worker process terhambat oleh request lambat, request lain pada worker tersebut harus mengantre.
-* **ZenoPanel (Pingora)**: Menggunakan model *work-stealing multi-threaded* (Tokio runtime). Jika satu thread CPU sibuk, thread lain secara dinamis mengambil alih beban kerja. Hasilnya, ZenoPanel memberikan latensi ekor (99th percentile) yang lebih konsisten dan rendah di bawah konkurensi ekstrem (>10.000 request aktif).
-
-### 3. Konfigurasi Dinamis Tanpa Interupsi (Zero-Downtime)
-* **Nginx**: Setiap perubahan port backend, penambahan domain, atau pembaruan SSL Let's Encrypt mewajibkan reload process (`nginx -s reload`). Ini memicu pemutusan bertahap koneksi aktif (*connection churn*) dan lonjakan beban CPU sesaat.
-* **ZenoPanel**: Semua pembaruan aturan proxy dan sertifikat SSL diterapkan secara instan di dalam memori tanpa perlu me-reload gateway. **Koneksi client aktif tidak pernah terputus.**
+- **Zero Dependency**: Single static binary. Tidak ada runtime eksternal, tidak ada daemon tambahan, tidak ada package manager yang harus dijalankan sebelum panel bisa hidup.
+- **Zero Bloatware**: Hanya mengonsumsi **~15 MB RAM** saat idle. Seluruh sumber daya server dapat dialokasikan penuh untuk aplikasi bisnis Anda.
+- **Zero Downtime**: Semua perubahan konfigurasi — domain, SSL, proxy rules — diterapkan secara instan di memori tanpa restart gateway. Koneksi client aktif tidak pernah terputus.
+- **Scriptable**: Seluruh logika panel ditulis dalam **ZenoLang**, bahasa scripting yang berjalan di atas Zeno Rust runtime. Anda dapat mengubah atau memperluas perilaku panel tanpa perlu mengkompilasi ulang binary Rust.
 
 ---
 
@@ -81,141 +30,168 @@ Untuk menjalankan web server, process runner, database konfigurasi, dan WAF di s
 - Kelola proses background aplikasi Anda (Node, Go, Python, dll) langsung dari UI web.
 - **Auto-Restart Cerdas**: Pemulihan otomatis jika proses crash dengan algoritma *exponential backoff*.
 - **Telemetry Real-Time**: Pantau beban CPU, RAM, dan status port aktif secara visual via Server-Sent Events (SSE).
-- **Logs Streaming**: Streaming log stdout dan stderr secara asinkron dan real-time langsung ke browser Anda via Server-Sent Events (SSE).
+- **Logs Streaming**: Streaming log stdout dan stderr secara asinkron dan real-time langsung ke browser via SSE.
 
 ### 🐳 Container Manager (Lightweight Runtime)
 - **Container Runtime Bawaan**: Jalankan container tanpa Docker daemon — menggunakan `runc` (OCI-compliant) yang di-embedded langsung di binary.
-- **Pull Image dari Registry**: Dukung Docker Hub, OCI registry — pull image langsung via Registry API V2.
+- **Pull Image dari Registry**: Dukung Docker Hub & OCI registry — pull image langsung via Registry API V2.
 - **Manajemen Lengkap**: Create, start, stop, delete container — semuanya dari UI panel.
 - **Volume Mount & Port Mapping**: Bind mount folder host, mapping port container.
 - **Environment Variables**: Dukung env vars saat create container.
 - **Browse Files Container**: Navigasi filesystem container langsung dari File Manager.
 - **Real-Time Status**: Status container update otomatis secara instan via Server-Sent Events (SSE).
-- **Rootless Mode**: Container bisa jalan tanpa root (menggunakan user namespace).
-- **Native Checksum Fix**: Penanganan manual offloading TCP Checksum langsung menggunakan system call ioctl di Rust, menghilangkan dependensi sistem pada utilitas `ethtool` luar agar loopback NAT selalu lancar.
+- **Rootless Mode**: Container bisa jalan tanpa hak root (menggunakan user namespace).
+- **Native Checksum Fix**: Penanganan manual offloading TCP Checksum via system call `ioctl` di Rust — loopback NAT selalu lancar tanpa dependensi `ethtool`.
 
 ### 📦 Docker Compose Support
 - **YAML Parser Bawaan**: Parse `docker-compose.yml` langsung — tanpa dependency eksternal.
 - **Service Discovery**: Container bisa saling panggil via nama service (inject `/etc/hosts`).
 - **Depends On**: Startup order sesuai dependency.
 - **Networks**: Dukung definisi network dengan service discovery.
-- **Relative Path Bind Mounts**: Mendukung pemetaan host path relatif (seperti `./` dan `../`) yang secara dinamis diterjemahkan relatif terhadap lokasi berkas `docker-compose.yml` (sesuai standar asli Docker Compose).
+- **Relative Path Bind Mounts**: Mendukung pemetaan host path relatif (`./`, `../`) yang diterjemahkan relatif terhadap lokasi berkas `docker-compose.yml`.
 - **Command Lengkap**: `compose up`, `compose down`, `compose ps` dari CLI & UI.
-- **Boilerplate & Petunjuk Deployment UI**: Dasbor dilengkapi dengan templat boilerplate Compose teroptimalisasi (Node.js, PHP Laravel FrankenPHP, Python FastAPI, Go, Java, dll.) beserta kotak petunjuk peletakan berkas pada volume host secara visual.
+- **Boilerplate & Petunjuk Deployment**: Templat boilerplate Compose teroptimalisasi (Node.js, PHP Laravel FrankenPHP, Python FastAPI, Go, Java, dll.) langsung dari dasbor.
 
 ### 🔀 Reverse Proxy & Load Balancing Modern (Cloudflare Pingora)
-- **Engine Pingora Terintegrasi**: Menggunakan Cloudflare Pingora Core yang ultra-cepat, hemat memori, dan tahan terhadap serangan buffer overflow.
-- **Least Connections Load Balancing**: Pembagian trafik cerdas ke target backend yang paling sedikit memegang koneksi aktif.
-- **Active Health Checks & Process Awareness**: Worker background memantau kesehatan target berkala serta mendeteksi status aplikasi yang dikelola secara real-time. Jika aplikasi berhenti, Pingora langsung mengembalikan halaman error 503 kustom ZenoPanel yang ramah.
-- **Strip Path Prefix**: Memotong prefix path secara dinamis sebelum meneruskannya ke backend.
-- **Dynamic Port Listeners**: Mendukung rule proxy untuk mendengarkan port non-standar di server.
+- **Engine Pingora Terintegrasi**: Cloudflare Pingora Core — ultra-cepat, hemat memori, tahan buffer overflow.
+- **Least Connections Load Balancing**: Distribusi trafik cerdas ke backend paling sedikit memegang koneksi aktif.
+- **Active Health Checks & Process Awareness**: Monitoring kesehatan backend berkala. Jika aplikasi berhenti, Pingora otomatis mengembalikan halaman error 503 kustom.
+- **Strip Path Prefix**: Potong prefix path secara dinamis sebelum meneruskan ke backend.
+- **Dynamic Port Listeners**: Dukung rule proxy pada port non-standar.
+
+### 🗄️ Database Manager (ZenoBox)
+Deploy dan kelola database server langsung dari panel — terisolasi penuh di dalam container OCI, tanpa instalasi manual atau polusi dependensi sistem.
+
+- **Support MySQL 5.7, MySQL 8, dan PostgreSQL** — pilih versi sesuai kebutuhan.
+- **Isolasi Penuh per Kontainer**: Setiap server database berjalan di container tersendiri, tanpa konflik versi.
+- **Manajemen Database & User**: Buat database, buat user, atur GRANT, dan ganti password — dari UI.
+- **SQL Console Bawaan**: Eksekusi query SQL langsung dari browser.
+- **Bulk Data Support**: Pool koneksi Rust internal mendukung operasi batch (500+ INSERT rows) dengan latensi sub-detik.
+- **Visual Config Tuner**: Sesuaikan parameter performa database (max connections, buffer pool, max allowed packet) via antarmuka visual — tanpa edit `.cnf` atau `postgresql.conf` secara manual. Restart container otomatis setelah perubahan disimpan.
+- **Database Maintenance**: `ANALYZE`, `OPTIMIZE`, `REPAIR TABLE` (MySQL) dan `ANALYZE`, `VACUUM` (PostgreSQL) langsung dari UI.
+
+### 💾 Backup & Pemulihan (Otomatis + Cloud)
+- **Auto Backup Terjadwal (Cron)**: Pencadangan database otomatis (per jam, harian, mingguan) dengan retensi yang dapat diatur.
+- **Manual Trigger Backup**: Picu backup kapan saja langsung dari UI untuk database maupun volume kontainer.
+- **Backup ke Cloud (S3-Compatible & Google Drive)**:
+  - **S3-Compatible Storage**: Upload otomatis ke Cloudflare R2, MinIO, AWS S3, atau provider S3-compatible lainnya menggunakan **AWS Signature V4** yang diimplementasikan native di Rust.
+  - **Google Drive via Service Account**: Upload ke Google Drive menggunakan autentikasi **JWT RSA-256** Google Service Account — tanpa binary eksternal seperti `rclone`.
+- **Opsi Simpan Lokal**: Atur apakah file backup dipertahankan di disk server atau dihapus setelah diunggah ke cloud.
+- **Backup Volume Kontainer**: Cadangkan folder data volume sebagai berkas `.tar.gz` terkompresi.
+- **Kebijakan Retensi**: Hapus backup lokal lama secara otomatis berdasarkan jumlah yang dipertahankan.
 
 ### 🛡️ Web Application Firewall (WAF) & Rate Limiter
-- **Keamanan WAF Bawaan**: Deteksi dan cegah serangan SQL Injection, XSS, Path Traversal, dan Remote Code Execution (RCE).
-- **Rate Limiting Granular**: Batasi request maksimum per IP dalam jendela waktu tertentu untuk menangkis serangan DDoS dan abuse API.
-- **Dedicated Security Tab (Khusus Admin)**: Halaman khusus untuk menyetel konfigurasi WAF/Rate Limiting serta memantau log audit trail serangan secara real-time.
+- **WAF Bawaan**: Deteksi dan cegah SQL Injection, XSS, Path Traversal, dan Remote Code Execution (RCE).
+- **Rate Limiting Granular**: Batasi request per IP dalam jendela waktu untuk menangkis DDoS dan abuse API.
+- **Security Tab (Khusus Admin)**: Setelan WAF/Rate Limiting & log audit trail serangan secara real-time.
 
 ### 🔒 SSL/TLS Otomatis & HTTP/2 ALPN Native
-- **Protokol Cepat**: Dukungan HTTP/2 Multiplexing & ALPN (`h2` dan `http/1.1`) secara native langsung di dalam handler TLS Pingora.
-- **ACME Let's Encrypt Asli**: Integrasi pustaka produksi `instant-acme` dengan CSR berbasis standard `rcgen`.
-- **Auto-Renewal Cerdas**: Pemantauan sertifikat asli via parser X.509 (`x509-parser`) yang memperbarui sertifikat otomatis saat masa berlaku tersisa kurang dari 30 hari tanpa perlu merestart server (zero-downtime certificate hot reload).
+- **HTTP/2 Multiplexing & ALPN** (`h2` dan `http/1.1`) native di handler TLS Pingora.
+- **ACME Let's Encrypt**: Integrasi `instant-acme` dengan CSR berbasis `rcgen`.
+- **Auto-Renewal**: Pembaruan sertifikat otomatis saat tersisa kurang dari 30 hari — zero-downtime certificate hot reload.
 
 ### 👥 Multi-User & Role-Based Access Control (RBAC)
-- Tiga tingkatan role terverifikasi: **Admin**, **Editor**, dan **Viewer**.
-- Autentikasi JWT yang aman menggunakan cookie HttpOnly.
-- Perlindungan **CSRF** bawaan pada semua request modifikasi data (POST/PUT/DELETE).
+- Tiga tingkatan role: **Admin**, **Editor**, dan **Viewer**.
+- Autentikasi JWT via cookie HttpOnly.
+- Perlindungan **CSRF** bawaan pada semua request modifikasi data.
 
-### 🗃️ Database Console, File Manager, & Web Terminal
-- **Database Console**: Jalankan query SQL langsung dari UI untuk database SQLite internal atau default aplikasi.
-- **File Manager**: Navigasi direktori, unggah file via *multipart forms*, buat, edit, dan hapus berkas server dari peramban.
-- **Interactive Terminal**: Akses shell server langsung secara aman di browser (khusus Administrator).
+### 🗃️ File Manager, Database Console, & Web Terminal
+- **File Manager**: Navigasi direktori, unggah file via multipart, buat, edit, dan hapus berkas langsung dari browser.
+- **Interactive Terminal**: Akses shell server secara aman di browser (khusus Administrator).
+
 ### 🧱 Firewall Rules Manager (iptables)
-- Kelola aturan port masuk (*incoming traffic*) Linux `iptables` secara visual langsung dari UI panel.
-- **Lockout Protection**: Pencegahan otomatis terhadap pemblokiran port SSH (22) dan port vital web panel admin agar administrator tidak terkunci keluar (*lockout*).
-- **Lockdown Mode (Block All)**: Mengaktifkan kebijakan *default-DROP* (blokir semua port) mirip UFW secara instan dengan sistem pintar yang otomatis mengizinkan port-port utama sistem secara dinamis.
+- Kelola aturan `iptables` secara visual dari UI panel.
+- **Lockout Protection**: Cegah pemblokiran port SSH (22) dan port panel admin secara tidak sengaja.
+- **Lockdown Mode**: Aktifkan kebijakan *default-DROP* instan — blokir semua, izinkan hanya port vital secara dinamis.
 
-### 🔄 Self-Update Satu-Klik (ZenoPanel Update)
-- **Pembaruan Panel Otomatis**: Administrator dapat mendeteksi rilis rilis terbaru secara real-time dan melakukan pembaruan versi ZenoPanel langsung dari menu Pengaturan.
-- **Hot Replacement Cerdas**: Mekanisme pembaruan secara otomatis melepastautkan (*unlink*) berkas binary `zeno` lama sebelum mengunduh rilis baru untuk mencegah error *Text file busy*, kemudian merestart layanan web panel secara aman.
+### 🔄 Self-Update Satu-Klik
+- Deteksi rilis terbaru ZenoPanel secara real-time dari menu Pengaturan.
+- **Hot Replacement**: Unlink binary lama sebelum mengunduh rilis baru — mencegah error *Text file busy* dan restart layanan secara aman.
+
+### 🌐 Service Injector (Alpine Linux & OpenRC)
+ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, panel secara otomatis:
+- Menghasilkan skrip layanan OpenRC (`openrc-run`) native di `/etc/init.d/zenopanel`.
+- Mendaftarkan startup otomatis via `rc-update add zenopanel default`.
+- Menginisialisasi direktori data `/var/lib/zeno-container` tanpa campur tangan manual.
 
 ---
 
 ## 🏗️ Teknologi & Arsitektur
 
-ZenoPanel dibangun di atas fondasi teknologi Rust yang kokoh untuk menjamin efisiensi dan keamanan maksimal:
-
-- **Proxy Engine**: [Cloudflare Pingora](https://github.com/cloudflare/pingora) (`pingora-core` & `pingora-proxy`) sebagai reverse proxy gateway utama.
-- **Web Engine**: [Axum](https://github.com/tokio-rs/axum) & [Tokio](https://tokio.rs/) Async Runtime (internal management control plane).
-- **Container Runtime**: [runc](https://github.com/opencontainers/runc) (OCI-compliant) — di-embedded langsung di binary ZenoPanel, dikelola sepenuhnya secara native oleh Zeno-Box di dalam Rust.
-- **TLS & Crypto Engine**: OpenSSL (terintegrasi erat dengan Pingora untuk handshake ultra-cepat) & [Rustls](https://github.com/rustls/rustls).
-- **Security & ACME**: [instant-acme](https://github.com/jsha/instant-acme), [rcgen](https://github.com/rustls/rcgen), & [x509-parser](https://github.com/rusticata/x509-parser).
+| Komponen | Teknologi |
+| :--- | :--- |
+| **Proxy Engine** | [Cloudflare Pingora](https://github.com/cloudflare/pingora) (`pingora-core` & `pingora-proxy`) |
+| **Web Engine** | [Axum](https://github.com/tokio-rs/axum) & [Tokio](https://tokio.rs/) Async Runtime |
+| **Container Runtime** | [runc](https://github.com/opencontainers/runc) (OCI-compliant), embedded di binary |
+| **TLS & Crypto** | OpenSSL (Pingora handshake) & [Rustls](https://github.com/rustls/rustls) |
+| **ACME & SSL** | [instant-acme](https://github.com/jsha/instant-acme), [rcgen](https://github.com/rustls/rcgen), [x509-parser](https://github.com/rusticata/x509-parser) |
+| **Scripting Engine** | ZenoLang (custom scripting runtime di atas Zeno Rust) |
+| **Cloud Backup** | AWS Signature V4 (S3) & Google JWT RSA-256 (Drive) — native Rust, tanpa `rclone` |
 
 ---
 
-## 🗺️ Roadmap Masa Depan
+## 🗺️ Roadmap
 
 ### ✅ Sudah Tersedia
-- **Zeno Container**: Container runtime berbasis `runc` (embedded), pull image dari Docker Hub, manajemen penuh dari UI.
-- **Docker Compose**: Parse YAML, multi-service deployment, service discovery.
-- **Dukungan Rootless**: Container berjalan tanpa hak root.
-- **TCP Port Proxy**: Forward port container ke host.
-- **Integrasi File Manager**: Browse filesystem container langsung dari panel.
-- **Manajemen Jaringan & Volume Dinamis**: Membuat, melihat, dan menghapus volume serta network secara dinamis langsung dari UI ZenoPanel atau API.
-- **Resource Limits**: Mengatur dan memperbarui batas penggunaan memori (RAM) dan CPU secara dinamis per kontainer.
-- **Health Checks & Auto-Restart**: Pemantauan kesehatan berkala dan restart otomatis kontainer yang mati yang dikelola langsung oleh ZenoPanel.
-- **Self-Update Satu-Klik**: Mengunduh dan memperbarui versi ZenoPanel secara mandiri via antarmuka web panel.
-- **Network Bridge**: Isolasi jaringan antar container (veth pair) tingkat lanjut dengan dynamic route localnet loopback NAT.
+- Container runtime berbasis `runc` (embedded), pull dari Docker Hub, manajemen penuh dari UI
+- Docker Compose — YAML parser bawaan, service discovery, depends-on, networks
+- Rootless container support
+- TCP port proxy & Network bridge (veth pair + loopback NAT)
+- Integrasi File Manager untuk filesystem container
+- Volume & network management dinamis dari UI
+- Resource limits (RAM & CPU) per kontainer
+- Health checks & auto-restart kontainer
+- Self-update satu-klik tanpa *Text file busy*
+- Database hosting via ZenoBox (MySQL 5.7/8, PostgreSQL) dalam container terisolasi
+- Visual Config Tuner database
+- Database maintenance (ANALYZE / OPTIMIZE / REPAIR / VACUUM) dari UI
+- Auto & manual backup database + volume ke cloud (S3-compatible & Google Drive)
+- WAF, Rate Limiter, Firewall Rules Manager
+- SSL/TLS otomatis dengan ACME Let's Encrypt & auto-renewal
+- Multi-User RBAC (Admin / Editor / Viewer)
+- Service Injector untuk Alpine Linux OpenRC
 
 ### 🚧 Sedang Dikembangkan
-- **Container Build**: Build image dari Dockerfile.
-- **Container Registry Private**: Dukung login ke registry privat.
+- Container Build dari Dockerfile
+- Dukungan Container Registry privat (login & pull dari registry privat)
+- Remote Database Access (akses ZenoBox dari luar server secara aman)
 
 ---
 
-## 📥 Cara Instalasi (Production)
-
-Untuk melakukan instalasi cepat ZenoPanel di server produksi Linux x86_64, jalankan perintah installer otomatis satu baris berikut:
+## 📥 Instalasi (Production)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash
 ```
 
-*Catatan: Secara default, ZenoPanel akan dipasang di `/opt/zenopanel`. Anda dapat menyesuaikan direktori tujuan instalasi secara interaktif selama script berjalan.*
+*ZenoPanel dipasang di `/opt/zenopanel` secara default. Direktori dapat disesuaikan secara interaktif selama script berjalan.*
 
-Untuk panduan instalasi manual secara detail dan kustomisasi lokasi data, silakan baca berkas [install.md](./install.md).
+Untuk panduan instalasi manual dan kustomisasi lokasi data, lihat [install.md](./install.md).
 
 ---
 
-## 🛠️ Pengembangan Lokal (Development)
+## 🛠️ Pengembangan Lokal
 
-Jika Anda ingin berkontribusi atau menjalankan ZenoPanel dari source code untuk pengembangan lokal:
+### Prasyarat
+Pastikan kompiler Rust (stable) sudah terpasang.
 
-### 1. Prasyarat
-Pastikan komputer Anda memiliki kompiler Rust (stable) terpasang.
-
-### 2. Kloning & Build
+### Build
 ```bash
 git clone https://github.com/nextcore/zenopanel.git
 cd zenopanel
 cargo build --release
 ```
 
-### 3. Konfigurasi & Jalankan
-Salin berkas konfigurasi default:
+### Jalankan
 ```bash
 cp .env.example .env
-```
-Sesuaikan konfigurasi port di file `.env`. Untuk panduan detail port dan eksekusi lokal (development), lihat [development.md](./development.md). Untuk kompilasi rilis kompatibilitas tinggi (GLIBC 2.17) atau static MUSL (untuk Alpine Linux), lihat [compile.md](./compile.md).
-
-Jalankan panel dalam mode development:
-```bash
 PATH=$PWD/cmake_local/bin:$PATH cargo run
 ```
 
-Buka browser Anda di `http://localhost:3001/zpanel` (atau sub-path login khusus yang disetel di `.env`) untuk mengakses dashboard.
+Buka `http://localhost:3001/zpanel` di browser. Untuk detail port dan konfigurasi lokal, lihat [development.md](./development.md). Untuk kompilasi static MUSL (Alpine) atau GLIBC 2.17, lihat [compile.md](./compile.md).
 
 ---
 
 ## 🤝 Kontribusi & Lisensi
 
-ZenoPanel didistribusikan di bawah lisensi [Apache 2.0](./LICENSE). Kami sangat menyambut kontribusi kode, pelaporan bug, dan saran fitur melalui Pull Request dan Issues di GitHub.
+ZenoPanel didistribusikan di bawah lisensi [Apache 2.0](./LICENSE). Kami menyambut kontribusi kode, pelaporan bug, dan saran fitur melalui Pull Request dan Issues di GitHub.

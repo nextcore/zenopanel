@@ -1,6 +1,6 @@
 <!-- 3. DATABASE TAB -->
 <div class="viewport" id="tab-database">
-    <div class="card" style="margin-top:0;">
+    <div class="card" style="margin-top:0; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.35); backdrop-filter: blur(12px); border-radius: 16px;">
         <!-- Sub-tab Navigation -->
         <div class="sub-tab-container" style="display:flex; gap:6px; border-bottom:1px solid var(--card-border); padding-bottom:10px; margin-bottom:15px;">
             <button class="sub-tab-btn active" id="subtab-db-databases-btn" onclick="switchDatabaseSubTab('databases')" style="padding:6px 16px; border-radius:6px; border:1px solid transparent; background:rgba(59,130,246,0.1); color:var(--accent-primary); cursor:pointer; font-size:0.85rem; font-weight:500; display:flex; align-items:center; gap:6px;">
@@ -93,26 +93,26 @@
 
         <!-- SQL Console Sub-tab -->
         <div id="subtab-db-console" style="display:none;">
-            <div class="db-layout" style="display:flex; gap:16px;">
+            <div class="db-layout">
                 <!-- Tables list sidebar -->
-                <div class="db-sidebar" style="width:240px; flex-shrink:0; background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:12px;">
+                <div class="db-sidebar">
                     <div style="margin-bottom:12px;">
                         <label style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); display:block; margin-bottom:6px;">Select Connection</label>
                         <select id="db-console-connection-select" onchange="onConsoleConnectionChange()" style="width:100%; padding:8px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); font-size:0.85rem; outline:none; cursor:pointer;">
-                            <option value="">Pilih Koneksi...</option>
+                            <option value="">Select Connection...</option>
                         </select>
                     </div>
                     <div style="font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
                         <span>Tables</span>
                         <span id="db-driver-badge" class="badge badge-sleeping">SQLITE</span>
                     </div>
-                    <div id="db-tables-list" style="max-height:350px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+                    <div id="db-tables-list" style="display:flex; flex-direction:column; gap:4px;">
                         <div style="padding:16px; text-align:center; color:var(--text-muted); font-size:0.8rem;">Loading tables...</div>
                     </div>
                 </div>
 
                 <!-- Query area and results -->
-                <div class="db-main" style="flex-grow:1; display:flex; flex-direction:column; gap:16px;">
+                <div class="db-main">
                     <div class="glass-card query-box" style="padding:16px; background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px;">
                         <div class="panel-title" style="margin-bottom:12px; font-weight:600; display:flex; align-items:center; gap:8px;">
                             <i class="fa-solid fa-code" style="color:var(--accent-primary);"></i>
@@ -155,7 +155,7 @@
             </div>
 
             <!-- Summary stats row -->
-            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:18px;">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:18px;">
                 <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.15); border-radius:8px; padding:14px;">
                     <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total Backups</div>
                     <div id="backup-stat-count" style="font-size:1.6rem; font-weight:700; color:var(--accent-primary);">—</div>

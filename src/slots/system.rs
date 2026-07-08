@@ -819,6 +819,15 @@ pub fn register(engine: &mut Engine) {
                         let post_script = get_s!("backup_post_script");
                         let last_run = get_s!("backup_last_run");
                         let last_status = get_s!("backup_last_status");
+                        let remote_enabled = get_s!("backup_remote_enabled") == "true";
+                        let remote_provider = get_s!("backup_remote_provider");
+                        let s3_endpoint = get_s!("backup_s3_endpoint");
+                        let s3_bucket = get_s!("backup_s3_bucket");
+                        let s3_access_key = get_s!("backup_s3_access_key");
+                        let s3_secret_key = get_s!("backup_s3_secret_key");
+                        let gdrive_folder_id = get_s!("backup_gdrive_folder_id");
+                        let gdrive_credentials = get_s!("backup_gdrive_credentials");
+                        let keep_local = get_s!("backup_keep_local") != "false"; // Default true
 
                         let mut map = HashMap::new();
                         map.insert("enabled".to_string(), Value::Bool(enabled));
@@ -828,6 +837,15 @@ pub fn register(engine: &mut Engine) {
                         map.insert("post_script".to_string(), Value::String(post_script));
                         map.insert("last_run".to_string(), Value::String(last_run));
                         map.insert("last_status".to_string(), Value::String(last_status));
+                        map.insert("remote_enabled".to_string(), Value::Bool(remote_enabled));
+                        map.insert("remote_provider".to_string(), Value::String(remote_provider));
+                        map.insert("s3_endpoint".to_string(), Value::String(s3_endpoint));
+                        map.insert("s3_bucket".to_string(), Value::String(s3_bucket));
+                        map.insert("s3_access_key".to_string(), Value::String(s3_access_key));
+                        map.insert("s3_secret_key".to_string(), Value::String(s3_secret_key));
+                        map.insert("gdrive_folder_id".to_string(), Value::String(gdrive_folder_id));
+                        map.insert("gdrive_credentials".to_string(), Value::String(gdrive_credentials));
+                        map.insert("keep_local".to_string(), Value::Bool(keep_local));
 
                         scope_clone.set(&target_clone, Value::Map(map));
                     }
@@ -848,6 +866,15 @@ pub fn register(engine: &mut Engine) {
             let mut retention = 7;
             let mut dest_dir = String::new();
             let mut post_script = String::new();
+            let mut remote_enabled = false;
+            let mut remote_provider = String::new();
+            let mut s3_endpoint = String::new();
+            let mut s3_bucket = String::new();
+            let mut s3_access_key = String::new();
+            let mut s3_secret_key = String::new();
+            let mut gdrive_folder_id = String::new();
+            let mut gdrive_credentials = String::new();
+            let mut keep_local = true;
 
             for child in &node.children {
                 let val = engine.resolve_shorthand_value(child, scope);
@@ -861,6 +888,24 @@ pub fn register(engine: &mut Engine) {
                     dest_dir = val.to_string_coerce();
                 } else if child.name == "post_script" {
                     post_script = val.to_string_coerce();
+                } else if child.name == "remote_enabled" {
+                    remote_enabled = val.to_bool();
+                } else if child.name == "remote_provider" {
+                    remote_provider = val.to_string_coerce();
+                } else if child.name == "s3_endpoint" {
+                    s3_endpoint = val.to_string_coerce();
+                } else if child.name == "s3_bucket" {
+                    s3_bucket = val.to_string_coerce();
+                } else if child.name == "s3_access_key" {
+                    s3_access_key = val.to_string_coerce();
+                } else if child.name == "s3_secret_key" {
+                    s3_secret_key = val.to_string_coerce();
+                } else if child.name == "gdrive_folder_id" {
+                    gdrive_folder_id = val.to_string_coerce();
+                } else if child.name == "gdrive_credentials" {
+                    gdrive_credentials = val.to_string_coerce();
+                } else if child.name == "keep_local" {
+                    keep_local = val.to_bool();
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
@@ -893,6 +938,42 @@ pub fn register(engine: &mut Engine) {
                             .await;
                         let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_post_script', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
                             .bind(&post_script)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_remote_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(if remote_enabled { "true" } else { "false" })
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_remote_provider', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&remote_provider)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_s3_endpoint', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&s3_endpoint)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_s3_bucket', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&s3_bucket)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_s3_access_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&s3_access_key)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_s3_secret_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&s3_secret_key)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_gdrive_folder_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&gdrive_folder_id)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_gdrive_credentials', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(&gdrive_credentials)
+                            .execute(&pool)
+                            .await;
+                        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_keep_local', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                            .bind(if keep_local { "true" } else { "false" })
                             .execute(&pool)
                             .await;
                     }

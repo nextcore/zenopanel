@@ -24,7 +24,7 @@ fn resolve_container_ip_port(name: &str, host: &str, port: u16, default_port: u1
                 if let Some(ip) = json["env"]["ZENO_IP"].as_str() {
                     let internal_port = if let Some(ports) = json["ports"].as_array() {
                         if let Some(port_str) = ports.get(0).and_then(|v| v.as_str()) {
-                            port_str.split(':').nth(1).and_then(|p| p.parse::<u16>().ok()).unwrap_or(default_port)
+                            port_str.split(':').last().and_then(|p| p.parse::<u16>().ok()).unwrap_or(default_port)
                         } else {
                             default_port
                         }

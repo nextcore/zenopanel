@@ -830,6 +830,15 @@ fn main() {
     let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_retention', '7')").execute(pool).await;
     let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_dest_dir', '/var/lib/zenopanel/backups')").execute(pool).await;
     let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_post_script', '/var/lib/zenopanel/backup-post.sh')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_remote_enabled', 'false')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_remote_provider', 's3')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_s3_endpoint', '')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_s3_bucket', '')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_s3_access_key', '')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_s3_secret_key', '')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_gdrive_folder_id', '')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_gdrive_credentials', '')").execute(pool).await;
+    let _ = sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_keep_local', 'true')").execute(pool).await;
 
     let backup_mgr = Arc::new(backupman::BackupManager::new(pool.clone()));
     backup_mgr.clone().start();

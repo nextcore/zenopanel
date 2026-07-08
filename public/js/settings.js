@@ -370,6 +370,26 @@ export function toggleBackupFields() {
     }
 }
 
+export function toggleRemoteBackupFields() {
+    const checkbox = document.getElementById('settings-backup-remote-enabled');
+    const fields = document.getElementById('remote-backup-settings-fields');
+    if (fields) {
+        fields.style.display = checkbox && checkbox.checked ? 'flex' : 'none';
+    }
+}
+
+export function toggleRemoteProviderFields() {
+    const provider = document.getElementById('settings-backup-remote-provider')?.value;
+    const s3Fields = document.getElementById('remote-backup-s3-fields');
+    const gdriveFields = document.getElementById('remote-backup-gdrive-fields');
+    if (s3Fields) s3Fields.style.display = provider === 's3' ? 'flex' : 'none';
+    if (gdriveFields) gdriveFields.style.display = provider === 'gdrive' ? 'flex' : 'none';
+}
+
+// Bind to window so inline HTML onchange triggers can find them
+window.toggleRemoteBackupFields = toggleRemoteBackupFields;
+window.toggleRemoteProviderFields = toggleRemoteProviderFields;
+
 export async function loadBackupSettings() {
     try {
         const response = await fetch('/api/settings/backup');
@@ -401,7 +421,36 @@ export async function loadBackupSettings() {
             const backupLastStatus = document.getElementById('backup-last-status-val');
             if (backupLastStatus) backupLastStatus.textContent = settings.last_status || 'No status available';
 
+            const remoteEnabled = document.getElementById('settings-backup-remote-enabled');
+            if (remoteEnabled) remoteEnabled.checked = settings.remote_enabled;
+
+            const remoteProvider = document.getElementById('settings-backup-remote-provider');
+            if (remoteProvider) remoteProvider.value = settings.remote_provider || 's3';
+
+            const s3Endpoint = document.getElementById('settings-backup-s3-endpoint');
+            if (s3Endpoint) s3Endpoint.value = settings.s3_endpoint || '';
+
+            const s3Bucket = document.getElementById('settings-backup-s3-bucket');
+            if (s3Bucket) s3Bucket.value = settings.s3_bucket || '';
+
+            const s3AccessKey = document.getElementById('settings-backup-s3-access-key');
+            if (s3AccessKey) s3AccessKey.value = settings.s3_access_key || '';
+
+            const s3SecretKey = document.getElementById('settings-backup-s3-secret-key');
+            if (s3SecretKey) s3SecretKey.value = settings.s3_secret_key || '';
+
+            const gdriveFolderId = document.getElementById('settings-backup-gdrive-folder-id');
+            if (gdriveFolderId) gdriveFolderId.value = settings.gdrive_folder_id || '';
+
+            const gdriveCredentials = document.getElementById('settings-backup-gdrive-credentials');
+            if (gdriveCredentials) gdriveCredentials.value = settings.gdrive_credentials || '';
+
+            const keepLocal = document.getElementById('settings-backup-keep-local');
+            if (keepLocal) keepLocal.checked = settings.keep_local;
+
             toggleBackupFields();
+            toggleRemoteBackupFields();
+            toggleRemoteProviderFields();
         }
     } catch (err) {
         showToast('error', 'Error loading backup settings: ' + err.message);
@@ -414,6 +463,16 @@ export async function submitSaveBackupSettings() {
     const backupRetention = parseInt(document.getElementById('settings-backup-retention').value.trim(), 10) || 7;
     const backupDestDir = document.getElementById('settings-backup-dest-dir').value.trim() || '/var/lib/zenopanel/backups';
     const backupPostScript = document.getElementById('settings-backup-post-script').value.trim() || '';
+
+    const remoteEnabled = document.getElementById('settings-backup-remote-enabled').checked;
+    const remoteProvider = document.getElementById('settings-backup-remote-provider').value;
+    const s3Endpoint = document.getElementById('settings-backup-s3-endpoint').value.trim();
+    const s3Bucket = document.getElementById('settings-backup-s3-bucket').value.trim();
+    const s3AccessKey = document.getElementById('settings-backup-s3-access-key').value.trim();
+    const s3SecretKey = document.getElementById('settings-backup-s3-secret-key').value.trim();
+    const gdriveFolderId = document.getElementById('settings-backup-gdrive-folder-id').value.trim();
+    const gdriveCredentials = document.getElementById('settings-backup-gdrive-credentials').value.trim();
+    const keepLocal = document.getElementById('settings-backup-keep-local').checked;
 
     const csrfToken = getCSRFToken();
     const btn = document.getElementById('btn-save-backup-settings');
@@ -434,7 +493,16 @@ export async function submitSaveBackupSettings() {
                 interval_hours: backupInterval,
                 retention: backupRetention,
                 dest_dir: backupDestDir,
-                post_script: backupPostScript
+                post_script: backupPostScript,
+                remote_enabled: remoteEnabled,
+                remote_provider: remoteProvider,
+                s3_endpoint: s3Endpoint,
+                s3_bucket: s3Bucket,
+                s3_access_key: s3AccessKey,
+                s3_secret_key: s3SecretKey,
+                gdrive_folder_id: gdriveFolderId,
+                gdrive_credentials: gdriveCredentials,
+                keep_local: keepLocal
             })
         });
 

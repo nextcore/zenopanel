@@ -97,14 +97,14 @@ function renderDatabaseServers() {
             </td>
             <td style="text-align:right;">
                 <div style="display:flex; justify-content:flex-end; gap:6px;">
-                    <button class="btn-action" onclick="openDatabaseConfigModal(${server.id}, '${escapeHtml(server.name)}', '${server.driver}')" style="color:#eab308; border-color:rgba(234,179,8,0.2);" title="Configure parameters">
-                        <i class="fa-solid fa-sliders"></i> Config
+                    <button onclick="openDatabaseConfigModal(${server.id}, '${escapeHtml(server.name)}', '${server.driver}')" style="background:rgba(234,179,8,0.15); border:none; color:#facc15; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Configure parameters">
+                        <i class="fa-solid fa-sliders"></i>
                     </button>
-                    <button class="btn-action" onclick="openDatabaseLogsModal('${escapeHtml(server.name)}')" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2);">
-                        <i class="fa-solid fa-terminal"></i> Logs
+                    <button onclick="openDatabaseLogsModal('${escapeHtml(server.name)}')" style="background:rgba(59,130,246,0.15); border:none; color:#60a5fa; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Database Logs">
+                        <i class="fa-solid fa-terminal"></i>
                     </button>
-                    <button class="btn-action" onclick="deleteDatabaseServer(${server.id}, '${escapeHtml(server.name)}')" style="color:#ef4444; border-color:rgba(239,68,68,0.2);">
-                        <i class="fa-solid fa-trash"></i> Delete
+                    <button onclick="deleteDatabaseServer(${server.id}, '${escapeHtml(server.name)}')" style="background:rgba(239,68,68,0.15); border:none; color:#f87171; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Delete Server">
+                        <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
             </td>
@@ -274,7 +274,7 @@ function renderUserDatabases() {
                 <div style="display:flex; align-items:center; gap:8px;">
                     <span id="pw-mask-${db.id}" style="font-family:var(--font-code); font-size:0.85rem;">••••••••</span>
                     <span id="pw-text-${db.id}" style="font-family:var(--font-code); font-size:0.85rem; display:none;">${escapeHtml(db.db_password)}</span>
-                    <button class="btn-action" onclick="togglePasswordVisibility(${db.id})" style="padding:2px 6px; font-size:0.75rem;">
+                    <button onclick="togglePasswordVisibility(${db.id})" style="background:rgba(255,255,255,0.08); border:none; color:#e4e4e7; padding:4px 8px; border-radius:4px; cursor:pointer; transition:all 0.2s;" title="Toggle Password">
                         <i class="fa-solid fa-eye" id="pw-icon-${db.id}"></i>
                     </button>
                 </div>
@@ -284,20 +284,20 @@ function renderUserDatabases() {
             <td style="font-size:0.8rem; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(db.description || '')}">${escapeHtml(db.description || '-')}</td>
             <td style="text-align:right;">
                 <div style="display:flex; justify-content:flex-end; gap:6px;">
-                    <button class="btn-action" onclick="openDatabaseMaintenanceModal('${escapeHtml(db.db_name)}', '${escapeHtml(db.server_name)}', '${db.server_driver}')" style="color:#eab308; border-color:rgba(234,179,8,0.2);" title="Database Maintenance">
+                    <button onclick="openDatabaseMaintenanceModal('${escapeHtml(db.db_name)}', '${escapeHtml(db.server_name)}', '${db.server_driver}')" style="background:rgba(234,179,8,0.15); border:none; color:#facc15; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Database Maintenance">
                         <i class="fa-solid fa-screwdriver-wrench"></i>
                     </button>
-                    <button class="btn-action" onclick="openManageDbUsersModal(${db.id}, '${escapeHtml(db.db_name)}')" style="color:#a78bfa; border-color:rgba(167,139,250,0.2);">
-                        <i class="fa-solid fa-users"></i> Users
+                    <button onclick="openManageDbUsersModal(${db.id}, '${escapeHtml(db.db_name)}')" style="background:rgba(168,85,247,0.15); border:none; color:#c084fc; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Manage Users">
+                        <i class="fa-solid fa-users"></i>
                     </button>
-                    <button class="btn-action" onclick="openConsoleForDb('${escapeHtml(db.db_name)}')" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2);">
-                        <i class="fa-solid fa-code"></i> Console
+                    <button onclick="openConsoleForDb('${escapeHtml(db.db_name)}')" style="background:rgba(59,130,246,0.15); border:none; color:#60a5fa; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="SQL Console">
+                        <i class="fa-solid fa-code"></i>
                     </button>
-                    <button class="btn-action" onclick="openChangeDbPasswordModal(${db.id})" style="color:var(--text-main);">
+                    <button onclick="openChangeDbPasswordModal(${db.id})" style="background:rgba(255,255,255,0.08); border:none; color:#e4e4e7; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Change Password">
                         <i class="fa-solid fa-key"></i>
                     </button>
-                    <button class="btn-action" onclick="deleteUserDatabase(${db.id}, '${escapeHtml(db.db_name)}')" style="color:#ef4444; border-color:rgba(239,68,68,0.2);">
-                        <i class="fa-solid fa-trash"></i>
+                    <button onclick="deleteUserDatabase(${db.id}, '${escapeHtml(db.db_name)}')" style="background:rgba(239,68,68,0.15); border:none; color:#f87171; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Delete Database">
+                        <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
             </td>
@@ -662,7 +662,7 @@ export function renderDbSelectResult(data) {
     const keys = Object.keys(data[0]);
     
     let tableHtml = `
-        <table class="data-table" style="width:100%">
+        <table class="data-table db-results-table" style="width:100%">
             <thead>
                 <tr>
                     ${keys.map(k => `<th>${escapeHtml(k)}</th>`).join('')}
@@ -749,11 +749,11 @@ export function loadDbUsers(dbId) {
                     <td style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(u.privileges)}</td>
                     <td style="text-align:right;">
                         <div style="display:flex; justify-content:flex-end; gap:6px;">
-                            <button class="btn-action" onclick="openChangeDbUserPasswordModal(${u.id}, '${escapeHtml(u.db_username)}')" style="padding:4px 10px; font-size:0.75rem;">
+                            <button onclick="openChangeDbUserPasswordModal(${u.id}, '${escapeHtml(u.db_username)}')" style="background:rgba(255,255,255,0.08); border:none; color:#e4e4e7; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Change Password">
                                 <i class="fa-solid fa-key"></i>
                             </button>
-                            <button class="btn-action" onclick="deleteDbUser(${u.id})" style="color:#ef4444; border-color:rgba(239,68,68,0.2); padding:4px 10px; font-size:0.75rem;">
-                                <i class="fa-solid fa-trash"></i>
+                            <button onclick="deleteDbUser(${u.id})" style="background:rgba(239,68,68,0.15); border:none; color:#f87171; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Delete User">
+                                <i class="fa-solid fa-trash-can"></i>
                             </button>
                         </div>
                     </td>
@@ -1047,15 +1047,15 @@ export function loadDatabaseBackups() {
                             <td style="text-align:right;">
                                 <div style="display:flex; justify-content:flex-end; gap:6px;">
                                     ${item.status === 'success' ? `
-                                        <button class="btn-action" onclick="downloadDatabaseBackup('${escapeHtml(item.filename)}')" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2);">
-                                            <i class="fa-solid fa-download"></i> Unduh
+                                        <button onclick="downloadDatabaseBackup('${escapeHtml(item.filename)}')" style="background:rgba(59,130,246,0.15); border:none; color:#60a5fa; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Download Backup">
+                                            <i class="fa-solid fa-download"></i>
                                         </button>
-                                        <button class="btn-action" onclick="triggerRestoreDatabaseBackup(${item.id}, '${escapeHtml(item.database_name)}', '${escapeHtml(item.filename)}', '${item.created_at}', ${item.size || 0})" style="color:#10b981; border-color:rgba(16,185,129,0.2);">
-                                            <i class="fa-solid fa-rotate-left"></i> Restore
+                                        <button onclick="triggerRestoreDatabaseBackup(${item.id}, '${escapeHtml(item.database_name)}', '${escapeHtml(item.filename)}', '${item.created_at}', ${item.size || 0})" style="background:rgba(16,185,129,0.15); border:none; color:#34d399; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Restore Backup">
+                                            <i class="fa-solid fa-rotate-left"></i>
                                         </button>
                                     ` : ''}
-                                    <button class="btn-action" onclick="deleteDatabaseBackup(${item.id}, '${escapeHtml(item.filename)}')" style="color:#ef4444; border-color:rgba(239,68,68,0.2);">
-                                        <i class="fa-solid fa-trash"></i> Hapus
+                                    <button onclick="deleteDatabaseBackup(${item.id}, '${escapeHtml(item.filename)}')" style="background:rgba(239,68,68,0.15); border:none; color:#f87171; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Delete Backup">
+                                        <i class="fa-solid fa-trash-can"></i>
                                     </button>
                                 </div>
                             </td>
@@ -1606,8 +1606,8 @@ export function loadDatabaseBackupSchedules() {
                             <td>${sched.retention} files</td>
                             <td style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(lastRun)}</td>
                             <td style="text-align:right;">
-                                <button class="btn-action" onclick="deleteDatabaseBackupSchedule(${sched.id})" style="color:#ef4444; border-color:rgba(239,68,68,0.2); padding:3px 8px; font-size:0.75rem;">
-                                    <i class="fa-solid fa-trash"></i> Delete
+                                <button onclick="deleteDatabaseBackupSchedule(${sched.id})" style="background:rgba(239,68,68,0.15); border:none; color:#f87171; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Delete Schedule">
+                                    <i class="fa-solid fa-trash-can"></i>
                                 </button>
                             </td>
                         </tr>

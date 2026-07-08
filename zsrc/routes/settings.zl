@@ -224,6 +224,15 @@ http.post: '/api/settings/backup' {
                 retention: $body.retention
                 dest_dir: $body.dest_dir
                 post_script: $body.post_script
+                remote_enabled: $body.remote_enabled
+                remote_provider: $body.remote_provider
+                s3_endpoint: $body.s3_endpoint
+                s3_bucket: $body.s3_bucket
+                s3_access_key: $body.s3_access_key
+                s3_secret_key: $body.s3_secret_key
+                gdrive_folder_id: $body.gdrive_folder_id
+                gdrive_credentials: $body.gdrive_credentials
+                keep_local: $body.keep_local
                 as: $success
             }
             if: $success {

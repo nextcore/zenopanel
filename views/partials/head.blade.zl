@@ -1421,8 +1421,8 @@
             }
 
             /* Hide certain table columns on small screens to prevent overflow */
-            table.data-table th:nth-child(n+5),
-            table.data-table td:nth-child(n+5) {
+            table.data-table:not(.db-results-table) th:nth-child(n+5),
+            table.data-table:not(.db-results-table) td:nth-child(n+5) {
                 display: none;
             }
 

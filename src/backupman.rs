@@ -3,6 +3,8 @@ use tokio::time::{sleep, Duration};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
 use std::fs::File;
+use serde::Serialize;
+use jsonwebtoken::{EncodingKey, Header, Algorithm};
 
 pub struct BackupManager {
     pool: SqlitePool,
@@ -216,6 +218,15 @@ impl BackupManager {
             }
         }
 
+        // Trigger remote upload if enabled
+        if let Err(e) = self.handle_remote_upload(&backup_path, &backup_filename).await {
+            eprintln!("[BackupManager] Remote upload failed for {}: {:?}", backup_filename, e);
+            let keep_local = self.get_setting("backup_keep_local").await.unwrap_or_default() != "false";
+            if !keep_local {
+                return Err(format!("Remote upload failed: {}", e).into());
+            }
+        }
+
         Ok(backup_filename)
     }
 }
@@ -422,6 +433,16 @@ impl BackupManager {
                     .execute(&self.pool)
                     .await?;
 
+                // Trigger remote upload if enabled
+                if let Err(e) = self.handle_remote_upload(&backup_path, &filename).await {
+                    eprintln!("[BackupManager] Remote upload failed for DB backup {}: {:?}", filename, e);
+                    let _ = sqlx::query("UPDATE db_backups SET status = ? WHERE filename = ?")
+                        .bind(format!("success (remote upload failed: {})", e))
+                        .bind(&filename)
+                        .execute(&self.pool)
+                        .await;
+                }
+
                 // Clean up old backups based on retention policy
                 if let Ok(entries) = std::fs::read_dir(&db_backup_dir) {
                     let mut db_backup_files = Vec::new();
@@ -483,4 +504,257 @@ impl BackupManager {
 
         Ok(())
     }
+
+    async fn handle_remote_upload(&self, file_path: &Path, filename: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let remote_enabled = self.get_setting("backup_remote_enabled").await.unwrap_or_default() == "true";
+        if !remote_enabled {
+            return Ok(());
+        }
+
+        let provider = self.get_setting("backup_remote_provider").await.unwrap_or_default();
+        if provider == "s3" {
+            let endpoint = self.get_setting("backup_s3_endpoint").await.unwrap_or_default();
+            let bucket = self.get_setting("backup_s3_bucket").await.unwrap_or_default();
+            let access_key = self.get_setting("backup_s3_access_key").await.unwrap_or_default();
+            let secret_key = self.get_setting("backup_s3_secret_key").await.unwrap_or_default();
+
+            if endpoint.is_empty() || bucket.is_empty() || access_key.is_empty() || secret_key.is_empty() {
+                return Err("Missing S3 configuration".into());
+            }
+
+            println!("[BackupManager] Uploading {} to S3 bucket {}...", filename, bucket);
+            upload_to_s3(file_path, filename, &endpoint, &bucket, &access_key, &secret_key).await?;
+            println!("[BackupManager] Upload to S3 completed successfully.");
+        } else if provider == "gdrive" {
+            let folder_id = self.get_setting("backup_gdrive_folder_id").await.unwrap_or_default();
+            let credentials = self.get_setting("backup_gdrive_credentials").await.unwrap_or_default();
+
+            if credentials.is_empty() {
+                return Err("Missing Google Drive credentials".into());
+            }
+
+            println!("[BackupManager] Authenticating Google Drive Service Account...");
+            let token = get_gdrive_access_token(&credentials).await?;
+            
+            println!("[BackupManager] Uploading {} to Google Drive...", filename);
+            upload_to_gdrive(file_path, filename, &folder_id, &token).await?;
+            println!("[BackupManager] Upload to Google Drive completed successfully.");
+        } else {
+            return Err(format!("Unknown remote backup provider: {}", provider).into());
+        }
+
+        // Delete local copy if keep_local is false
+        let keep_local = self.get_setting("backup_keep_local").await.unwrap_or_default() != "false";
+        if !keep_local {
+            println!("[BackupManager] keep_local is disabled. Deleting local copy: {}", file_path.display());
+            let _ = std::fs::remove_file(file_path);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Serialize)]
+struct Claims {
+    iss: String,
+    scope: String,
+    aud: String,
+    exp: i64,
+    iat: i64,
+}
+
+async fn get_gdrive_access_token(credentials_json: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let creds: serde_json::Value = serde_json::from_str(credentials_json)?;
+    let client_email = creds["client_email"].as_str().ok_or("Missing client_email")?.to_string();
+    let private_key = creds["private_key"].as_str().ok_or("Missing private_key")?.to_string();
+    let token_uri = creds["token_uri"].as_str().unwrap_or("https://oauth2.googleapis.com/token").to_string();
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = Claims {
+        iss: client_email,
+        scope: "https://www.googleapis.com/auth/drive.file".to_string(),
+        aud: token_uri.clone(),
+        exp: now + 3600,
+        iat: now,
+    };
+
+    let key = EncodingKey::from_rsa_pem(private_key.as_bytes())?;
+    let header = Header::new(Algorithm::RS256);
+    let jwt = jsonwebtoken::encode(&header, &claims, &key)?;
+
+    let client = reqwest::Client::new();
+    let res = client.post(&token_uri)
+        .form(&[
+            ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+            ("assertion", &jwt),
+        ])
+        .send()
+        .await?;
+
+    if !res.status().is_success() {
+        let err_text = res.text().await?;
+        return Err(format!("Failed to exchange JWT for token: {}", err_text).into());
+    }
+
+    let token_res: serde_json::Value = res.json().await?;
+    let access_token = token_res["access_token"].as_str().ok_or("Missing access_token in response")?.to_string();
+    Ok(access_token)
+}
+
+async fn upload_to_gdrive(
+    file_path: &Path,
+    filename: &str,
+    folder_id: &str,
+    access_token: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use reqwest::multipart::{Form, Part};
+
+    let file_bytes = tokio::fs::read(file_path).await?;
+    
+    let mut metadata = serde_json::json!({
+        "name": filename,
+    });
+    if !folder_id.is_empty() {
+        metadata["parents"] = serde_json::json!([folder_id]);
+    }
+    let metadata_str = serde_json::to_string(&metadata)?;
+
+    let form = Form::new()
+        .part("metadata", Part::text(metadata_str).mime_str("application/json")?)
+        .part("media", Part::bytes(file_bytes).file_name(filename.to_string()).mime_str("application/octet-stream")?);
+
+    let client = reqwest::Client::new();
+    let res = client.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+        .bearer_auth(access_token)
+        .multipart(form)
+        .send()
+        .await?;
+
+    if !res.status().is_success() {
+        let err_text = res.text().await?;
+        return Err(format!("Failed to upload file to Google Drive: {}", err_text).into());
+    }
+
+    Ok(())
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+async fn upload_to_s3(
+    file_path: &Path,
+    filename: &str,
+    endpoint: &str,
+    bucket: &str,
+    access_key: &str,
+    secret_key: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use sha2::{Sha256, Digest};
+
+    let file_bytes = tokio::fs::read(file_path).await?;
+    let payload_hash = {
+        let mut hasher = Sha256::new();
+        hasher.update(&file_bytes);
+        format!("{:x}", hasher.finalize())
+    };
+
+    let clean_endpoint = endpoint.trim_end_matches('/');
+    let url = format!("{}/{}/{}", clean_endpoint, bucket, filename);
+    let parsed_url = url::Url::parse(&url)?;
+    let host = parsed_url.host_str().ok_or("Invalid host in endpoint URL")?.to_string();
+    let path = parsed_url.path().to_string();
+
+    let now = chrono::Utc::now();
+    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let datestamp = now.format("%Y%m%d").to_string();
+
+    let region = if clean_endpoint.contains("r2.cloudflarestorage.com") {
+        "auto"
+    } else {
+        "us-east-1"
+    };
+    let service = "s3";
+
+    let method = "PUT";
+    let canonical_uri = path;
+    let canonical_querystring = "";
+    
+    let canonical_headers = format!(
+        "host:{}\nx-amz-content-sha256:{}\nx-amz-date:{}\n",
+        host, payload_hash, amz_date
+    );
+    let signed_headers = "host;x-amz-content-sha256;x-amz-date";
+    
+    let canonical_request = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        method,
+        canonical_uri,
+        canonical_querystring,
+        canonical_headers,
+        signed_headers,
+        payload_hash
+    );
+
+    let canonical_request_hash = {
+        let mut hasher = Sha256::new();
+        hasher.update(canonical_request.as_bytes());
+        format!("{:x}", hasher.finalize())
+    };
+
+    let algorithm = "AWS4-HMAC-SHA256";
+    let credential_scope = format!("{}/{}/{}/aws4_request", datestamp, region, service);
+    let string_to_sign = format!(
+        "{}\n{}\n{}\n{}",
+        algorithm,
+        amz_date,
+        credential_scope,
+        canonical_request_hash
+    );
+
+    fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
+        use openssl::pkey::PKey;
+        use openssl::sign::Signer;
+        use openssl::hash::MessageDigest;
+        let pkey = PKey::hmac(key).unwrap();
+        let mut signer = Signer::new(MessageDigest::sha256(), &pkey).unwrap();
+        signer.update(data).unwrap();
+        signer.sign_to_vec().unwrap()
+    }
+
+    let signature_key = {
+        let k_secret = format!("AWS4{}", secret_key);
+        let k_date = hmac_sha256(k_secret.as_bytes(), datestamp.as_bytes());
+        let k_region = hmac_sha256(&k_date, region.as_bytes());
+        let k_service = hmac_sha256(&k_region, service.as_bytes());
+        hmac_sha256(&k_service, b"aws4_request")
+    };
+
+    let signature = to_hex(&hmac_sha256(&signature_key, string_to_sign.as_bytes()));
+
+    let authorization_header = format!(
+        "{} Credential={}/{}, SignedHeaders={}, Signature={}",
+        algorithm,
+        access_key,
+        credential_scope,
+        signed_headers,
+        signature
+    );
+
+    let client = reqwest::Client::new();
+    let res = client.put(url)
+        .header("host", &host)
+        .header("x-amz-content-sha256", &payload_hash)
+        .header("x-amz-date", &amz_date)
+        .header("Authorization", &authorization_header)
+        .body(file_bytes)
+        .send()
+        .await?;
+
+    if !res.status().is_success() {
+        let err_text = res.text().await?;
+        return Err(format!("Failed to upload to S3: {}", err_text).into());
+    }
+
+    Ok(())
 }
