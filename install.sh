@@ -115,16 +115,57 @@ log_info "Mengunduh paket rilis dan berkas checksum..."
 # Hapus berkas lama jika ada
 rm -f "$TARBALL_FILE" "$CHECKSUM_FILE"
 
-if command -v wget >/dev/null 2>&1; then
-    wget -q --show-progress "${REPO_URL}/${TARBALL_FILE}"
-    wget -q "${REPO_URL}/${CHECKSUM_FILE}"
-elif command -v curl >/dev/null 2>&1; then
-    curl -L -O -# "${REPO_URL}/${TARBALL_FILE}"
-    curl -L -O -s "${REPO_URL}/${CHECKSUM_FILE}"
-else
-    log_error "Wget atau Curl diperlukan untuk mengunduh berkas. Silakan pasang salah satunya."
+# Fungsi unduh dengan validasi HTTP status code dan retry pada 429
+download_file() {
+    local url="$1"
+    local output="$2"
+    local max_retry=3
+    local attempt=1
+
+    while [ $attempt -le $max_retry ]; do
+        local http_code
+        if command -v curl >/dev/null 2>&1; then
+            http_code=$(curl -L -w "%{http_code}" -o "$output" -# "$url" 2>/dev/null)
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q --server-response -O "$output" "$url" 2>/tmp/zeno_wget_header
+            http_code=$(grep "HTTP/" /tmp/zeno_wget_header | tail -1 | awk '{print $2}')
+            rm -f /tmp/zeno_wget_header
+        else
+            log_error "Wget atau Curl diperlukan untuk mengunduh berkas. Silakan pasang salah satunya."
+            exit 1
+        fi
+
+        if [ "$http_code" = "200" ]; then
+            return 0
+        elif [ "$http_code" = "429" ]; then
+            log_warn "Server membatasi kecepatan unduhan (429). Menunggu 5 detik... (percobaan ${attempt}/${max_retry})"
+            rm -f "$output"
+            sleep 5
+            attempt=$((attempt + 1))
+        elif [ "$http_code" = "404" ]; then
+            log_error "Berkas tidak ditemukan di repositori (404): $(basename "$url")"
+            log_error "Pastikan versi ${VERSION} sudah tersedia di repositori."
+            rm -f "$output"
+            exit 1
+        else
+            log_error "Gagal mengunduh $(basename "$url") (HTTP ${http_code})."
+            rm -f "$output"
+            exit 1
+        fi
+    done
+
+    log_error "Gagal mengunduh setelah ${max_retry} percobaan. Server membatasi akses (429)."
+    log_error "Coba jalankan ulang installer beberapa saat lagi."
     exit 1
-fi
+}
+
+log_info "Mengunduh tarball distribusi..."
+download_file "${REPO_URL}/${TARBALL_FILE}" "$TARBALL_FILE"
+log_success "Tarball berhasil diunduh."
+
+log_info "Mengunduh berkas checksum..."
+download_file "${REPO_URL}/${CHECKSUM_FILE}" "$CHECKSUM_FILE"
+log_success "Checksum berhasil diunduh."
 
 if [ ! -f "$TARBALL_FILE" ] || [ ! -f "$CHECKSUM_FILE" ]; then
     log_error "Gagal mengunduh berkas instalasi untuk versi ${VERSION}."
