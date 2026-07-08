@@ -866,5 +866,181 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "db.generate_proxysql_config",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut server_name = String::new();
+            let mut admin_user = String::new();
+            let mut admin_password = String::new();
+            let mut users_list = Vec::new();
+            let mut path = String::new();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "server_name" {
+                    server_name = val.to_string_coerce();
+                } else if child.name == "admin_user" {
+                    admin_user = val.to_string_coerce();
+                } else if child.name == "admin_password" {
+                    admin_password = val.to_string_coerce();
+                } else if child.name == "path" {
+                    path = val.to_string_coerce();
+                } else if child.name == "users" {
+                    if let Value::List(l) = val {
+                        users_list = l;
+                    }
+                }
+            }
+
+            let mut config = String::new();
+            config.push_str("datadir=\"/var/lib/proxysql\"\n\n");
+            config.push_str("admin_variables=\n{\n    admin_credentials=\"admin:admin\"\n    mysql_ifaces=\"0.0.0.0:6032\"\n}\n\n");
+            config.push_str("mysql_variables=\n{\n    threads=2\n    max_connections=2048\n    interfaces=\"0.0.0.0:6033\"\n    connect_timeout_server=3000\n}\n\n");
+            config.push_str(&format!("mysql_servers =\n(\n    {{ address=\"{}\", port=3306, hostgroup=1, max_connections=100 }}\n)\n\n", server_name));
+            
+            config.push_str("mysql_users =\n(\n");
+            config.push_str(&format!("    {{ username=\"{}\", password=\"{}\", default_hostgroup=1, active=1 }},\n", admin_user, admin_password));
+            for user_val in users_list {
+                if let Value::Map(m) = user_val {
+                    let u = m.get("db_user").and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None }).unwrap_or_default();
+                    let p = m.get("db_password").and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None }).unwrap_or_default();
+                    if !u.is_empty() {
+                        config.push_str(&format!("    {{ username=\"{}\", password=\"{}\", default_hostgroup=1, active=1 }},\n", u, p));
+                    }
+                }
+            }
+            if config.ends_with(",\n") {
+                config.truncate(config.len() - 2);
+                config.push_str("\n");
+            }
+            config.push_str(")\n");
+
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::write(&path, config).map_err(|e| Diagnostic {
+                r#type: "error".to_string(),
+                message: format!("Failed to write proxysql config to {}: {}", path, e),
+                filename: node.filename.clone(),
+                line: node.line,
+                col: node.col,
+                slot: Some("db.generate_proxysql_config".to_string()),
+            })?;
+
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "db.maintain",
+        Arc::new(|engine, ctx, node, scope| {
+            let db_mgr = ctx.get::<DBManager>("db_manager").ok_or_else(|| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "db.maintain: DBManager not found in context".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("db.maintain".to_string()),
+                }
+            })?;
+
+            let mut db_connection = "default".to_string();
+            let mut db_name = String::new();
+            let mut action = String::new();
+            let mut target = "maintain_result".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "db" | "connection" | "server" => db_connection = val.to_string_coerce(),
+                    "database" => db_name = val.to_string_coerce(),
+                    "action" => action = val.to_string_coerce(),
+                    "as" => {
+                        if let Some(ref v) = child.value {
+                            target = v.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let pool_opt = db_mgr.get_pool(&db_connection).await;
+                    match pool_opt {
+                        Some(crate::db::DbPool::MySql(pool)) => {
+                            let sql_keyword = match action.as_str() {
+                                "optimize" => "OPTIMIZE",
+                                "repair" => "REPAIR",
+                                _ => "ANALYZE",
+                            };
+
+                            let rows = sqlx::query("SELECT table_name FROM information_schema.tables WHERE table_schema = ?")
+                                .bind(&db_name)
+                                .fetch_all(&pool)
+                                .await
+                                .map_err(|e| format!("Gagal mengambil daftar tabel: {}", e))?;
+
+                            if rows.is_empty() {
+                                return Ok::<_, String>("Database kosong atau tidak memiliki tabel.".to_string());
+                            }
+
+                            for row in rows {
+                                use sqlx::Row;
+                                let table_name: String = row.try_get(0).unwrap_or_default();
+                                if !table_name.is_empty() {
+                                    let maint_query = format!("{} TABLE `{}`.`{}`", sql_keyword, db_name, table_name);
+                                    let _ = sqlx::query(&maint_query)
+                                        .execute(&pool)
+                                        .await;
+                                }
+                            }
+                            Ok(format!("Operasi {} berhasil dijalankan pada semua tabel.", action))
+                        }
+                        Some(crate::db::DbPool::Postgres(pool)) => {
+                            let query = match action.as_str() {
+                                "optimize" => "VACUUM ANALYZE",
+                                _ => "ANALYZE",
+                            };
+                            let _ = sqlx::query(query)
+                                .execute(&pool)
+                                .await
+                                .map_err(|e| format!("Gagal menjalankan maintenance: {}", e))?;
+
+                            Ok(format!("Operasi {} berhasil dijalankan.", action))
+                        }
+                        Some(crate::db::DbPool::Sqlite(pool)) => {
+                            let _ = sqlx::query("VACUUM")
+                                .execute(&pool)
+                                .await
+                                .map_err(|e| format!("Gagal menjalankan VACUUM: {}", e))?;
+
+                            Ok("Operasi VACUUM berhasil dijalankan.".to_string())
+                        }
+                        None => Err(format!("Database connection '{}' not found", db_connection)),
+                    }
+                })
+            });
+
+            let mut map = HashMap::new();
+            match result {
+                Ok(msg) => {
+                    map.insert("success".to_string(), Value::Bool(true));
+                    map.insert("message".to_string(), Value::String(msg));
+                }
+                Err(err) => {
+                    map.insert("success".to_string(), Value::Bool(false));
+                    map.insert("message".to_string(), Value::String(err));
+                }
+            }
+
+            scope.set(&target, Value::Map(map));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 

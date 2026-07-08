@@ -76,6 +76,7 @@
                             <th>Host &amp; Port</th>
                             <th>Uptime</th>
                             <th>Connections</th>
+                            <th>Connection Pool</th>
                             <th>Admin Username</th>
                             <th>Remote Access</th>
                             <th style="text-align:right;">Actions</th>

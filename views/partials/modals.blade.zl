@@ -603,6 +603,19 @@
                     <input type="number" id="install-db-port" value="3306" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
                 </div>
             </div>
+            <!-- Connection Pooling settings -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; align-items:center;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label style="display:flex; align-items:center; gap:8px; font-weight:500; font-size:0.9rem; cursor:pointer; user-select:none;">
+                        <input type="checkbox" id="install-db-pool-enabled" onchange="toggleInstallDbPoolPortVisibility()" style="accent-color:var(--accent-primary); width:16px; height:16px; cursor:pointer;">
+                        <span>Enable Connection Pool (PgBouncer)</span>
+                    </label>
+                </div>
+                <div class="form-group" id="install-db-pool-port-group" style="display:none; margin-bottom:0;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Pool Port</label>
+                    <input type="number" id="install-db-pool-port" value="6432" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+            </div>
             <div class="form-group" style="margin-bottom:14px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Container / Server Name</label>
                 <input type="text" id="install-db-name" placeholder="e.g. mysql-main" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">

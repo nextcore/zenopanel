@@ -5,7 +5,7 @@
 # List Database Servers
 http.get: '/api/database/servers' {
     auth.guard
-    db.select: "SELECT id, name, driver, host, port, admin_user, is_remote FROM db_servers ORDER BY id DESC" { as: $servers }
+    db.select: "SELECT id, name, driver, host, port, admin_user, is_remote, pool_enabled, pool_port FROM db_servers ORDER BY id DESC" { as: $servers }
     http.ok: { data: $servers }
 }
 
@@ -598,6 +598,14 @@ http.post: '/api/database/install-server' {
         default: ''
         as: $cpus
     }
+    coalesce: $body.pool_enabled {
+        default: 0
+        as: $pool_enabled
+    }
+    coalesce: $body.pool_port {
+        default: 0
+        as: $pool_port
+    }
 
     # Determine driver from engine string
     # mariadb:* and mysql:* → driver 'mysql' (protocol-compatible)
@@ -656,6 +664,11 @@ http.post: '/api/database/install-server' {
     if: "$driver == 'postgres'" {
         then: {
             var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n${limits_yaml}" }
+            if: "$pool_enabled == 1" {
+                then: {
+                    var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${root_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
+                }
+            }
         }
     }
 
@@ -680,11 +693,11 @@ http.post: '/api/database/install-server' {
             }
 
             # Register the server regardless (it may need a few seconds; user can verify)
-            db.execute: "INSERT OR IGNORE INTO db_servers (name, driver, host, port, admin_user, admin_password, is_remote) VALUES (?, ?, '127.0.0.1', ?, ?, ?, ?)" {
-                bind: [$name, $driver, $port, $admin_user, $root_password, $is_remote]
+            db.execute: "INSERT OR IGNORE INTO db_servers (name, driver, host, port, admin_user, admin_password, is_remote, pool_enabled, pool_port, engine, data_dir, mem_limit, cpus) VALUES (?, ?, '127.0.0.1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" {
+                bind: [$name, $driver, $port, $admin_user, $root_password, $is_remote, $pool_enabled, $pool_port, $engine, $data_dir, $mem_limit, $cpus]
             }
 
-            db.select: "SELECT id, name, driver, host, port, admin_user, is_remote FROM db_servers" { as: $debug_servers }
+            db.select: "SELECT id, name, driver, host, port, admin_user, is_remote, pool_enabled, pool_port FROM db_servers" { as: $debug_servers }
 
             http.created: {
                 message: "Database engine deployed and registered successfully"
@@ -1073,6 +1086,139 @@ http.post: '/api/database/servers/toggle-remote' {
     }
 }
 
+# Toggle Database Server Connection Pool (PgBouncer for PostgreSQL)
+http.post: '/api/database/servers/toggle-pool' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+    var: $pool_enabled { val: $body.pool_enabled }
+
+    db.select: "SELECT name, driver, host, port, admin_user, admin_password, is_remote, pool_port, engine, data_dir, mem_limit, cpus FROM db_servers WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $server
+    }
+
+    if: $server {
+        then: {
+            var: $name { val: $server.name }
+            var: $driver { val: $server.driver }
+
+            var: $port { val: $server.port }
+            var: $admin_user { val: $server.admin_user }
+            var: $admin_password { val: $server.admin_password }
+            var: $is_remote { val: $server.is_remote }
+            var: $pool_port { val: $server.pool_port }
+            var: $engine { val: $server.engine }
+            var: $data_dir { val: $server.data_dir }
+            var: $mem_limit { val: $server.mem_limit }
+            var: $cpus { val: $server.cpus }
+
+            var: $bind_prefix { val: '127.0.0.1' }
+            if: "$is_remote == 1" {
+                then: {
+                    var: $bind_prefix { val: '0.0.0.0' }
+                }
+            }
+
+            # Build resource limits YAML block
+            var: $limits_yaml { val: "    oom_score_adj: -1000\n" }
+            if: "$mem_limit != ''" {
+                then: {
+                    var: $limits_yaml { val: "${limits_yaml}    mem_limit: ${mem_limit}\n" }
+                }
+            }
+            if: "$cpus != ''" {
+                then: {
+                    var: $limits_yaml { val: "${limits_yaml}    cpus: ${cpus}\n" }
+                }
+            }
+
+            if: "$driver == 'postgres'" {
+                then: {
+                    coalesce: $engine { default: 'postgres:latest', as: $engine }
+                    coalesce: $data_dir { default: "/var/lib/zenopanel/volumes/${name}", as: $data_dir }
+
+                    if: "$pool_port == 0" {
+                        then: {
+                            var: $pool_port { val: 6432 }
+                        }
+                    }
+
+                    # Reconstruct compose YAML
+                    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:5432'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n${limits_yaml}" }
+
+                    if: "$pool_enabled == 1" {
+                        then: {
+                            var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${admin_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
+                        }
+                    }
+
+                    box.compose: 'up' {
+                        yaml: $compose_yaml
+                        project_name: $name
+                        as: $rebuild_res
+                    }
+
+                    db.execute: "UPDATE db_servers SET pool_enabled = ?, pool_port = ? WHERE id = ?" {
+                        bind: [$pool_enabled, $pool_port, $id]
+                    }
+
+                    http.ok: { success: true, message: "Connection pool (PgBouncer) configuration updated successfully." }
+                }
+            }
+
+            if: "$driver == 'mysql'" {
+                then: {
+                    coalesce: $engine { default: 'mysql:latest', as: $engine }
+                    coalesce: $data_dir { default: "/var/lib/zenopanel/volumes/${name}", as: $data_dir }
+
+                    if: "$pool_port == 0" {
+                        then: {
+                            var: $pool_port { val: 6033 }
+                        }
+                    }
+
+                    # Reconstruct compose YAML
+                    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:3306'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n${limits_yaml}" }
+
+                    if: "$pool_enabled == 1" {
+                        then: {
+                            db.select: "SELECT db_user, db_password FROM db_databases WHERE server_id = ?" {
+                                bind: [$id]
+                                as: $db_users
+                            }
+                            db.generate_proxysql_config: {
+                                server_name: $name
+                                admin_user: $admin_user
+                                admin_password: $admin_password
+                                users: $db_users
+                                path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
+                            }
+                            var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
+                        }
+                    }
+
+                    box.compose: 'up' {
+                        yaml: $compose_yaml
+                        project_name: $name
+                        as: $rebuild_res
+                    }
+
+                    db.execute: "UPDATE db_servers SET pool_enabled = ?, pool_port = ? WHERE id = ?" {
+                        bind: [$pool_enabled, $pool_port, $id]
+                    }
+
+                    http.ok: { success: true, message: "Connection pool (ProxySQL) configuration updated successfully." }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Server database tidak ditemukan." }
+        }
+    }
+}
+
 # Get Database Server Container Logs
 http.get: '/api/database/servers/logs' {
     auth.guard
@@ -1148,48 +1294,35 @@ http.post: '/api/database/maintenance' {
     var: $driver { val: $body.driver }
     var: $action { val: $body.action }
 
-    var: $query { val: "" }
-    if: "$driver == 'mysql'" {
-        then: {
-            if: "$action == 'check'" {
-                then: { var: $query { val: "ANALYZE TABLE `${db_name}`" } }
-            }
-            if: "$action == 'optimize'" {
-                then: { var: $query { val: "OPTIMIZE TABLE `${db_name}`" } }
-            }
-            if: "$action == 'repair'" {
-                then: { var: $query { val: "REPAIR TABLE `${db_name}`" } }
-            }
-        }
-    }
-    if: "$driver == 'postgres'" {
-        then: {
-            if: "$action == 'optimize'" {
-                then: { var: $query { val: "VACUUM ANALYZE" } }
-            }
-            if: "$action == 'check'" {
-                then: { var: $query { val: "ANALYZE" } }
-            }
-        }
+    db.maintain: {
+        server: $server_name
+        database: $db_name
+        driver: $driver
+        action: $action
+        as: $maint_res
     }
 
-    if: { not_empty: $query } {
+    coalesce: $maint_res.success {
+        default: false
+        as: $maint_success
+    }
+    coalesce: $maint_res.message {
+        default: 'Gagal menjalankan maintenance.'
+        as: $maint_message
+    }
+
+    if: $maint_success {
         then: {
-            if: "$driver == 'mysql'" {
-                then: {
-                    db.select: $query { db: $server_name, as: $maint_result }
-                    http.ok: { success: true, message: "Operasi ${action} berhasil dijalankan." }
-                }
-            }
-            if: "$driver == 'postgres'" {
-                then: {
-                    db.execute: $query { db: $server_name }
-                    http.ok: { success: true, message: "Operasi ${action} berhasil dijalankan." }
-                }
+            http.ok: {
+                success: true
+                message: $maint_message
             }
         }
         else: {
-            http.bad_request: { success: false, message: "Operasi tidak didukung untuk driver ini." }
+            http.bad_request: {
+                success: false
+                message: $maint_message
+            }
         }
     }
 }
@@ -1221,9 +1354,21 @@ http.get: '/api/database/servers/status' {
 
     if: { not_empty: $q_connections } {
         then: {
-            db.select: $q_connections { db: $server_name, first: true, as: $res_conn }
-            db.select: $q_uptime { db: $server_name, first: true, as: $res_upt }
-            db.select: $q_version { db: $server_name, first: true, as: $res_ver }
+            db.select: $q_connections {
+                db: $server_name
+                first: true
+                as: $res_conn
+            }
+            db.select: $q_uptime {
+                db: $server_name
+                first: true
+                as: $res_upt
+            }
+            db.select: $q_version {
+                db: $server_name
+                first: true
+                as: $res_ver
+            }
 
             var: $connections { val: 0 }
             if: "$driver == 'mysql'" {
@@ -1277,14 +1422,20 @@ http.get: '/api/database/servers/config' {
             if: "$driver == 'mysql'" {
                 then: {
                     var: $file_path { val: "/var/lib/zenopanel/db/${name}_conf/z_custom.cnf" }
-                    io.file.read: $file_path { optional: true, as: $content }
+                    io.file.read: $file_path {
+                        optional: true
+                        as: $content
+                    }
                     coalesce: $content { default: "", as: $config_content }
                 }
             }
             if: "$driver == 'postgres'" {
                 then: {
                     var: $file_path { val: "/var/lib/zenopanel/db/${name}/postgresql.conf" }
-                    io.file.read: $file_path { optional: true, as: $content }
+                    io.file.read: $file_path {
+                        optional: true
+                        as: $content
+                    }
                     coalesce: $content { default: "", as: $config_content }
                 }
             }
@@ -1314,9 +1465,21 @@ http.get: '/api/database/servers/config' {
 
             if: { not_empty: $q_max_conn } {
                 then: {
-                    db.select: $q_max_conn { db: $name, first: true, as: $res_max_conn }
-                    db.select: $q_buffer_pool { db: $name, first: true, as: $res_buf }
-                    db.select: $q_packet { db: $name, first: true, as: $res_pkt }
+                    db.select: $q_max_conn {
+                        db: $name
+                        first: true
+                        as: $res_max_conn
+                    }
+                    db.select: $q_buffer_pool {
+                        db: $name
+                        first: true
+                        as: $res_buf
+                    }
+                    db.select: $q_packet {
+                        db: $name
+                        first: true
+                        as: $res_pkt
+                    }
 
                     if: "$driver == 'mysql'" {
                           then: {
@@ -1334,12 +1497,12 @@ http.get: '/api/database/servers/config' {
             }
 
             http.ok: {
-                success: true,
-                name: $name,
-                driver: $driver,
-                config: $config_content,
-                live_max_connections: $live_max_connections,
-                live_buffer_pool: $live_buffer_pool,
+                success: true
+                name: $name
+                driver: $driver
+                config: $config_content
+                live_max_connections: $live_max_connections
+                live_buffer_pool: $live_buffer_pool
                 live_packet: $live_packet
             }
         }
@@ -1397,7 +1560,10 @@ http.post: '/api/database/servers/config/save' {
                     
                     if: { is_empty: $config_data } {
                         then: {
-                            io.file.read: $file_path { optional: true, as: $orig_content }
+                            io.file.read: $file_path {
+                                optional: true
+                                as: $orig_content
+                            }
                             coalesce: $orig_content { default: "", as: $orig_content }
                             var: $config_data { val: "${orig_content}\n\n# Added by ZenoPanel\nmax_connections = ${max_connections}\nshared_buffers = '${buffer_pool_size}'\nwork_mem = '${max_allowed_packet}'\n" }
                         }
@@ -1499,3 +1665,6 @@ http.post: '/api/database/backup-schedules/delete' {
     }
     http.ok: { success: true, message: "Jadwal backup database berhasil dihapus." }
 }
+
+
+

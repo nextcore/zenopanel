@@ -1,12 +1,12 @@
 import sqlite3
 
-conn = sqlite3.connect("dist/zenopanel-v1.3.13/zeno.db")
+db_path = "dist/zenopanel-v1.4.0/zeno.db"
+conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
 
-cursor.execute("SELECT * FROM db_servers")
-rows = cursor.fetchall()
-print("=== db_servers ===")
-for r in rows:
-    print(r)
+cursor.execute("SELECT id, name, driver, host, port, admin_user, admin_password, is_remote, pool_enabled, pool_port, engine, data_dir, mem_limit, cpus FROM db_servers")
+print("Registered DB Servers:")
+for row in cursor.fetchall():
+    print(row)
 
 conn.close()

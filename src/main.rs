@@ -330,6 +330,31 @@ fn main() {
         .execute(&default_pool)
         .await;
 
+    let _ = sqlx::query("ALTER TABLE db_servers ADD COLUMN pool_enabled INTEGER DEFAULT 0")
+        .execute(&default_pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE db_servers ADD COLUMN pool_port INTEGER DEFAULT 0")
+        .execute(&default_pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE db_servers ADD COLUMN engine TEXT")
+        .execute(&default_pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE db_servers ADD COLUMN data_dir TEXT")
+        .execute(&default_pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE db_servers ADD COLUMN mem_limit TEXT")
+        .execute(&default_pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE db_servers ADD COLUMN cpus TEXT")
+        .execute(&default_pool)
+        .await;
+
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS db_databases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

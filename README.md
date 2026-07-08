@@ -9,7 +9,7 @@
 
 **ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang untuk para developer modern yang menginginkan kendali penuh atas server mereka — tanpa overhead, tanpa bloatware, tanpa kompromi.
 
-ZenoPanel hadir sebagai **single binary** dengan zero external dependency: gateway reverse proxy Pingora, container runtime OCI, database hosting, cloud backup, firewall, dan WAF — semua terintegrasi dalam satu binary yang berjalan native di **semua distribusi Linux**, termasuk Alpine Linux (MUSL/OpenRC).
+ZenoPanel hadir sebagai **single binary** dengan zero external dependency: gateway reverse proxy Pingora, container runtime **Zeno Box** (OCI-compliant), database hosting, cloud backup, firewall, dan WAF — semua terintegrasi dalam satu binary yang berjalan native di **semua distribusi Linux**, termasuk Alpine Linux (MUSL/OpenRC).
 
 ---
 
@@ -32,8 +32,8 @@ ZenoPanel bukan sekadar panel hosting. Ini adalah **platform infrastruktur lengk
 - **Telemetry Real-Time**: Pantau beban CPU, RAM, dan status port aktif secara visual via Server-Sent Events (SSE).
 - **Logs Streaming**: Streaming log stdout dan stderr secara asinkron dan real-time langsung ke browser via SSE.
 
-### 🐳 Container Manager (Lightweight Runtime)
-- **Container Runtime Bawaan**: Jalankan container tanpa Docker daemon — menggunakan `runc` (OCI-compliant) yang di-embedded langsung di binary.
+### 🐳 Container Manager (Zeno Box OCI Engine)
+- **Container Runtime Bawaan (Zeno Box)**: Jalankan container tanpa Docker daemon — menggunakan `runc` (OCI-compliant) yang di-embedded langsung di binary.
 - **Pull Image dari Registry**: Dukung Docker Hub & OCI registry — pull image langsung via Registry API V2.
 - **Manajemen Lengkap**: Create, start, stop, delete container — semuanya dari UI panel.
 - **Volume Mount & Port Mapping**: Bind mount folder host, mapping port container.
@@ -59,11 +59,12 @@ ZenoPanel bukan sekadar panel hosting. Ini adalah **platform infrastruktur lengk
 - **Strip Path Prefix**: Potong prefix path secara dinamis sebelum meneruskan ke backend.
 - **Dynamic Port Listeners**: Dukung rule proxy pada port non-standar.
 
-### 🗄️ Database Manager (ZenoBox)
-Deploy dan kelola database server langsung dari panel — terisolasi penuh di dalam container OCI, tanpa instalasi manual atau polusi dependensi sistem.
+### 🗄️ Database Manager
+Deploy dan kelola database server langsung dari panel — terisolasi penuh di dalam kontainer **Zeno Box** (container OCI bawaan), tanpa instalasi manual atau polusi dependensi sistem.
 
 - **Support MySQL 5.7, MySQL 8, dan PostgreSQL** — pilih versi sesuai kebutuhan.
-- **Isolasi Penuh per Kontainer**: Setiap server database berjalan di container tersendiri, tanpa konflik versi.
+- **Isolasi Penuh per Kontainer Zeno Box**: Setiap server database berjalan di dalam kontainer terisolasi tersendiri, tanpa konflik versi.
+- **Connection Pooling Sidecar**: Dukungan connection pooling terintegrasi menggunakan sidecar container **ProxySQL** (untuk MySQL/MariaDB) dan **PgBouncer** (untuk PostgreSQL) untuk mengoptimalkan penggunaan resource koneksi database dan meningkatkan konkurensi.
 - **Manajemen Database & User**: Buat database, buat user, atur GRANT, dan ganti password — dari UI.
 - **SQL Console Bawaan**: Eksekusi query SQL langsung dari browser.
 - **Bulk Data Support**: Pool koneksi Rust internal mendukung operasi batch (500+ INSERT rows) dengan latensi sub-detik.
@@ -122,7 +123,7 @@ ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, pan
 | :--- | :--- |
 | **Proxy Engine** | [Cloudflare Pingora](https://github.com/cloudflare/pingora) (`pingora-core` & `pingora-proxy`) |
 | **Web Engine** | [Axum](https://github.com/tokio-rs/axum) & [Tokio](https://tokio.rs/) Async Runtime |
-| **Container Runtime** | [runc](https://github.com/opencontainers/runc) (OCI-compliant), embedded di binary |
+| **Container Runtime** | **Zeno Box** (berbasis [runc](https://github.com/opencontainers/runc) embedded) |
 | **TLS & Crypto** | OpenSSL (Pingora handshake) & [Rustls](https://github.com/rustls/rustls) |
 | **ACME & SSL** | [instant-acme](https://github.com/jsha/instant-acme), [rcgen](https://github.com/rustls/rcgen), [x509-parser](https://github.com/rusticata/x509-parser) |
 | **Scripting Engine** | ZenoLang (custom scripting runtime di atas Zeno Rust) |
@@ -142,7 +143,7 @@ ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, pan
 - Resource limits (RAM & CPU) per kontainer
 - Health checks & auto-restart kontainer
 - Self-update satu-klik tanpa *Text file busy*
-- Database hosting via ZenoBox (MySQL 5.7/8, PostgreSQL) dalam container terisolasi
+- Database hosting di kontainer terisolasi **Zeno Box** (MySQL 5.7/8, PostgreSQL) dengan Connection Pooling (ProxySQL & PgBouncer)
 - Visual Config Tuner database
 - Database maintenance (ANALYZE / OPTIMIZE / REPAIR / VACUUM) dari UI
 - Auto & manual backup database + volume ke cloud (S3-compatible & Google Drive)

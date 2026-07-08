@@ -89,6 +89,17 @@ function renderDatabaseServers() {
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(server.host)}:${server.port}</td>
             <td id="db-server-uptime-${server.name}" style="font-size:0.8rem; color:var(--text-muted);">-</td>
             <td id="db-server-connections-${server.name}" style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">-</td>
+            <td>
+                ${server.pool_enabled === 1 ? `
+                    <span class="badge badge-running" style="cursor:pointer; user-select:none;" onclick="toggleDatabasePool(${server.id}, 0)" title="Click to disable connection pool">
+                        <i class="fa-solid fa-water"></i> Port ${server.pool_port}
+                    </span>
+                ` : `
+                    <span class="badge badge-sleeping" style="cursor:pointer; user-select:none;" onclick="toggleDatabasePool(${server.id}, 1)" title="Click to enable connection pool (ProxySQL for MySQL, PgBouncer for PostgreSQL)">
+                        <i class="fa-solid fa-water-ladder"></i> Disabled
+                    </span>
+                `}
+            </td>
             <td>${escapeHtml(server.admin_user)}</td>
             <td>
                 <span class="badge ${server.is_remote === 1 ? 'badge-running' : 'badge-sleeping'}" style="cursor:pointer; user-select:none;" onclick="toggleDatabaseRemoteAccess(${server.id}, ${server.is_remote === 1 ? 0 : 1})">
@@ -900,6 +911,14 @@ export function generateInstallDbRootPassword() {
     document.getElementById('install-db-root-password').value = generateSecurePassword();
 }
 
+export function toggleInstallDbPoolPortVisibility() {
+    const enabled = document.getElementById('install-db-pool-enabled').checked;
+    const group = document.getElementById('install-db-pool-port-group');
+    if (group) {
+        group.style.display = enabled ? 'block' : 'none';
+    }
+}
+
 export function submitInstallDbEngine() {
     const engine = document.getElementById('install-db-engine').value;
     const name = document.getElementById('install-db-name').value.trim();
@@ -908,6 +927,8 @@ export function submitInstallDbEngine() {
     const data_dir = document.getElementById('install-db-data-dir').value.trim();
     const mem_limit = document.getElementById('install-db-mem-limit').value;
     const cpus = document.getElementById('install-db-cpu-limit').value;
+    const pool_enabled = document.getElementById('install-db-pool-enabled').checked ? 1 : 0;
+    const pool_port = parseInt(document.getElementById('install-db-pool-port').value) || (port + 1000);
 
     if (!name || !root_password || !data_dir) {
         showToast('error', 'Semua field wajib diisi');
@@ -925,7 +946,7 @@ export function submitInstallDbEngine() {
     fetch('/api/database/install-server', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
-        body: JSON.stringify({ engine, name, port, root_password, data_dir, mem_limit, cpus })
+        body: JSON.stringify({ engine, name, port, root_password, data_dir, mem_limit, cpus, pool_enabled, pool_port })
     })
     .then(res => res.json())
     .then(res => {
@@ -1324,6 +1345,25 @@ export function toggleDatabaseRemoteAccess(serverId, makeRemote) {
     .catch(err => showToast('error', 'API error: ' + err.toString()));
 }
 
+export function toggleDatabasePool(serverId, enablePool) {
+    showToast('info', 'Mengubah konfigurasi connection pool database...');
+    fetch('/api/database/servers/toggle-pool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+        body: JSON.stringify({ id: serverId, pool_enabled: enablePool ? 1 : 0 })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast('success', res.message);
+            loadDatabaseServers();
+        } else {
+            showToast('error', res.message || 'Gagal mengubah konfigurasi connection pool');
+        }
+    })
+    .catch(err => showToast('error', 'API error: ' + err.toString()));
+}
+
 export function openDatabaseLogsModal(serverName) {
     const content = document.getElementById('db-logs-content');
     if (content) content.textContent = 'Loading log kontainer...';
@@ -1564,6 +1604,8 @@ function formatUptime(seconds) {
 }
 
 window.toggleDatabaseRemoteAccess = toggleDatabaseRemoteAccess;
+window.toggleDatabasePool = toggleDatabasePool;
+window.toggleInstallDbPoolPortVisibility = toggleInstallDbPoolPortVisibility;
 window.openDatabaseLogsModal = openDatabaseLogsModal;
 window.closeDatabaseLogsModal = closeDatabaseLogsModal;
 window.downloadDatabaseBackup = downloadDatabaseBackup;

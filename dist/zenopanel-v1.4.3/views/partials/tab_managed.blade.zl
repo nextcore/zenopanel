@@ -1,0 +1,81 @@
+<!-- 6. MANAGED PROCESSES TAB -->
+<div class="viewport" id="tab-managed">
+    <div class="card" style="margin-top:0;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:15px;">
+            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-gears" style="color:var(--accent-primary);"></i> Managed Processes</h3>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-action" onclick="openPortCheckModal()" style="display:flex; align-items:center; gap:6px;"><i class="fa-solid fa-circle-question"></i> Check Port</button>
+                <button class="btn-primary-action" onclick="openAddProcessModal()"><i class="fa-solid fa-plus"></i> Add Process</button>
+            </div>
+        </div>
+        <div class="table-container" style="min-height:260px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Command</th>
+                        <th>CPU</th>
+                        <th>RAM</th>
+                        <th>Port</th>
+                        <th>Directory</th>
+                        <th>Status</th>
+                        <th>PID</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="managed-table-body">
+                    <!-- Populated dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Git Sync deployment Modal for Native Processes -->
+<div class="modal-overlay" id="native-git-modal">
+    <div class="modal-card" style="max-width:500px;">
+        <div class="modal-header">
+            <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                <i class="fa-brands fa-git-alt" style="color:var(--accent-primary); font-size:1.2rem;"></i> Git Sync Deployment (Native)
+            </div>
+            <div class="modal-close" onclick="closeNativeGitModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:5px;">
+                Configure automated Git pulls for process: <strong id="native-git-proc-name" style="color:var(--text-main);"></strong>
+            </div>
+            <input type="hidden" id="native-git-proc-id" value="">
+            <input type="hidden" id="native-git-proc-cwd" value="">
+            <div class="form-group">
+                <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Repository URL (HTTPS)</label>
+                <input type="text" id="native-git-repo-url" placeholder="https://github.com/username/repo.git" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); font-size:0.8rem; outline:none;">
+                <small style="display:block; margin-top:4px; font-size:0.7rem; color:var(--text-muted); line-height:1.4;">
+                    For private repos, use standard PAT token URL format: <code>https://&lt;token&gt;@github.com/username/repo.git</code>
+                </small>
+            </div>
+            <div class="form-group">
+                <label style="display:block; margin-bottom:4px; font-weight:500; font-size:0.8rem; color:var(--text-muted);">Branch</label>
+                <input type="text" id="native-git-branch" placeholder="main" style="width:100%; padding:8px; border-radius:4px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); font-size:0.8rem; outline:none;">
+            </div>
+            <div class="form-group" style="background:rgba(59,130,246,0.03); border:1px solid rgba(59,130,246,0.1); border-radius:6px; padding:10px; margin-top:5px;">
+                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:0.8rem; color:var(--accent-primary);">Git Auto-Deploy Webhook</label>
+                <div style="display:flex; gap:8px; margin-bottom:6px;">
+                    <input type="text" id="native-git-webhook-url" readonly style="flex-grow:1; padding:6px; border-radius:4px; border:1px solid var(--card-border); background:rgba(0,0,0,0.3); color:var(--text-muted); font-size:0.75rem; outline:none;" value="">
+                    <button class="btn-action" onclick="copyNativeWebhookUrl()" style="padding:0 10px; font-size:0.75rem; border-radius:4px;">Copy</button>
+                </div>
+                <small style="display:block; font-size:0.7rem; color:var(--text-muted); line-height:1.4;">
+                    Add this Webhook URL to GitHub/GitLab repository settings (Webhooks) to automatically trigger deployment on every push.
+                </small>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeNativeGitModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="saveNativeGitSettings()" style="display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-floppy-disk"></i> Save Settings
+            </button>
+            <button class="btn-action" onclick="syncNativeGit()" style="display:flex; align-items:center; gap:6px; background:rgba(16,185,129,0.1); border-color:rgba(16,185,129,0.25); color:#10b981;">
+                <i class="fa-solid fa-sync"></i> Pull & Deploy
+            </button>
+        </div>
+    </div>
+</div>
