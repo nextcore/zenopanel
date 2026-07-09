@@ -69,6 +69,17 @@ impl RateLimiter {
     pub fn window_secs(&self) -> u64 {
         self.window.lock().unwrap().as_secs()
     }
+
+    pub fn prune_old_entries(&self) {
+        let now = Instant::now();
+        let window = *self.window.lock().unwrap();
+        let cutoff = now.checked_sub(window).unwrap_or(now);
+        let mut reqs = self.requests.lock().unwrap();
+        reqs.retain(|_, instants| {
+            instants.retain(|&t| t > cutoff);
+            !instants.is_empty()
+        });
+    }
 }
 
 use std::sync::atomic::AtomicU64;

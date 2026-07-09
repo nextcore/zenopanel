@@ -54,6 +54,7 @@
             background-attachment: fixed;
             color: var(--text-main);
             height: 100vh;
+            height: 100dvh;
             overflow: hidden;
             display: flex;
         }
@@ -148,10 +149,12 @@
             border: 1px solid transparent;
         }
 
-        .nav-item:hover {
-            color: var(--text-main);
-            background: rgba(255, 255, 255, 0.03);
-            border-color: rgba(255, 255, 255, 0.02);
+        @media (hover: hover) {
+            .nav-item:hover {
+                color: var(--text-main);
+                background: rgba(255, 255, 255, 0.03);
+                border-color: rgba(255, 255, 255, 0.02);
+            }
         }
 
         .nav-item.active {
@@ -181,6 +184,7 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            min-width: 0;
         }
 
         /* Top Header */
@@ -242,9 +246,11 @@
             transition: all 0.2s;
         }
 
-        .btn-action:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(255, 255, 255, 0.15);
+        @media (hover: hover) {
+            .btn-action:hover {
+                background: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.15);
+            }
         }
 
         .btn-primary-action {
@@ -374,10 +380,19 @@
             border: 1px solid var(--card-border);
             border-radius: 12px;
             padding: 20px;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(12px);
             position: relative;
             overflow: hidden;
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @media (hover: hover) {
+            .glass-card:hover {
+                transform: translateY(-2px);
+                border-color: rgba(255, 255, 255, 0.15);
+                box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.35);
+            }
         }
 
         .glass-card::before {
@@ -449,9 +464,10 @@
             transition: stroke-dashoffset 0.8s ease-out;
         }
 
-        .gauge-cpu .progress-ring { stroke: var(--accent-primary); filter: drop-shadow(0 0 4px var(--accent-primary)); }
-        .gauge-ram .progress-ring { stroke: var(--accent-secondary); filter: drop-shadow(0 0 4px var(--accent-secondary)); }
-        .gauge-disk .progress-ring { stroke: var(--success); filter: drop-shadow(0 0 4px var(--success)); }
+        .gauge-cpu .progress-ring { stroke: var(--accent-primary); filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.6)); }
+        .gauge-ram .progress-ring { stroke: var(--accent-secondary); filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.6)); }
+        .gauge-disk .progress-ring { stroke: var(--success); filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.6)); }
+        .gauge-swap .progress-ring { stroke: var(--warning); filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6)); }
 
         /* Chart & Processes Panel Layout */
         .dashboard-main-grid {
@@ -636,6 +652,7 @@
             border-radius: 8px;
             padding: 12px;
             height: calc(100vh - 220px);
+            height: calc(100dvh - 220px);
             overflow-y: auto;
         }
 
@@ -799,6 +816,7 @@
             border: 1px solid var(--card-border);
             border-radius: 8px;
             height: calc(100vh - 200px);
+            height: calc(100dvh - 200px);
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -911,7 +929,9 @@
             top: 0;
             left: 0;
             width: 100vw;
+            width: 100dvw;
             height: 100vh;
+            height: 100dvh;
             background: rgba(5, 7, 12, 0.7);
             backdrop-filter: blur(4px);
             z-index: 100;
@@ -934,7 +954,7 @@
             border-radius: 12px;
             width: 80%;
             max-width: 900px;
-            height: 80%;
+            max-height: 90vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -977,6 +997,7 @@
             padding: 20px;
             display: flex;
             flex-direction: column;
+            overflow-y: auto;
         }
 
         .editor-textarea {
@@ -1196,6 +1217,7 @@
                 box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
                 backdrop-filter: blur(20px);
                 background: rgba(13, 20, 35, 0.95);
+                overflow-y: auto;
             }
 
             aside.active {
@@ -1412,6 +1434,7 @@
             /* Terminal container height */
             .terminal-container {
                 height: calc(100vh - 160px);
+                height: calc(100dvh - 160px);
             }
 
             /* Table: ensure horizontal scroll works */

@@ -608,7 +608,7 @@
                 <div class="form-group" style="margin-bottom:0;">
                     <label style="display:flex; align-items:center; gap:8px; font-weight:500; font-size:0.9rem; cursor:pointer; user-select:none;">
                         <input type="checkbox" id="install-db-pool-enabled" onchange="toggleInstallDbPoolPortVisibility()" style="accent-color:var(--accent-primary); width:16px; height:16px; cursor:pointer;">
-                        <span>Enable Connection Pool (PgBouncer)</span>
+                        <span id="install-db-pool-label">Enable Connection Pool (PgBouncer)</span>
                     </label>
                 </div>
                 <div class="form-group" id="install-db-pool-port-group" style="display:none; margin-bottom:0;">
@@ -865,6 +865,52 @@
     </div>
 </div>
 
+<!-- Import Database Modal -->
+<div class="modal-overlay" id="import-db-modal">
+    <div class="modal-card" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-file-import" style="color:var(--accent-secondary); margin-right:8px;"></i>Import Database</div>
+            <div class="modal-close" onclick="closeImportDatabaseModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="import-db-name-val" value="">
+            
+            <!-- Static database label (shown when importing for specific database) -->
+            <div id="import-db-name-label-group" style="background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.2); border-radius:8px; padding:12px 14px; margin-bottom:16px; font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
+                <i class="fa-solid fa-circle-info" style="color:var(--accent-secondary); margin-right:6px;"></i>
+                Importing SQL file into database: <strong id="import-db-name-label" style="color:var(--text-main); font-family:var(--font-code);"></strong>
+            </div>
+
+            <!-- Dynamic database selector (shown when importing globally) -->
+            <div id="import-db-name-select-group" class="form-group" style="margin-bottom:15px; display:none;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Target Database</label>
+                <select id="import-db-target-select" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                    <!-- Populated dynamically -->
+                </select>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Select database you wish to import query dump into.</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Select SQL Backup File</label>
+                <input type="file" id="import-db-file-input" accept=".sql,.db,.tar.gz,.tgz,.zip" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; cursor:pointer;">
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Supports raw <code>.sql</code>/<code>.db</code> files and compressed archives (<code>.tar.gz</code>, <code>.tgz</code>, <code>.zip</code>).</div>
+            </div>
+
+            <!-- Progress banner -->
+            <div id="import-progress-banner" style="display:none; background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.25); border-radius:8px; padding:12px 14px; font-size:0.82rem; color:#a78bfa; line-height:1.5;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="margin-right:6px;"></i>
+                <span id="import-progress-text">Uploading and importing database, please wait…</span>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeImportDatabaseModal()">Cancel</button>
+            <button class="btn-primary-action" id="import-db-submit-btn" onclick="submitImportDatabase()" style="background:linear-gradient(135deg,var(--accent-secondary),#7c3aed); border-color:#7c3aed; box-shadow:0 4px 12px rgba(124,58,237,0.2);">
+                <i class="fa-solid fa-upload"></i> Upload &amp; Import
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Edit Container Resources Modal -->
 <div class="modal-overlay" id="edit-container-resources-modal">
     <div class="modal-card" style="max-width:480px;">
@@ -1077,6 +1123,13 @@
         </div>
         <div class="modal-body">
             <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Tipe Tugas (Task Type)</label>
+                <select id="cron-task-type" onchange="onCronTaskTypeChange()" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                    <option value="shell">Perintah Shell (Shell Command)</option>
+                    <option value="backup">Backup Database</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
                 <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Nama Tugas (Job Name)</label>
                 <input type="text" id="cron-name" placeholder="e.g. Backup Harian" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
             </div>
@@ -1099,20 +1152,38 @@
                 <input type="text" id="cron-schedule" oninput="updateCronExplanation(this.value)" placeholder="e.g. 0 2 * * *" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family: monospace;">
                 <div id="cron-explanation" style="font-size: 0.8rem; color: #a1a1aa; margin-top: 6px; font-style: italic;">Silakan pilih preset atau ketik manual.</div>
             </div>
-            <div class="form-group" style="margin-bottom:15px;">
-                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Template Perintah (Command Template)</label>
-                <select id="cron-command-preset" onchange="applyCronCommandPreset(this.value)" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
-                    <option value="custom">-- Perintah Kustom (Tulis Manual) --</option>
-                    <option value="/opt/zenopanel/scripts/backup.sh">Database Backup Script (/opt/zenopanel/scripts/backup.sh)</option>
-                    <option value="zeno log:clean">ZenoPanel Log Cache Cleaner (zeno log:clean)</option>
-                    <option value="zeno cert:renew">SSL Let's Encrypt Cert Renewal (zeno cert:renew)</option>
-                    <option value="php artisan optimize:clear">Laravel Cache Clear (php artisan optimize:clear)</option>
-                    <option value="npm run build">Build Node.js Production Bundle (npm run build)</option>
-                </select>
+
+            <!-- Database Backup Settings -->
+            <div id="cron-backup-db-fields" style="display:none; flex-direction:column; gap:15px; margin-bottom:15px;">
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Pilih Database (Select Database)</label>
+                    <select id="cron-backup-db-select" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                        <option value="default">Default Panel DB (SQLite)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Masa Retensi / Hari (Retention Limit)</label>
+                    <input type="number" id="cron-backup-retention" value="7" min="1" max="100" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
             </div>
-            <div class="form-group" style="margin-bottom:15px;">
-                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Perintah untuk Dijalankan (Command)</label>
-                <input type="text" id="cron-command" placeholder="e.g. /opt/zenopanel/scripts/backup.sh" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family: monospace;">
+
+            <!-- Shell Command Fields -->
+            <div id="cron-shell-command-fields" style="display:flex; flex-direction:column; gap:15px;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Template Perintah (Command Template)</label>
+                    <select id="cron-command-preset" onchange="applyCronCommandPreset(this.value)" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none;">
+                        <option value="custom">-- Perintah Kustom (Tulis Manual) --</option>
+                        <option value="/opt/zenopanel/scripts/backup.sh">Database Backup Script (/opt/zenopanel/scripts/backup.sh)</option>
+                        <option value="zeno log:clean">ZenoPanel Log Cache Cleaner (zeno log:clean)</option>
+                        <option value="zeno cert:renew">SSL Let's Encrypt Cert Renewal (zeno cert:renew)</option>
+                        <option value="php artisan optimize:clear">Laravel Cache Clear (php artisan optimize:clear)</option>
+                        <option value="npm run build">Build Node.js Production Bundle (npm run build)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Perintah untuk Dijalankan (Command)</label>
+                    <input type="text" id="cron-command" placeholder="e.g. /opt/zenopanel/scripts/backup.sh" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-family: monospace;">
+                </div>
             </div>
         </div>
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">

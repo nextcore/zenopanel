@@ -187,6 +187,8 @@ fn kill_preexisting_processes() {
 }
 
 fn main() {
+    let _ = dotenvy::dotenv();
+
     // --- CLI Command Handling ---
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 2 && args[1] == "key:generate" {
@@ -194,8 +196,34 @@ fn main() {
         return;
     }
 
+    if args.len() >= 3 && args[1] == "db:backup" {
+        let db_name = args[2].clone();
+        let retention = args.get(3).and_then(|r| r.parse::<i64>().ok()).unwrap_or(7);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db_env = std::env::var("DB_NAME").unwrap_or_else(|_| "./zeno.db".to_string());
+            let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", db_env)).await.expect("Failed to connect to zeno.db");
+            let backup_manager = crate::backupman::BackupManager::new(pool);
+            let sched = crate::backupman::DbBackupSchedule {
+                id: 0,
+                database_name: db_name,
+                schedule: "manual".to_string(),
+                retention,
+                is_active: 1,
+                last_run: None,
+            };
+            if let Err(e) = backup_manager.execute_db_backup(&sched).await {
+                eprintln!("Error executing backup: {:?}", e);
+                std::process::exit(1);
+            } else {
+                println!("Backup completed successfully");
+                std::process::exit(0);
+            }
+        });
+        return;
+    }
+
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let _ = dotenvy::dotenv();
 
     kill_preexisting_processes();
 
@@ -671,6 +699,14 @@ fn main() {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             ts_clone.tick();
+        }
+    });
+
+    let rl_clone = rate_limiter.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+            rl_clone.prune_old_entries();
         }
     });
 

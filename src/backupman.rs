@@ -267,14 +267,13 @@ fn get_all_container_mount_dirs(data_dir: &str) -> Vec<String> {
 }
 
 #[derive(sqlx::FromRow, Debug, Clone)]
-struct DbBackupSchedule {
-    id: i64,
-    database_name: String,
-    schedule: String,
-    retention: i64,
-    #[allow(dead_code)]
-    is_active: i64,
-    last_run: Option<String>,
+pub struct DbBackupSchedule {
+    pub id: i64,
+    pub database_name: String,
+    pub schedule: String,
+    pub retention: i64,
+    pub is_active: i64,
+    pub last_run: Option<String>,
 }
 
 impl BackupManager {
@@ -317,7 +316,7 @@ impl BackupManager {
         Ok(())
     }
 
-    async fn execute_db_backup(&self, sched: &DbBackupSchedule) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn execute_db_backup(&self, sched: &DbBackupSchedule) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let dest_setting: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'backup_dest_dir'")
             .fetch_optional(&self.pool)
             .await?;

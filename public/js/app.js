@@ -234,6 +234,7 @@ import {
   applyCronPreset,
   updateCronExplanation,
   applyCronCommandPreset,
+  onCronTaskTypeChange,
 } from "./cron.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
@@ -560,6 +561,7 @@ const functionsToBind = {
   applyCronPreset,
   updateCronExplanation,
   applyCronCommandPreset,
+  onCronTaskTypeChange,
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {

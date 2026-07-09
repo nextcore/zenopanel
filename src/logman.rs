@@ -103,6 +103,20 @@ impl LogManager {
             }
         }
 
+        // ── 1b. Rotate main access.log file ────────────────────────────
+        let access_log_path = std::path::PathBuf::from("logs").join("access.log");
+        if access_log_path.exists() {
+            if let Ok(meta) = std::fs::metadata(&access_log_path) {
+                let size_mb = meta.len() / (1024 * 1024);
+                if size_mb >= max_size_mb {
+                    match Self::rotate_log_file(&access_log_path) {
+                        Ok(_) => rotated_count += 1,
+                        Err(e) => errors.push(format!("{}: {}", access_log_path.display(), e)),
+                    }
+                }
+            }
+        }
+
         // ── 2. Clean up old WAF log entries from SQLite ───────────────────────
         let mut waf_deleted = 0i64;
         let table_exists: Option<(String,)> = sqlx::query_as(
@@ -135,7 +149,9 @@ impl LogManager {
     /// Rotate a single log file: .log → .1 → .2 → .3 (max 3 old copies).
     fn rotate_log_file(log_path: &std::path::Path) -> std::io::Result<()> {
         let parent = log_path.parent().unwrap_or(std::path::Path::new("."));
-        let stem = "console";
+        let stem = log_path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("console");
 
         let gen3 = parent.join(format!("{}.log.3", stem));
         let gen2 = parent.join(format!("{}.log.2", stem));

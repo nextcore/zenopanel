@@ -61,10 +61,51 @@ export function renderCronJobs() {
     }).join('');
 }
 
+export function onCronTaskTypeChange() {
+    const type = document.getElementById('cron-task-type')?.value || 'shell';
+    const shellFields = document.getElementById('cron-shell-command-fields');
+    const backupFields = document.getElementById('cron-backup-db-fields');
+    if (shellFields && backupFields) {
+        if (type === 'backup') {
+            shellFields.style.display = 'none';
+            backupFields.style.display = 'flex';
+        } else {
+            shellFields.style.display = 'flex';
+            backupFields.style.display = 'none';
+        }
+    }
+}
+
+export async function loadCronDatabases() {
+    const select = document.getElementById('cron-backup-db-select');
+    if (!select) return;
+    try {
+        const res = await fetch('/api/database/list');
+        const data = await res.json();
+        select.innerHTML = '<option value="default">Default Panel DB (SQLite)</option>';
+        if (data.data) {
+            data.data.forEach(db => {
+                const opt = document.createElement('option');
+                opt.value = db.db_name;
+                opt.textContent = `${db.db_name} (${db.server_driver.toUpperCase()} on ${db.server_name})`;
+                select.appendChild(opt);
+            });
+        }
+    } catch (err) {
+        console.error('Failed to load databases for cron: ', err);
+    }
+}
+
 export function openAddCronModal() {
     document.getElementById('cron-name').value = '';
     document.getElementById('cron-schedule').value = '';
     document.getElementById('cron-command').value = '';
+    const taskTypeSelect = document.getElementById('cron-task-type');
+    if (taskTypeSelect) {
+        taskTypeSelect.value = 'shell';
+    }
+    onCronTaskTypeChange();
+    loadCronDatabases();
     document.getElementById('add-cron-modal').classList.add('active');
 }
 
@@ -75,7 +116,18 @@ export function closeAddCronModal() {
 export async function submitAddCron() {
     const name = document.getElementById('cron-name').value.trim();
     const schedule = document.getElementById('cron-schedule').value.trim();
-    const command = document.getElementById('cron-command').value.trim();
+    const type = document.getElementById('cron-task-type')?.value || 'shell';
+    
+    let command = '';
+    if (type === 'backup') {
+        const dbSelect = document.getElementById('cron-backup-db-select');
+        const retentionField = document.getElementById('cron-backup-retention');
+        const dbName = dbSelect ? dbSelect.value : 'default';
+        const retention = retentionField ? retentionField.value : '7';
+        command = `zeno db:backup ${dbName} ${retention}`;
+    } else {
+        command = document.getElementById('cron-command').value.trim();
+    }
 
     if (!name || !schedule || !command) {
         showToast('error', 'All fields are required');

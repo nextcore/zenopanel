@@ -28,19 +28,19 @@ let lastTxBytes = 0;
 let lastNetCheckTime = 0;
 
 function initRingElements() {
-    if (!cpuRing) cpuRing = document.getElementById('cpu-ring');
-    if (!ramRing) ramRing = document.getElementById('ram-ring');
-    if (!diskRing) diskRing = document.getElementById('disk-ring');
-    if (!swapRing) swapRing = document.getElementById('swap-ring');
-    if (!elCpuVal) elCpuVal = document.getElementById('cpu-val');
-    if (!elRamVal) elRamVal = document.getElementById('ram-val');
-    if (!elRamSub) elRamSub = document.getElementById('ram-sub');
-    if (!elDiskVal) elDiskVal = document.getElementById('disk-val');
-    if (!elDiskSub) elDiskSub = document.getElementById('disk-sub');
-    if (!elSwapVal) elSwapVal = document.getElementById('swap-val');
-    if (!elSwapSub) elSwapSub = document.getElementById('swap-sub');
-    if (!elNetRxVal) elNetRxVal = document.getElementById('net-rx-val');
-    if (!elNetTxVal) elNetTxVal = document.getElementById('net-tx-val');
+    cpuRing = document.getElementById('cpu-ring');
+    ramRing = document.getElementById('ram-ring');
+    diskRing = document.getElementById('disk-ring');
+    swapRing = document.getElementById('swap-ring');
+    elCpuVal = document.getElementById('cpu-val');
+    elRamVal = document.getElementById('ram-val');
+    elRamSub = document.getElementById('ram-sub');
+    elDiskVal = document.getElementById('disk-val');
+    elDiskSub = document.getElementById('disk-sub');
+    elSwapVal = document.getElementById('swap-val');
+    elSwapSub = document.getElementById('swap-sub');
+    elNetRxVal = document.getElementById('net-rx-val');
+    elNetTxVal = document.getElementById('net-tx-val');
 }
 
 export function setRingProgress(ring, pct) {

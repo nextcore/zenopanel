@@ -947,6 +947,105 @@ http.post: '/api/database/backups/restore' {
     }
 }
 
+# Import database via uploaded file
+http.post: '/api/database/import' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            db.select: "SELECT value FROM settings WHERE key = 'backup_dest_dir'" {
+                first: true
+                as: $dest_setting
+            }
+            coalesce: $dest_setting.value {
+                default: '/var/lib/zenopanel/backups'
+                as: $dest_dir
+            }
+            var: $temp_import_dir { val: "${dest_dir}/temp" }
+            io.dir.create: $temp_import_dir
+
+            http.save_uploads: $temp_import_dir { as: $upload_success }
+
+            if: $upload_success {
+                then: {
+                    http.query: 'database_name' { as: $db_name }
+                    http.query: 'filename' { as: $uploaded_filename }
+                    
+                    var: $backup_path { val: "${temp_import_dir}/${uploaded_filename}" }
+                    
+                    if: "$db_name == 'default'" {
+                        then: {
+                            db.restore: {
+                                driver: 'sqlite'
+                                database: $db_name
+                                backup_path: $backup_path
+                                as: $res
+                            }
+                            
+                            io.file.delete: $backup_path
+                            
+                            if: $res.success {
+                                then: {
+                                    http.ok: { success: true, message: "Database default berhasil di-import" }
+                                }
+                                else: {
+                                    http.bad_request: { success: false, message: "Gagal meng-import SQLite", error: $res.error }
+                                }
+                            }
+                        }
+                        else: {
+                            db.select: "SELECT d.db_name, s.name as server_name, s.driver, s.host, s.port, s.admin_user, s.admin_password FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.db_name = ?" {
+                                bind: [$db_name]
+                                first: true
+                                as: $db_info
+                            }
+                            
+                            if: $db_info {
+                                then: {
+                                    db.restore: {
+                                        driver: $db_info.driver
+                                        host: $db_info.host
+                                        port: $db_info.port
+                                        user: $db_info.admin_user
+                                        password: $db_info.admin_password
+                                        database: $db_name
+                                        backup_path: $backup_path
+                                        as: $res
+                                    }
+                                    
+                                    io.file.delete: $backup_path
+                                    
+                                    if: $res.success {
+                                        then: {
+                                            http.ok: { success: true, message: "Database berhasil di-import" }
+                                        }
+                                        else: {
+                                            http.bad_request: { success: false, message: "Gagal meng-import database", error: $res.error }
+                                        }
+                                    }
+                                }
+                                else: {
+                                    io.file.delete: $backup_path
+                                    http.bad_request: { success: false, message: "Database tidak ditemukan" }
+                                }
+                            }
+                        }
+                    }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Gagal mengunggah file backup" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: {
+                success: false,
+                message: "Forbidden: Role Viewer tidak diijinkan mengimport database"
+            }
+        }
+    }
+}
+
 # Delete a Database Backup
 http.post: '/api/database/backups/delete' {
     auth.guard

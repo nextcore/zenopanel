@@ -304,6 +304,9 @@ function renderUserDatabases() {
                     <button onclick="openConsoleForDb('${escapeHtml(db.db_name)}')" style="background:rgba(59,130,246,0.15); border:none; color:#60a5fa; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="SQL Console">
                         <i class="fa-solid fa-code"></i>
                     </button>
+                    <button onclick="openImportDatabaseModal('${escapeHtml(db.db_name)}')" style="background:rgba(168,85,247,0.15); border:none; color:#c084fc; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Import SQL File">
+                        <i class="fa-solid fa-file-import"></i>
+                    </button>
                     <button onclick="openChangeDbPasswordModal(${db.id})" style="background:rgba(255,255,255,0.08); border:none; color:#e4e4e7; padding:6px 10px; border-radius:6px; cursor:pointer; transition:all 0.2s;" title="Change Password">
                         <i class="fa-solid fa-key"></i>
                     </button>
@@ -899,6 +902,17 @@ export function onInstallDbEngineChange() {
     const dataDirField = document.getElementById('install-db-data-dir');
     const isPostgres = engine.startsWith('postgres');
     if (portField) portField.value = isPostgres ? '5432' : '3306';
+    
+    // Dynamically update Connection Pool label and default port
+    const poolLabel = document.getElementById('install-db-pool-label');
+    const poolPortField = document.getElementById('install-db-pool-port');
+    if (poolLabel) {
+        poolLabel.textContent = isPostgres ? 'Enable Connection Pool (PgBouncer)' : 'Enable Connection Pool (ProxySQL)';
+    }
+    if (poolPortField) {
+        poolPortField.value = isPostgres ? '6432' : '6033';
+    }
+
     // Suggest name and data dir based on engine (only if field is empty)
     const shortName = engine.replace(':', '-').replace(/\./g, '');
     if (nameField && !nameField.value) nameField.value = shortName;
@@ -1744,5 +1758,120 @@ window.openCreateBackupScheduleModal = openCreateBackupScheduleModal;
 window.closeCreateBackupScheduleModal = closeCreateBackupScheduleModal;
 window.submitCreateBackupSchedule = submitCreateBackupSchedule;
 window.deleteDatabaseBackupSchedule = deleteDatabaseBackupSchedule;
+
+export function openImportDatabaseModal(dbName) {
+    const labelGroup = document.getElementById('import-db-name-label-group');
+    const selectGroup = document.getElementById('import-db-name-select-group');
+    const valInput = document.getElementById('import-db-name-val');
+    const label = document.getElementById('import-db-name-label');
+    const select = document.getElementById('import-db-target-select');
+    
+    // Reset file input
+    document.getElementById('import-db-file-input').value = '';
+    
+    // Hide progress banner
+    const prog = document.getElementById('import-progress-banner');
+    if (prog) prog.style.display = 'none';
+    
+    // Re-enable import button
+    const btn = document.getElementById('import-db-submit-btn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-upload"></i> Upload &amp; Import';
+    }
+
+    if (dbName) {
+        // Pre-fill database name
+        valInput.value = dbName;
+        label.textContent = dbName;
+        labelGroup.style.display = 'block';
+        selectGroup.style.display = 'none';
+    } else {
+        // Show database selector
+        valInput.value = '';
+        labelGroup.style.display = 'none';
+        selectGroup.style.display = 'block';
+        
+        // Populate dropdown
+        if (select) {
+            select.innerHTML = userDatabases.map(db => `
+                <option value="${escapeHtml(db.db_name)}">${escapeHtml(db.db_name)} (${escapeHtml(db.server_name)} - ${escapeHtml(db.server_driver.toUpperCase())})</option>
+            `).join('');
+        }
+    }
+
+    document.getElementById('import-db-modal').classList.add('active');
+}
+
+export function closeImportDatabaseModal() {
+    document.getElementById('import-db-modal').classList.remove('active');
+}
+
+export function submitImportDatabase() {
+    const valInput = document.getElementById('import-db-name-val').value;
+    const selectVal = document.getElementById('import-db-target-select')?.value;
+    const dbName = valInput || selectVal;
+    
+    if (!dbName) {
+        showToast('error', 'Silakan pilih database target.');
+        return;
+    }
+
+    const fileInput = document.getElementById('import-db-file-input');
+    const file = fileInput ? fileInput.files[0] : null;
+
+    if (!file) {
+        showToast('error', 'Silakan pilih file SQL atau database untuk diunggah.');
+        return;
+    }
+
+    const btn = document.getElementById('import-db-submit-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing...';
+    }
+
+    const prog = document.getElementById('import-progress-banner');
+    if (prog) prog.style.display = 'block';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    fetch(`/api/database/import?database_name=${encodeURIComponent(dbName)}&filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-Token': getCSRFToken()
+        },
+        body: formData
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-upload"></i> Upload &amp; Import';
+        }
+        if (prog) prog.style.display = 'none';
+
+        if (res.success) {
+            showToast('success', res.message || 'Database berhasil di-import');
+            closeImportDatabaseModal();
+            loadUserDatabases();
+        } else {
+            showToast('error', res.message || 'Gagal meng-import database');
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-upload"></i> Upload &amp; Import';
+        }
+        if (prog) prog.style.display = 'none';
+        showToast('error', 'API Error: ' + err.toString());
+    });
+}
+
+window.openImportDatabaseModal = openImportDatabaseModal;
+window.closeImportDatabaseModal = closeImportDatabaseModal;
+window.submitImportDatabase = submitImportDatabase;
 
 

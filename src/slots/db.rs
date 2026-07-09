@@ -762,86 +762,178 @@ pub fn register(engine: &mut Engine) {
 
             let result = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    if driver == "sqlite" {
-                        let pool_name = if database.is_empty() || database == "default" {
-                            "default".to_string()
-                        } else {
-                            database.clone()
-                        };
+                    let mut actual_backup_path = backup_path.clone();
+                    let mut temp_dir_to_clean = None;
 
-                        let db_file_path = if pool_name == "default" {
-                            std::env::var("DB_NAME").unwrap_or_else(|_| "./zeno.db".to_string())
-                        } else {
-                            pool_name.clone()
-                        };
+                    let path_str_lower = backup_path.to_lowercase();
+                    let is_archive = path_str_lower.ends_with(".tar.gz")
+                        || path_str_lower.ends_with(".tgz")
+                        || path_str_lower.ends_with(".zip");
 
-                        // Disconnect/remove active pool to avoid locks
-                        db_mgr.pools.write().await.remove(&pool_name);
-
-                        // Copy backup file over active file
-                        let copy_res = std::fs::copy(&backup_path, &db_file_path)
-                            .map(|_| ())
-                            .map_err(|e| format!("Failed to overwrite SQLite file: {}", e));
-
-                        // Re-open/reconnect connection pool
-                        if let Err(e) = db_mgr.add_sqlite_connection(&pool_name, &db_file_path).await {
-                            eprintln!("Failed to re-initialize sqlite pool '{}': {}", pool_name, e);
-                        }
-
-                        copy_res
-                    } else if driver == "mysql" {
-                        // Execute mysql import
-                        let file = std::fs::File::open(&backup_path)
-                            .map_err(|e| format!("Failed to open backup file: {}", e))?;
-                        let mut cmd = std::process::Command::new("mysql");
-                        cmd.arg("-h").arg(&host)
-                           .arg("-P").arg(&port.to_string())
-                           .arg("-u").arg(&user);
-                        if !password.is_empty() {
-                            cmd.arg(format!("-p{}", password));
-                        }
-                        let output = cmd.arg(&database)
-                           .stdin(std::process::Stdio::from(file))
-                           .output();
-                        match output {
-                            Ok(out) => {
-                                if out.status.success() {
-                                    Ok(())
+                    if is_archive {
+                        if let Some(parent) = std::path::Path::new(&backup_path).parent() {
+                            let temp_dir = parent.join(format!("_ext_{}", rand::random::<u32>()));
+                            if std::fs::create_dir_all(&temp_dir).is_ok() {
+                                let ext_success = if path_str_lower.ends_with(".zip") {
+                                    if let Ok(file) = std::fs::File::open(&backup_path) {
+                                        if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                                            let mut success = true;
+                                            for i in 0..archive.len() {
+                                                if let Ok(mut file) = archive.by_index(i) {
+                                                    let outpath = match file.enclosed_name() {
+                                                        Some(path) => temp_dir.join(path),
+                                                        None => continue,
+                                                    };
+                                                    if (*file.name()).ends_with('/') {
+                                                        let _ = std::fs::create_dir_all(&outpath);
+                                                    } else {
+                                                        if let Some(p) = outpath.parent() {
+                                                            let _ = std::fs::create_dir_all(&p);
+                                                        }
+                                                        if let Ok(mut outfile) = std::fs::File::create(&outpath) {
+                                                            if std::io::copy(&mut file, &mut outfile).is_err() {
+                                                                success = false;
+                                                            }
+                                                        } else {
+                                                            success = false;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            success
+                                        } else { false }
+                                    } else { false }
                                 } else {
-                                    let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
-                                    Err(format!("mysql restore failed: {}", err_msg))
+                                    if let Ok(file) = std::fs::File::open(&backup_path) {
+                                        let tar_file = flate2::read::GzDecoder::new(file);
+                                        let mut archive = tar::Archive::new(tar_file);
+                                        archive.unpack(&temp_dir).is_ok()
+                                    } else { false }
+                                };
+
+                                if ext_success {
+                                    fn find_sql_file(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+                                        if let Ok(entries) = std::fs::read_dir(dir) {
+                                            for entry in entries.flatten() {
+                                                let p = entry.path();
+                                                if p.is_dir() {
+                                                    if let Some(found) = find_sql_file(&p) {
+                                                        return Some(found);
+                                                    }
+                                                } else if let Some(ext) = p.extension() {
+                                                    let ext_str = ext.to_string_lossy().to_lowercase();
+                                                    if ext_str == "sql" || ext_str == "db" {
+                                                        return Some(p);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        None
+                                    }
+
+                                    if let Some(sql_path) = find_sql_file(&temp_dir) {
+                                        actual_backup_path = sql_path.to_string_lossy().to_string();
+                                        temp_dir_to_clean = Some(temp_dir);
+                                    } else {
+                                        let _ = std::fs::remove_dir_all(&temp_dir);
+                                        return Err("Archive extracted but no .sql or .db file was found inside".to_string());
+                                    }
+                                } else {
+                                    let _ = std::fs::remove_dir_all(&temp_dir);
+                                    return Err("Failed to extract backup archive".to_string());
                                 }
                             }
-                            Err(e) => Err(format!("Failed to start mysql client: {}", e)),
                         }
-                    } else if driver == "postgres" {
-                        // Execute psql import
-                        let file = std::fs::File::open(&backup_path)
-                            .map_err(|e| format!("Failed to open backup file: {}", e))?;
-                        let mut cmd = std::process::Command::new("psql");
-                        if !password.is_empty() {
-                            cmd.env("PGPASSWORD", &password);
-                        }
-                        cmd.arg("-h").arg(&host)
-                           .arg("-p").arg(&port.to_string())
-                           .arg("-U").arg(&user)
-                           .arg(&database)
-                           .stdin(std::process::Stdio::from(file));
-                        let output = cmd.output();
-                        match output {
-                            Ok(out) => {
-                                if out.status.success() {
-                                    Ok(())
-                                } else {
-                                    let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
-                                    Err(format!("psql restore failed: {}", err_msg))
-                                }
-                            }
-                            Err(e) => Err(format!("Failed to start psql client: {}", e)),
-                        }
-                    } else {
-                        Err(format!("Unsupported database driver: {}", driver))
                     }
+
+                    let restore_res = async {
+                        if driver == "sqlite" {
+                            let pool_name = if database.is_empty() || database == "default" {
+                                "default".to_string()
+                            } else {
+                                database.clone()
+                            };
+
+                            let db_file_path = if pool_name == "default" {
+                                std::env::var("DB_NAME").unwrap_or_else(|_| "./zeno.db".to_string())
+                            } else {
+                                pool_name.clone()
+                            };
+
+                            // Disconnect/remove active pool to avoid locks
+                            db_mgr.pools.write().await.remove(&pool_name);
+
+                            // Copy backup file over active file
+                            let copy_res = std::fs::copy(&actual_backup_path, &db_file_path)
+                                .map(|_| ())
+                                .map_err(|e| format!("Failed to overwrite SQLite file: {}", e));
+
+                            // Re-open/reconnect connection pool
+                            if let Err(e) = db_mgr.add_sqlite_connection(&pool_name, &db_file_path).await {
+                                eprintln!("Failed to re-initialize sqlite pool '{}': {}", pool_name, e);
+                            }
+
+                            copy_res
+                        } else if driver == "mysql" {
+                            // Execute mysql import
+                            let file = std::fs::File::open(&actual_backup_path)
+                                .map_err(|e| format!("Failed to open backup file: {}", e))?;
+                            let mut cmd = std::process::Command::new("mysql");
+                            cmd.arg("-h").arg(&host)
+                               .arg("-P").arg(&port.to_string())
+                               .arg("-u").arg(&user);
+                            if !password.is_empty() {
+                                cmd.arg(format!("-p{}", password));
+                            }
+                            let output = cmd.arg(&database)
+                               .stdin(std::process::Stdio::from(file))
+                               .output();
+                            match output {
+                                Ok(out) => {
+                                    if out.status.success() {
+                                        Ok(())
+                                    } else {
+                                        let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
+                                        Err(format!("mysql restore failed: {}", err_msg))
+                                    }
+                                }
+                                Err(e) => Err(format!("Failed to start mysql client: {}", e)),
+                            }
+                        } else if driver == "postgres" {
+                            // Execute psql import
+                            let file = std::fs::File::open(&actual_backup_path)
+                                .map_err(|e| format!("Failed to open backup file: {}", e))?;
+                            let mut cmd = std::process::Command::new("psql");
+                            if !password.is_empty() {
+                                cmd.env("PGPASSWORD", &password);
+                            }
+                            cmd.arg("-h").arg(&host)
+                               .arg("-p").arg(&port.to_string())
+                               .arg("-U").arg(&user)
+                               .arg(&database)
+                               .stdin(std::process::Stdio::from(file));
+                            let output = cmd.output();
+                            match output {
+                                Ok(out) => {
+                                    if out.status.success() {
+                                        Ok(())
+                                    } else {
+                                        let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
+                                        Err(format!("psql restore failed: {}", err_msg))
+                                    }
+                                }
+                                Err(e) => Err(format!("Failed to start psql client: {}", e)),
+                            }
+                        } else {
+                            Err(format!("Unsupported database driver: {}", driver))
+                        }
+                    }.await;
+
+                    if let Some(temp_dir) = temp_dir_to_clean {
+                        let _ = std::fs::remove_dir_all(&temp_dir);
+                    }
+
+                    restore_res
                 })
             });
 

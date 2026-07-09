@@ -23,9 +23,14 @@
                 <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
                     <i class="fa-solid fa-database" style="color:var(--accent-primary);"></i> Databases List
                 </h3>
-                <button class="btn-primary-action" onclick="openAddDatabaseModal()">
-                    <i class="fa-solid fa-plus"></i> Create Database
-                </button>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-action" onclick="openImportDatabaseModal('')" style="color:var(--accent-secondary); border-color:rgba(168,85,247,0.2); display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-file-import"></i> Import Database
+                    </button>
+                    <button class="btn-primary-action" onclick="openAddDatabaseModal()">
+                        <i class="fa-solid fa-plus"></i> Create Database
+                    </button>
+                </div>
             </div>
             <div class="table-container" style="min-height:260px;">
                 <table class="data-table">
