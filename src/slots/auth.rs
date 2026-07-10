@@ -648,6 +648,26 @@ pub fn register(engine: &mut Engine) {
                     "record" => {
                         let remaining = state.login_limiter.record_failure(&ip);
                         scope.set(&target, Value::Int(remaining as i64));
+
+                        // Auto-block IP in WAF when all attempts are exhausted
+                        if remaining == 0 {
+                            state.ip_block_list.add(&ip, "block");
+                            let ip_clone = ip.clone();
+                            let db_manager = state.db_manager.clone();
+                            tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                                        let _ = sqlx::query(
+                                            "INSERT INTO waf_ip_rules (ip, type, reason) VALUES (?, 'block', 'Brute-force login attempt') ON CONFLICT(ip) DO UPDATE SET type = 'block', reason = excluded.reason"
+                                        )
+                                        .bind(&ip_clone)
+                                        .execute(&pool)
+                                        .await;
+                                    }
+                                })
+                            });
+                            eprintln!("[WAF] Auto-blocked IP {} after exhausting login attempts", ip);
+                        }
                     }
                     "clear" => {
                         state.login_limiter.clear(&ip);

@@ -80,6 +80,12 @@ impl ProxyHttp for ZenoGateway {
             }
         }
 
+        // Extract owned copies early to avoid borrow conflicts with session in tokio::spawn
+        let (path_str, method_str) = {
+            let h = session.req_header();
+            (h.uri.path().to_string(), h.method.as_str().to_string())
+        };
+
         let req_header = session.req_header();
         let path = req_header.uri.path();
 
@@ -108,72 +114,22 @@ impl ProxyHttp for ZenoGateway {
 
         // 2. Rate Limiting Check
         if !self.state.rate_limiter.check_limit(ctx.client_ip) {
-            let html = format!(
-                r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Too Many Requests - ZenoPanel</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {{
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background-color: #0d1117;
-            color: #c9d1d9;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-        }}
-        .card {{
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 12px;
-            padding: 40px;
-            max-width: 500px;
-            width: 90%;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-            text-align: center;
-        }}
-        h1 {{
-            color: #dbb32d;
-            margin-top: 0;
-            font-size: 24px;
-        }}
-        p {{
-            line-height: 1.6;
-            font-size: 15px;
-        }}
-        .footer {{
-            margin-top: 25px;
-            font-size: 12px;
-            color: #8b949e;
-        }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Terlalu Banyak Request (429)</h1>
-        <p>IP Anda ({}) mengirim terlalu banyak request dalam waktu singkat. Mohon tunggu beberapa saat sebelum mencoba kembali.</p>
-        <div class="footer">
-            ZenoPanel Protection Engine &copy; 2026
-        </div>
-    </div>
-</body>
-</html>"#,
-                ctx.client_ip
-            );
+            let html = crate::waf::render_rate_limited_page(ctx.client_ip);
 
             // Log rate limit
             let ip_str = ctx.client_ip.to_string();
-            let path_str = path.to_string();
+            let log_path = path_str.clone();
+            let log_method = method_str.clone();
             let db_manager = self.state.db_manager.clone();
             tokio::spawn(async move {
                 if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
-                    let _ = sqlx::query("INSERT INTO waf_logs (ip, reason, target) VALUES (?, ?, ?)")
+                    let _ = sqlx::query("INSERT INTO waf_logs (ip, method, reason, severity, target) VALUES (?, ?, ?, ?, ?)")
                         .bind(ip_str)
+                        .bind(log_method)
                         .bind("Rate Limit Exceeded")
-                        .bind(path_str)
+                        .bind("medium")
+                        .bind(log_path)
+
                         .execute(&pool)
                         .await;
                 }
@@ -181,25 +137,63 @@ impl ProxyHttp for ZenoGateway {
 
             // Return 429 response
             let mut resp = ResponseHeader::build(StatusCode::TOO_MANY_REQUESTS, Some(1))?;
-            resp.insert_header("Content-Type", "text/html")?;
+            resp.insert_header("Content-Type", "text/html; charset=utf-8")?;
             session.write_response_header(Box::new(resp), false).await?;
             session.write_response_body(Some(html.into()), true).await?;
 
             return Ok(true);
         }
 
+        // 2.5 IP blocklist / whitelist check
+        if let Some(rule_type) = self.state.ip_block_list.check(&ctx.client_ip) {
+            if rule_type == "block" {
+                let html = crate::waf::render_blocked_ip_page(ctx.client_ip);
+                let ip_str = ctx.client_ip.to_string();
+                let log_path = path_str.clone();
+                let log_method = method_str.clone();
+                let db_manager = self.state.db_manager.clone();
+                tokio::spawn(async move {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let _ = sqlx::query("INSERT INTO waf_logs (ip, method, reason, severity, target) VALUES (?, ?, ?, ?, ?)")
+                            .bind(ip_str)
+                            .bind(log_method)
+                            .bind("IP Blocked by Administrator")
+                            .bind("critical")
+                            .bind(log_path)
+                            .execute(&pool)
+                            .await;
+                    }
+                });
+                let mut resp = ResponseHeader::build(StatusCode::FORBIDDEN, Some(1))?;
+                resp.insert_header("Content-Type", "text/html; charset=utf-8")?;
+                session.write_response_header(Box::new(resp), false).await?;
+                session.write_response_body(Some(html.into()), true).await?;
+                return Ok(true);
+            }
+            // "allow" → skip WAF entirely
+        } else {
         // 3. WAF Check
         if self.state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) {
-            let mut block_reason = None;
+            let mut block_reason: Option<crate::waf::WafMatch> = None;
 
-            if let Some(reason) = crate::waf::is_malicious(path) {
-                block_reason = Some(reason);
+            // Scanner bot detection
+            let ua = req_header.headers.get("user-agent")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if crate::waf::is_scanner_bot(ua) {
+                block_reason = Some(crate::waf::WafMatch { reason: "Known Attack Tool / Scanner Bot", severity: "high" });
+            }
+
+            if block_reason.is_none() {
+                if let Some(m) = crate::waf::is_malicious(path) {
+                    block_reason = Some(m);
+                }
             }
 
             if block_reason.is_none() {
                 if let Some(query) = req_header.uri.query() {
-                    if let Some(reason) = crate::waf::is_malicious(query) {
-                        block_reason = Some(reason);
+                    if let Some(m) = crate::waf::is_malicious(query) {
+                        block_reason = Some(m);
                     }
                 }
             }
@@ -209,8 +203,8 @@ impl ProxyHttp for ZenoGateway {
                     let name_str = name.as_str();
                     if name_str == "user-agent" || name_str == "cookie" || name_str == "referer" {
                         if let Ok(val_str) = value.to_str() {
-                            if let Some(reason) = crate::waf::is_malicious(val_str) {
-                                block_reason = Some(reason);
+                            if let Some(m) = crate::waf::is_malicious(val_str) {
+                                block_reason = Some(m);
                                 break;
                             }
                         }
@@ -218,89 +212,24 @@ impl ProxyHttp for ZenoGateway {
                 }
             }
 
-            if let Some(reason) = block_reason {
-                let html = format!(
-                    r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Request Blocked - ZenoPanel WAF</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {{
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background-color: #0d1117;
-            color: #c9d1d9;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-        }}
-        .card {{
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 12px;
-            padding: 40px;
-            max-width: 500px;
-            width: 90%;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-            text-align: center;
-        }}
-        h1 {{
-            color: #f85149;
-            margin-top: 0;
-            font-size: 24px;
-        }}
-        p {{
-            line-height: 1.6;
-            font-size: 15px;
-        }}
-        .details {{
-            background-color: #0d1117;
-            border: 1px solid #30363d;
-            padding: 15px;
-            border-radius: 6px;
-            text-align: left;
-            font-family: monospace;
-            font-size: 13px;
-            margin-top: 20px;
-        }}
-        .footer {{
-            margin-top: 25px;
-            font-size: 12px;
-            color: #8b949e;
-        }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Aktivitas Mencurigakan Terdeteksi</h1>
-        <p>Request Anda telah diblokir secara otomatis oleh ZenoPanel Web Application Firewall (WAF) karena mengandung pola berbahaya.</p>
-        <div class="details">
-            <strong>IP Address:</strong> {}<br>
-            <strong>Reason:</strong> {}<br>
-            <strong>Timestamp:</strong> {}
-        </div>
-        <div class="footer">
-            ZenoPanel Protection Engine &copy; 2026
-        </div>
-    </div>
-</body>
-</html>"#,
-                    ctx.client_ip, reason, chrono::Utc::now().to_rfc3339()
-                );
+            if let Some(waf_match) = block_reason {
+                let html = crate::waf::render_blocked_page(waf_match.reason, ctx.client_ip);
 
                 // Log WAF to DB
                 let ip_str = ctx.client_ip.to_string();
-                let path_str = path.to_string();
+                let log_path = path_str.clone();
                 let db_manager = self.state.db_manager.clone();
-                let reason_str = reason.to_string();
+                let reason_str = waf_match.reason.to_string();
+                let severity_str = waf_match.severity.to_string();
+                let log_method = method_str.clone();
                 tokio::spawn(async move {
                     if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
-                        let _ = sqlx::query("INSERT INTO waf_logs (ip, reason, target) VALUES (?, ?, ?)")
+                        let _ = sqlx::query("INSERT INTO waf_logs (ip, method, reason, severity, target) VALUES (?, ?, ?, ?, ?)")
                             .bind(ip_str)
+                            .bind(log_method)
                             .bind(reason_str)
-                            .bind(path_str)
+                            .bind(severity_str)
+                            .bind(log_path)
                             .execute(&pool)
                             .await;
                     }
@@ -308,13 +237,15 @@ impl ProxyHttp for ZenoGateway {
 
                 // Return 403 Forbidden response
                 let mut resp = ResponseHeader::build(StatusCode::FORBIDDEN, Some(1))?;
-                resp.insert_header("Content-Type", "text/html")?;
+                resp.insert_header("Content-Type", "text/html; charset=utf-8")?;
                 session.write_response_header(Box::new(resp), false).await?;
                 session.write_response_body(Some(html.into()), true).await?;
 
                 return Ok(true);
             }
         }
+        } // end IP block/allow else block
+
 
         // 4. Managed Process Status Check for Proxy Rules
         let host_header = req_header

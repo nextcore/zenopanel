@@ -1675,8 +1675,8 @@ http.post: '/api/database/servers/config/save' {
                 }
             }
 
-            var: $cmd { val: "docker restart ${name}" }
-            system.exec: $cmd { as: $restart_res }
+            box.stop: $name { as: $stop_res }
+            box.start: $name { as: $restart_res }
 
             http.ok: { success: true, message: "Konfigurasi disimpan. Container database '${name}' berhasil direstart." }
         }

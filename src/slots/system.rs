@@ -1377,7 +1377,7 @@ pub fn register(engine: &mut Engine) {
     // ── system.firewall_rule_add ──────────────────────────────────────────────
     engine.register(
         "system.firewall_rule_add",
-        Arc::new(|engine, _ctx, node, scope| {
+        Arc::new(|engine, ctx, node, scope| {
             let mut name = String::new();
             let mut port = String::new();
             let mut protocol = "tcp".to_string();
@@ -1410,34 +1410,58 @@ pub fn register(engine: &mut Engine) {
                 }
             }
 
-            // Check if rule already exists to prevent duplicate entries
-            let check = std::process::Command::new("iptables")
-                .args(&[
-                    "-C", "INPUT",
-                    "-p", &protocol,
-                    "--dport", &port,
-                    "-j", &action_upper,
-                    "-m", "comment",
-                    "--comment", &format!("ZenoPanel: {}", name)
-                ])
-                .output();
-            let exists = check.is_ok() && check.unwrap().status.success();
-            
-            let success = if !exists {
-                let output = std::process::Command::new("iptables")
-                    .args(&[
-                        "-A", "INPUT",
-                        "-p", &protocol,
-                        "--dport", &port,
-                        "-j", &action_upper,
-                        "-m", "comment",
-                        "--comment", &format!("ZenoPanel: {}", name)
-                    ])
-                    .output();
-                output.is_ok() && output.unwrap().status.success()
-            } else {
-                true
-            };
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "AppState not found in Context".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("system.firewall_rule_add".to_string()),
+                })?;
+            let db_manager = app_state.db_manager.clone();
+
+            let success = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        // Check if a rule with the same name already exists in DB
+                        let existing: Option<(i64,)> = sqlx::query_as(
+                            "SELECT COUNT(*) FROM firewall_rules WHERE name = ? AND port = ? AND protocol = ? AND action = ?"
+                        )
+                        .bind(&name)
+                        .bind(&port)
+                        .bind(&protocol)
+                        .bind(&action_upper)
+                        .fetch_optional(&pool)
+                        .await
+                        .unwrap_or(None);
+
+                        let already_exists = existing.map(|(c,)| c > 0).unwrap_or(false);
+                        if !already_exists {
+                            let insert_res = sqlx::query(
+                                "INSERT INTO firewall_rules (name, port, protocol, action) VALUES (?, ?, ?, ?)"
+                            )
+                            .bind(&name)
+                            .bind(&port)
+                            .bind(&protocol)
+                            .bind(&action_upper)
+                            .execute(&pool)
+                            .await;
+
+                            if insert_res.is_ok() {
+                                sync_firewall_rules(&pool);
+                                return true;
+                            }
+                        } else {
+                            // Rule already saved, just re-sync to be safe
+                            sync_firewall_rules(&pool);
+                            return true;
+                        }
+                    }
+                    false
+                })
+            });
 
             scope.set(&target, Value::Bool(success));
             Ok(())
@@ -1448,7 +1472,7 @@ pub fn register(engine: &mut Engine) {
     // ── system.firewall_rule_delete ───────────────────────────────────────────
     engine.register(
         "system.firewall_rule_delete",
-        Arc::new(|engine, _ctx, node, scope| {
+        Arc::new(|engine, ctx, node, scope| {
             let mut name = String::new();
             let mut port = String::new();
             let mut protocol = "tcp".to_string();
@@ -1468,17 +1492,40 @@ pub fn register(engine: &mut Engine) {
             }
 
             let action_upper = action.to_uppercase();
-            let output = std::process::Command::new("iptables")
-                .args(&[
-                    "-D", "INPUT",
-                    "-p", &protocol,
-                    "--dport", &port,
-                    "-j", &action_upper,
-                    "-m", "comment",
-                    "--comment", &format!("ZenoPanel: {}", name)
-                ])
-                .output();
-            let success = output.is_ok() && output.unwrap().status.success();
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "AppState not found in Context".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("system.firewall_rule_delete".to_string()),
+                })?;
+            let db_manager = app_state.db_manager.clone();
+
+            let success = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let delete_res = sqlx::query(
+                            "DELETE FROM firewall_rules WHERE name = ? AND port = ? AND protocol = ? AND action = ?"
+                        )
+                        .bind(&name)
+                        .bind(&port)
+                        .bind(&protocol)
+                        .bind(&action_upper)
+                        .execute(&pool)
+                        .await;
+
+                        if delete_res.is_ok() {
+                            sync_firewall_rules(&pool);
+                            return true;
+                        }
+                    }
+                    false
+                })
+            });
 
             scope.set(&target, Value::Bool(success));
             Ok(())
@@ -1721,7 +1768,192 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    // ── system.waf_block_ip ───────────────────────────────────────────────────
+    engine.register(
+        "system.waf_block_ip",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut ip = String::new();
+            let mut reason = String::new();
+            let mut target = "success".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "ip"     => ip = val.to_string_coerce(),
+                    "reason" => reason = val.to_string_coerce(),
+                    "as"     => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    _ => {}
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.waf_block_ip".to_string()) })?;
+            let db_manager = app_state.db_manager.clone();
+
+            let success = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let res = sqlx::query(
+                            "INSERT INTO waf_ip_rules (ip, type, reason) VALUES (?, 'block', ?) ON CONFLICT(ip) DO UPDATE SET type = 'block', reason = excluded.reason"
+                        )
+                        .bind(&ip)
+                        .bind(&reason)
+                        .execute(&pool)
+                        .await;
+                        if res.is_ok() {
+                            app_state.ip_block_list.add(&ip, "block");
+                            return true;
+                        }
+                    }
+                    false
+                })
+            });
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.waf_unblock_ip ─────────────────────────────────────────────────
+    engine.register(
+        "system.waf_unblock_ip",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut ip = String::new();
+            let mut target = "success".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "ip" => ip = val.to_string_coerce(),
+                    "as" => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    _ => {}
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.waf_unblock_ip".to_string()) })?;
+            let db_manager = app_state.db_manager.clone();
+
+            let success = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let res = sqlx::query("DELETE FROM waf_ip_rules WHERE ip = ?")
+                            .bind(&ip)
+                            .execute(&pool)
+                            .await;
+                        if res.is_ok() {
+                            app_state.ip_block_list.remove(&ip);
+                            return true;
+                        }
+                    }
+                    false
+                })
+            });
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.waf_whitelist_ip ───────────────────────────────────────────────
+    engine.register(
+        "system.waf_whitelist_ip",
+        Arc::new(|engine, ctx, node, scope| {
+            let mut ip = String::new();
+            let mut reason = String::new();
+            let mut target = "success".to_string();
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "ip"     => ip = val.to_string_coerce(),
+                    "reason" => reason = val.to_string_coerce(),
+                    "as"     => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    _ => {}
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.waf_whitelist_ip".to_string()) })?;
+            let db_manager = app_state.db_manager.clone();
+
+            let success = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        let res = sqlx::query(
+                            "INSERT INTO waf_ip_rules (ip, type, reason) VALUES (?, 'allow', ?) ON CONFLICT(ip) DO UPDATE SET type = 'allow', reason = excluded.reason"
+                        )
+                        .bind(&ip)
+                        .bind(&reason)
+                        .execute(&pool)
+                        .await;
+                        if res.is_ok() {
+                            app_state.ip_block_list.add(&ip, "allow");
+                            return true;
+                        }
+                    }
+                    false
+                })
+            });
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    // ── system.waf_get_ip_rules ───────────────────────────────────────────────
+    engine.register(
+        "system.waf_get_ip_rules",
+        Arc::new(|_engine, ctx, node, scope| {
+            let mut target = "ip_rules".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.waf_get_ip_rules".to_string()) })?;
+
+            let db_manager = app_state.db_manager.clone();
+            let list = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        if let Ok(rows) = sqlx::query_as::<_, (String, String, String, String)>(
+                            "SELECT ip, type, COALESCE(reason, ''), created_at FROM waf_ip_rules ORDER BY created_at DESC"
+                        )
+                        .fetch_all(&pool)
+                        .await
+                        {
+                            return rows.into_iter().map(|(ip, t, reason, created_at)| {
+                                let mut m = HashMap::new();
+                                m.insert("ip".to_string(), Value::String(ip));
+                                m.insert("type".to_string(), Value::String(t));
+                                m.insert("reason".to_string(), Value::String(reason));
+                                m.insert("created_at".to_string(), Value::String(created_at));
+                                Value::Map(m)
+                            }).collect::<Vec<_>>();
+                        }
+                    }
+                    Vec::new()
+                })
+            });
+
+            scope.set(&target, Value::List(list));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
+
 
 pub fn clear_zenopanel_system_rules() {
     if let Ok(out) = std::process::Command::new("iptables").args(&["-S", "INPUT"]).output() {
@@ -1729,7 +1961,8 @@ pub fn clear_zenopanel_system_rules() {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let mut rules_to_delete = Vec::new();
             for line in stdout.lines() {
-                if line.contains("ZenoPanelSystem:") {
+                // Clear both ZenoPanelSystem: (auto rules) and ZenoPanel: (user-defined rules)
+                if line.contains("ZenoPanelSystem:") || line.contains("ZenoPanel:") {
                     if line.starts_with("-A INPUT ") {
                         rules_to_delete.push(line["-A INPUT ".len()..].to_string());
                     }
@@ -1748,6 +1981,7 @@ pub fn clear_zenopanel_system_rules() {
 pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
     let mut is_lockdown_enabled = false;
     let mut lockdown_ports_str = "22,80,443,3002".to_string();
+    let mut custom_rules: Vec<(String, String, String, String)> = Vec::new(); // (name, port, protocol, action)
 
     let _ = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
@@ -1766,10 +2000,37 @@ pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
             if let Some(r) = v2 {
                 lockdown_ports_str = r.0;
             }
+
+            // Load persisted custom rules from DB
+            if let Ok(rows) = sqlx::query_as::<_, (String, String, String, String)>(
+                "SELECT name, port, protocol, action FROM firewall_rules"
+            )
+            .fetch_all(pool)
+            .await
+            {
+                custom_rules = rows;
+            }
         })
     });
 
+    // Clear all panel-managed rules (both system and user-defined) for a clean slate
     clear_zenopanel_system_rules();
+
+    let apply_rule = |args: &[&str]| {
+        let _ = std::process::Command::new("iptables").args(args).output();
+    };
+
+    // Re-apply user-defined custom rules from DB
+    for (name, port, protocol, action) in &custom_rules {
+        apply_rule(&[
+            "-A", "INPUT",
+            "-p", protocol,
+            "--dport", port,
+            "-j", action,
+            "-m", "comment",
+            "--comment", &format!("ZenoPanel: {}", name)
+        ]);
+    }
 
     if is_lockdown_enabled {
         let mut ports: Vec<String> = lockdown_ports_str
@@ -1822,10 +2083,6 @@ pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
             })
         });
 
-        let apply_rule = |args: &[&str]| {
-            let _ = std::process::Command::new("iptables").args(args).output();
-        };
-
         apply_rule(&["-A", "INPUT", "-i", "lo", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanelSystem: Allow Loopback"]);
         apply_rule(&["-A", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT", "-m", "comment", "--comment", "ZenoPanelSystem: Allow Established/Related"]);
 
@@ -1845,4 +2102,3 @@ pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
         let _ = std::process::Command::new("iptables").args(&["-P", "INPUT", "ACCEPT"]).output();
     }
 }
-

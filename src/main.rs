@@ -101,6 +101,7 @@ pub(crate) struct AppState {
     pub(crate) login_limiter: Arc<LoginLimiter>,
     pub(crate) rate_limiter: Arc<crate::waf::RateLimiter>,
     pub(crate) waf_enabled: std::sync::atomic::AtomicBool,
+    pub(crate) ip_block_list: Arc<crate::waf::IpBlockList>,
     pub(crate) traffic_stats: Arc<crate::waf::TrafficStatsManager>,
     pub(crate) backup_manager: Arc<crate::backupman::BackupManager>,
     pub(crate) log_manager: Arc<crate::logman::LogManager>,
@@ -338,6 +339,33 @@ fn main() {
     .await
     .expect("Failed to create waf_logs table");
 
+    // Migrate waf_logs to add method and severity columns (idempotent)
+    let _ = sqlx::query("ALTER TABLE waf_logs ADD COLUMN method TEXT NOT NULL DEFAULT 'UNKNOWN'")
+        .execute(&default_pool).await;
+    let _ = sqlx::query("ALTER TABLE waf_logs ADD COLUMN severity TEXT NOT NULL DEFAULT 'medium'")
+        .execute(&default_pool).await;
+
+    // Indexes for fast waf_logs dashboard queries
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_waf_logs_timestamp ON waf_logs (timestamp DESC)")
+        .execute(&default_pool).await;
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_waf_logs_ip ON waf_logs (ip)")
+        .execute(&default_pool).await;
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_waf_logs_severity ON waf_logs (severity, timestamp DESC)")
+        .execute(&default_pool).await;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS waf_ip_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT NOT NULL UNIQUE,
+            type TEXT NOT NULL DEFAULT 'block',
+            reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create waf_ip_rules table");
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS db_servers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -469,6 +497,20 @@ fn main() {
     .await
     .expect("Failed to create cron_jobs table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS firewall_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            port TEXT NOT NULL,
+            protocol TEXT NOT NULL DEFAULT 'tcp',
+            action TEXT NOT NULL DEFAULT 'ACCEPT',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&default_pool)
+    .await
+    .expect("Failed to create firewall_rules table");
+
     let cron_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cron_jobs")
         .fetch_one(&default_pool)
         .await
@@ -537,6 +579,10 @@ fn main() {
     if let Err(e) = proxy_manager.load_from_db().await {
         eprintln!("Failed to load proxies from DB: {}", e);
     }
+
+    // Re-apply saved firewall rules on startup to survive reboots/panel restarts
+    println!("🔥 Syncing firewall rules from database...");
+    crate::slots::system::sync_firewall_rules(&default_pool);
 
     #[derive(Clone)]
     struct RouteReg {
@@ -694,6 +740,17 @@ fn main() {
     let rate_limiter = Arc::new(waf::RateLimiter::new(db_rate_limit_enabled, db_rate_limit_max, db_rate_limit_window));
     let traffic_stats = Arc::new(waf::TrafficStatsManager::new());
 
+    // Load IP block/whitelist from DB
+    let ip_block_list = Arc::new(waf::IpBlockList::new());
+    if let Ok(rows) = sqlx::query_as::<_, (String, String)>("SELECT ip, type FROM waf_ip_rules")
+        .fetch_all(pool)
+        .await
+    {
+        for (ip, rule_type) in rows {
+            ip_block_list.add(&ip, &rule_type);
+        }
+    }
+
     let ts_clone = traffic_stats.clone();
     tokio::spawn(async move {
         loop {
@@ -707,6 +764,49 @@ fn main() {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
             rl_clone.prune_old_entries();
+        }
+    });
+
+    // DB health check: ping external pools every 60s and reconnect if dead
+    let hc_db_manager = db_manager.clone();
+    let hc_pool = default_pool.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            // Load registered external servers from SQLite
+            if let Ok(rows) = sqlx::query_as::<_, (String, String, String, i32, String, String)>(
+                "SELECT name, driver, host, port, admin_user, admin_password FROM db_servers"
+            )
+            .fetch_all(&hc_pool)
+            .await
+            {
+                for (name, driver, host, port, user, password) in rows {
+                    let alive = {
+                        let pools = hc_db_manager.pools.read().await;
+                        if let Some(pool) = pools.get(&name) {
+                            match pool {
+                                crate::db::DbPool::MySql(p) => sqlx::query("SELECT 1").execute(p).await.is_ok(),
+                                crate::db::DbPool::Postgres(p) => sqlx::query("SELECT 1").execute(p).await.is_ok(),
+                                _ => true,
+                            }
+                        } else {
+                            false // not in pool map at all → reconnect
+                        }
+                    };
+                    if !alive {
+                        eprintln!("[DB HealthCheck] Pool '{}' is unresponsive, reconnecting...", name);
+                        let res = if driver == "mysql" {
+                            hc_db_manager.add_mysql_connection(&name, &host, port as u16, &user, &password, "").await
+                        } else {
+                            hc_db_manager.add_postgres_connection(&name, &host, port as u16, &user, &password, "").await
+                        };
+                        match res {
+                            Ok(_) => println!("[DB HealthCheck] Reconnected pool '{}'.", name),
+                            Err(e) => eprintln!("[DB HealthCheck] Reconnect failed for '{}': {}", name, e),
+                        }
+                    }
+                }
+            }
         }
     });
 
@@ -927,6 +1027,7 @@ fn main() {
         login_limiter,
         rate_limiter,
         waf_enabled: std::sync::atomic::AtomicBool::new(db_waf_enabled),
+        ip_block_list,
         traffic_stats,
         backup_manager: backup_mgr,
         log_manager: log_mgr,
