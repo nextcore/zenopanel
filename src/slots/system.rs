@@ -1324,8 +1324,17 @@ pub fn register(engine: &mut Engine) {
                             let comment_marker = "ZenoPanel:";
                             let name = if let Some(idx) = line.find(comment_marker) {
                                 let mut name_part = line[idx + comment_marker.len()..].trim();
-                                if name_part.ends_with('"') || name_part.ends_with('\'') {
-                                    name_part = &name_part[..name_part.len() - 1];
+                                if name_part.starts_with('"') && name_part.ends_with('"') && name_part.len() >= 2 {
+                                    name_part = &name_part[1..name_part.len() - 1];
+                                } else if name_part.starts_with('\'') && name_part.ends_with('\'') && name_part.len() >= 2 {
+                                    name_part = &name_part[1..name_part.len() - 1];
+                                } else {
+                                    if name_part.ends_with('"') || name_part.ends_with('\'') {
+                                        name_part = &name_part[..name_part.len() - 1];
+                                    }
+                                    if name_part.starts_with('"') || name_part.starts_with('\'') {
+                                        name_part = &name_part[1..];
+                                    }
                                 }
                                 name_part.trim().to_string()
                             } else {

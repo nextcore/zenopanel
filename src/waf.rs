@@ -289,7 +289,7 @@ pub struct WafMatch {
     pub severity: &'static str,
 }
 
-pub fn is_malicious(input: &str) -> Option<WafMatch> {
+pub fn is_malicious(input: &str, check_ssrf: bool) -> Option<WafMatch> {
     // Decode percent encoding to catch evasion attempts
     let decoded = urlencoding::decode(input)
         .map(|cow| cow.into_owned())
@@ -310,7 +310,7 @@ pub fn is_malicious(input: &str) -> Option<WafMatch> {
     if PATH_TRAVERSAL_REGEX.is_match(&decoded) {
         return Some(WafMatch { reason: "Path Traversal Pattern", severity: "high" });
     }
-    if SSRF_REGEX.is_match(&decoded) {
+    if check_ssrf && SSRF_REGEX.is_match(&decoded) {
         return Some(WafMatch { reason: "Server-Side Request Forgery (SSRF) Pattern", severity: "high" });
     }
     None
@@ -752,7 +752,7 @@ pub(crate) async fn waf_middleware(
             let uri = parts.uri.clone();
 
             // 2b. Path
-            if let Some(m) = is_malicious(uri.path()) {
+            if let Some(m) = is_malicious(uri.path(), true) {
                 block_reason = Some(m.reason);
                 block_severity = m.severity;
             }
@@ -760,7 +760,7 @@ pub(crate) async fn waf_middleware(
             // 2c. Query string
             if block_reason.is_none() {
                 if let Some(query) = uri.query() {
-                    if let Some(m) = is_malicious(query) {
+                    if let Some(m) = is_malicious(query, true) {
                         block_reason = Some(m.reason);
                         block_severity = m.severity;
                     }
@@ -773,7 +773,8 @@ pub(crate) async fn waf_middleware(
                     let name_str = name.as_str();
                     if name_str == "user-agent" || name_str == "referer" {
                         if let Ok(val_str) = value.to_str() {
-                            if let Some(m) = is_malicious(val_str) {
+                            let check_ssrf = name_str != "referer"; // Disable SSRF checks on referer headers
+                            if let Some(m) = is_malicious(val_str, check_ssrf) {
                                 block_reason = Some(m.reason);
                                 block_severity = m.severity;
                                 break;
@@ -789,7 +790,7 @@ pub(crate) async fn waf_middleware(
                                     if key == "zeno_token" || key == "_csrf" {
                                         continue;
                                     }
-                                    if let Some(m) = is_malicious(v) {
+                                    if let Some(m) = is_malicious(v, true) {
                                         block_reason = Some(m.reason);
                                         block_severity = m.severity;
                                         break;
@@ -814,7 +815,7 @@ pub(crate) async fn waf_middleware(
                     match axum::body::to_bytes(b, 2 * 1024 * 1024).await {
                         Ok(bytes) => {
                             let body_str = String::from_utf8_lossy(&bytes);
-                            if let Some(m) = is_malicious(&body_str) {
+                            if let Some(m) = is_malicious(&body_str, true) {
                                 block_reason = Some(m.reason);
                                 block_severity = m.severity;
                             }

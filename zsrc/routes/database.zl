@@ -1283,18 +1283,22 @@ http.post: '/api/database/servers/toggle-pool' {
 
                     if: "$pool_enabled == 1" {
                         then: {
-                            db.select: "SELECT db_user, db_password FROM db_databases WHERE server_id = ?" {
-                                bind: [$id]
-                                as: $db_users
+                            if: "$name != ''" {
+                                then: {
+                                    db.select: "SELECT db_user, db_password FROM db_databases WHERE server_id = ?" {
+                                        bind: [$id]
+                                        as: $db_users
+                                    }
+                                    db.generate_proxysql_config: {
+                                        server_name: $name
+                                        admin_user: $admin_user
+                                        admin_password: $admin_password
+                                        users: $db_users
+                                        path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
+                                    }
+                                    var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
+                                }
                             }
-                            db.generate_proxysql_config: {
-                                server_name: $name
-                                admin_user: $admin_user
-                                admin_password: $admin_password
-                                users: $db_users
-                                path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
-                            }
-                            var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
                         }
                     }
 

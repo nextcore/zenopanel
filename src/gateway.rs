@@ -185,14 +185,14 @@ impl ProxyHttp for ZenoGateway {
             }
 
             if block_reason.is_none() {
-                if let Some(m) = crate::waf::is_malicious(path) {
+                if let Some(m) = crate::waf::is_malicious(path, true) {
                     block_reason = Some(m);
                 }
             }
 
             if block_reason.is_none() {
                 if let Some(query) = req_header.uri.query() {
-                    if let Some(m) = crate::waf::is_malicious(query) {
+                    if let Some(m) = crate::waf::is_malicious(query, true) {
                         block_reason = Some(m);
                     }
                 }
@@ -203,7 +203,8 @@ impl ProxyHttp for ZenoGateway {
                     let name_str = name.as_str();
                     if name_str == "user-agent" || name_str == "cookie" || name_str == "referer" {
                         if let Ok(val_str) = value.to_str() {
-                            if let Some(m) = crate::waf::is_malicious(val_str) {
+                            let check_ssrf = name_str != "referer"; // Disable SSRF checks on referer headers
+                            if let Some(m) = crate::waf::is_malicious(val_str, check_ssrf) {
                                 block_reason = Some(m);
                                 break;
                             }
