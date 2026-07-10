@@ -502,6 +502,11 @@ async fn pull_image_rust(image: &str) -> Result<Vec<String>, String> {
         }
     }
 
+    // Resolve relative script names like 'docker-entrypoint.sh' to absolute paths to prevent OCI execution errors
+    if !final_cmd.is_empty() && final_cmd[0] == "docker-entrypoint.sh" {
+        final_cmd[0] = "/usr/local/bin/docker-entrypoint.sh".to_string();
+    }
+
     Ok(final_cmd)
 }
 
@@ -534,6 +539,11 @@ fn get_image_default_cmd(image: &str) -> Vec<String> {
             }
         }
     }
+
+    if !default_cmd.is_empty() && default_cmd[0] == "docker-entrypoint.sh" {
+        default_cmd[0] = "/usr/local/bin/docker-entrypoint.sh".to_string();
+    }
+
     default_cmd
 }
 
