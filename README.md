@@ -3,6 +3,7 @@
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust&style=flat-square)](https://www.rust-lang.org)
 [![ZenoLang](https://img.shields.io/badge/engine-ZenoLang-purple?style=flat-square)](https://github.com/nextcore/zeno-rs)
 [![License](https://img.shields.io/badge/license-Apache-blue?style=flat-square)](./LICENSE)
+[![Version](https://img.shields.io/badge/version-v1.5.0-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.5.0)
 [![RAM Usage](https://img.shields.io/badge/RAM-~15MB-brightgreen?style=flat-square)](#)
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
@@ -65,6 +66,7 @@ Deploy dan kelola database server langsung dari panel — terisolasi penuh di da
 - **Support MySQL 5.7, MySQL 8, dan PostgreSQL** — pilih versi sesuai kebutuhan.
 - **Isolasi Penuh per Kontainer Zeno Box**: Setiap server database berjalan di dalam kontainer terisolasi tersendiri, tanpa konflik versi.
 - **Connection Pooling Sidecar**: Dukungan connection pooling terintegrasi menggunakan sidecar container **ProxySQL** (untuk MySQL/MariaDB) dan **PgBouncer** (untuk PostgreSQL) untuk mengoptimalkan penggunaan resource koneksi database dan meningkatkan konkurensi.
+- **Auto Health Check & Reconnect**: Pool koneksi MySQL/PostgreSQL di-ping otomatis setiap 60 detik. Jika koneksi terputus, reconnect dilakukan secara otomatis tanpa intervensi manual.
 - **Manajemen Database & User**: Buat database, buat user, atur GRANT, dan ganti password — dari UI.
 - **SQL Console Bawaan**: Eksekusi query SQL langsung dari browser.
 - **Bulk Data Support**: Pool koneksi Rust internal mendukung operasi batch (500+ INSERT rows) dengan latensi sub-detik.
@@ -82,9 +84,28 @@ Deploy dan kelola database server langsung dari panel — terisolasi penuh di da
 - **Kebijakan Retensi**: Hapus backup lokal lama secara otomatis berdasarkan jumlah yang dipertahankan.
 
 ### 🛡️ Web Application Firewall (WAF) & Rate Limiter
-- **WAF Bawaan**: Deteksi dan cegah SQL Injection, XSS, Path Traversal, dan Remote Code Execution (RCE).
-- **Rate Limiting Granular**: Batasi request per IP dalam jendela waktu untuk menangkis DDoS dan abuse API.
-- **Security Tab (Khusus Admin)**: Setelan WAF/Rate Limiting & log audit trail serangan secara real-time.
+
+WAF ZenoPanel beroperasi di dua lapisan sekaligus: **Axum middleware** (panel) dan **Pingora gateway** (proxy traffic), memberikan perlindungan end-to-end tanpa konfigurasi tambahan.
+
+- **Deteksi Ancaman Multi-Layer**:
+  - SQL Injection (UNION-based, boolean-based, time-based blind, stacked queries)
+  - Cross-Site Scripting / XSS (termasuk `data:`, `vbscript:`, SVG-based XSS)
+  - Remote Code Execution / RCE (shell injection, PHP code injection, template injection)
+  - Path Traversal (plain, URL-encoded, double-encoded, null byte)
+  - **Server-Side Request Forgery / SSRF** — deteksi akses ke metadata cloud & network internal
+  - **Log4Shell / JNDI Injection** — termasuk variant yang di-obfuscate
+  - **Scanner & Attack Tool** — blokir otomatis User-Agent dari sqlmap, nikto, nmap, nuclei, acunetix, burpsuite, dll.
+- **IP Block & Whitelist**: Block atau izinkan IP tertentu secara manual dari panel. Aturan bersifat **persistent** di database dan aktif instan tanpa restart.
+- **Rate Limiting Granular**: Batasi request per IP dalam jendela waktu — konfigurasi dari UI tanpa restart.
+- **Brute-Force Auto-Block**: IP yang gagal login sebanyak 5 kali secara otomatis diblokir dan masuk ke WAF blocklist secara permanen.
+- **Security Response Headers**: Setiap response menyertakan `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, dan `Referrer-Policy`.
+- **Audit Log Real-Time**: Setiap serangan dicatat lengkap dengan IP, metode HTTP, kategori ancaman, severity, dan timestamp — tersedia di Security Tab.
+
+### 🧱 Firewall Rules Manager (iptables)
+- Kelola aturan `iptables` secara visual dari UI panel.
+- **Persistent Rules**: Aturan firewall disimpan di database dan disinkronisasi ulang secara otomatis saat startup — tidak hilang setelah restart server.
+- **Lockout Protection**: Cegah pemblokiran port SSH (22) dan port panel admin secara tidak sengaja.
+- **Lockdown Mode**: Aktifkan kebijakan *default-DROP* instan — blokir semua, izinkan hanya port vital secara dinamis.
 
 ### 🔒 SSL/TLS Otomatis & HTTP/2 ALPN Native
 - **HTTP/2 Multiplexing & ALPN** (`h2` dan `http/1.1`) native di handler TLS Pingora.
@@ -99,11 +120,6 @@ Deploy dan kelola database server langsung dari panel — terisolasi penuh di da
 ### 🗃️ File Manager, Database Console, & Web Terminal
 - **File Manager**: Navigasi direktori, unggah file via multipart, buat, edit, dan hapus berkas langsung dari browser.
 - **Interactive Terminal**: Akses shell server secara aman di browser (khusus Administrator).
-
-### 🧱 Firewall Rules Manager (iptables)
-- Kelola aturan `iptables` secara visual dari UI panel.
-- **Lockout Protection**: Cegah pemblokiran port SSH (22) dan port panel admin secara tidak sengaja.
-- **Lockdown Mode**: Aktifkan kebijakan *default-DROP* instan — blokir semua, izinkan hanya port vital secara dinamis.
 
 ### 🔄 Self-Update Satu-Klik
 - Deteksi rilis terbaru ZenoPanel secara real-time dari menu Pengaturan.
@@ -147,8 +163,13 @@ ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, pan
 - Visual Config Tuner database
 - Database maintenance (ANALYZE / OPTIMIZE / REPAIR / VACUUM) dari UI
 - Auto & manual backup database + volume ke cloud (S3-compatible & Google Drive)
-- WAF, Rate Limiter, Firewall Rules Manager
-- SSL/TLS otomatis dengan ACME Let's Encrypt & auto-renewal
+- **WAF** multi-layer (SQLi, XSS, RCE, Path Traversal, SSRF, Log4Shell, Scanner Bot)
+- **IP Block/Whitelist** — persistent di DB, live update tanpa restart
+- **Brute-force auto-block** — IP diblokir permanen setelah 5x gagal login
+- **Security response headers** bawaan
+- **Firewall rules persistent** — bertahan setelah restart, sinkronisasi otomatis saat startup
+- **DB health check** — reconnect otomatis jika pool MySQL/PostgreSQL terputus
+- Rate Limiter, SSL/TLS otomatis ACME Let's Encrypt & auto-renewal
 - Multi-User RBAC (Admin / Editor / Viewer)
 - Service Injector untuk Alpine Linux OpenRC
 
