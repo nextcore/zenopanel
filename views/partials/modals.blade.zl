@@ -172,6 +172,12 @@
                 <input type="checkbox" id="proxy-ssl-enabled" style="cursor:pointer; width:16px; height:16px;">
                 <label for="proxy-ssl-enabled" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">Enable Automatic SSL / HTTPS (Let's Encrypt / Local)</label>
             </div>
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                <input type="checkbox" id="proxy-waf-enabled" checked style="cursor:pointer; width:16px; height:16px;">
+                <label for="proxy-waf-enabled" style="cursor:pointer; font-weight:500; font-size:0.9rem; user-select:none; margin:0;">
+                    <i class="fa-solid fa-shield-halved" style="color:var(--accent-primary); margin-right:4px;"></i>Enable WAF protection for this application
+                </label>
+            </div>
         </div>
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
             <button class="btn-action" onclick="closeAddProxyModal()">Cancel</button>

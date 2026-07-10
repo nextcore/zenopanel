@@ -741,7 +741,17 @@ pub(crate) async fn waf_middleware(
     let mut body_bytes = None;
     let mut body_opt = Some(body);
 
-    if state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) {
+    // ZenoPanel's own internal API and asset paths are always exempt from WAF.
+    // These endpoints are already protected by JWT authentication internally.
+    const ZENOPANEL_EXEMPT_PREFIXES: &[&str] = &[
+        "/api/",
+        "/assets/",
+        "/public/",
+        "/storage/",
+    ];
+    let is_zenopanel_internal = ZENOPANEL_EXEMPT_PREFIXES.iter().any(|p| path.starts_with(p));
+
+    if state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) && !is_zenopanel_internal {
         // 2a. Scanner bot detection via User-Agent
         if is_scanner_bot(&user_agent) {
             block_reason = Some("Known Attack Tool / Scanner Bot");

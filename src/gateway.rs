@@ -172,8 +172,24 @@ impl ProxyHttp for ZenoGateway {
             }
             // "allow" → skip WAF entirely
         } else {
-        // 3. WAF Check
-        if self.state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) {
+        // 3. WAF Check — per-application setting, global WAF as fallback
+
+        // Pre-fetch the proxy rule to determine per-app WAF setting
+        let host_header_str = req_header
+            .headers
+            .get("Host")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let (waf_check_host, waf_check_port) = crate::proxyman::parse_host_port(&host_header_str);
+        let waf_check_port = waf_check_port.unwrap_or(80);
+        let matched_rule = self.state.proxy_manager.match_rule(&waf_check_host, waf_check_port, path).await;
+
+        // Determine effective WAF setting: per-app overrides global
+        let global_waf = self.state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed);
+        let effective_waf = matched_rule.as_ref().map(|r| r.waf_enabled).unwrap_or(global_waf);
+
+        if effective_waf {
             let mut block_reason: Option<crate::waf::WafMatch> = None;
 
             // Scanner bot detection
@@ -247,7 +263,6 @@ impl ProxyHttp for ZenoGateway {
         }
         } // end IP block/allow else block
 
-
         // 4. Managed Process Status Check for Proxy Rules
         let host_header = req_header
             .headers
@@ -283,6 +298,7 @@ impl ProxyHttp for ZenoGateway {
 
         Ok(false)
     }
+
 
     async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
         let req_header = session.req_header();

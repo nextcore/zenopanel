@@ -339,6 +339,8 @@ export function openAddProxyModal() {
     if (spCheck) spCheck.checked = false;
     if (enCheck) enCheck.checked = true;
     if (sslCheck) sslCheck.checked = false;
+    const wafCheck = document.getElementById('proxy-waf-enabled');
+    if (wafCheck) wafCheck.checked = true;
     
     populateManagedProcessesDropdown('');
 
@@ -382,6 +384,8 @@ export function openEditProxyModal(id) {
     if (spCheck) spCheck.checked = rule.strip_path;
     if (enCheck) enCheck.checked = rule.enabled;
     if (sslCheck) sslCheck.checked = rule.ssl_enabled;
+    const wafCheck = document.getElementById('proxy-waf-enabled');
+    if (wafCheck) wafCheck.checked = rule.waf_enabled !== false;
 
     populateManagedProcessesDropdown(rule.managed_process_id || '');
 
@@ -425,6 +429,8 @@ export function submitAddProxy() {
     const ssl_enabled = sslCheck ? sslCheck.checked : false;
     const managed_process_id = mpSelect ? mpSelect.value : '';
     const rule_type = typeSelect ? typeSelect.value : 'proxy';
+    const wafCheck = document.getElementById('proxy-waf-enabled');
+    const waf_enabled = wafCheck ? wafCheck.checked : true;
 
     if (!name || !path || !target) {
         showToast('warning', 'Name, Path, and Target Destination are required');
@@ -432,7 +438,7 @@ export function submitAddProxy() {
     }
 
     const url = id ? '/api/proxy/update' : '/api/proxy/add';
-    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type };
+    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled };
     if (id) {
         body.id = id;
     }

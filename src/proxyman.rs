@@ -46,6 +46,7 @@ pub struct ProxyRule {
     pub ssl_status: String,
     pub managed_process_id: Option<String>,
     pub rule_type: String,
+    pub waf_enabled: bool,
 }
 
 #[derive(Clone)]
@@ -80,11 +81,13 @@ impl ProxyManager {
         let alter_managed_process_id = "ALTER TABLE proxy_rules ADD COLUMN managed_process_id TEXT;";
         let alter_alternative_domain = "ALTER TABLE proxy_rules ADD COLUMN alternative_domain TEXT NOT NULL DEFAULT '';";
         let alter_rule_type = "ALTER TABLE proxy_rules ADD COLUMN rule_type TEXT NOT NULL DEFAULT 'proxy';";
+        let alter_waf_enabled = "ALTER TABLE proxy_rules ADD COLUMN waf_enabled INTEGER NOT NULL DEFAULT 1;";
         let _ = sqlx::query(alter_ssl_enabled).execute(&pool).await;
         let _ = sqlx::query(alter_ssl_status).execute(&pool).await;
         let _ = sqlx::query(alter_managed_process_id).execute(&pool).await;
         let _ = sqlx::query(alter_alternative_domain).execute(&pool).await;
         let _ = sqlx::query(alter_rule_type).execute(&pool).await;
+        let _ = sqlx::query(alter_waf_enabled).execute(&pool).await;
 
         let active_conns = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let unhealthy_targets = Arc::new(RwLock::new(HashSet::new()));
@@ -158,7 +161,7 @@ impl ProxyManager {
     }
 
     pub async fn load_from_db(&self) -> Result<(), String> {
-        let rows = sqlx::query("SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type FROM proxy_rules")
+        let rows = sqlx::query("SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type, waf_enabled FROM proxy_rules")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -179,6 +182,7 @@ impl ProxyManager {
             let ssl_status: String = row.get("ssl_status");
             let managed_process_id: Option<String> = row.try_get("managed_process_id").ok();
             let rule_type: String = row.try_get("rule_type").unwrap_or_else(|_| "proxy".to_string());
+            let waf_enabled_int: i32 = row.try_get("waf_enabled").unwrap_or(1);
 
             rules.insert(
                 id.clone(),
@@ -195,6 +199,7 @@ impl ProxyManager {
                     ssl_status,
                     managed_process_id,
                     rule_type,
+                    waf_enabled: waf_enabled_int != 0,
                 },
             );
         }
@@ -213,11 +218,13 @@ impl ProxyManager {
         ssl_enabled: bool,
         managed_process_id: Option<String>,
         rule_type: String,
+        waf_enabled: bool,
     ) -> Result<String, String> {
         let id = format!("{:x}", rand::random::<u32>());
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
         let ssl_enabled_int = if ssl_enabled { 1 } else { 0 };
+        let waf_enabled_int = if waf_enabled { 1 } else { 0 };
         let ssl_status = if ssl_enabled { "pending".to_string() } else { "none".to_string() };
 
         let clean_domain = sanitize_host(&domain);
@@ -233,7 +240,7 @@ impl ProxyManager {
             clean_path = format!("/{}", clean_path);
         }
 
-        sqlx::query("INSERT INTO proxy_rules (id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO proxy_rules (id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type, waf_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&id)
             .bind(&name)
             .bind(&clean_domain)
@@ -246,6 +253,7 @@ impl ProxyManager {
             .bind(&ssl_status)
             .bind(&managed_process_id)
             .bind(&rule_type)
+            .bind(waf_enabled_int)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -263,6 +271,7 @@ impl ProxyManager {
             ssl_status,
             managed_process_id,
             rule_type,
+            waf_enabled,
         };
 
         self.rules.write().await.insert(id.clone(), rule);
@@ -283,10 +292,12 @@ impl ProxyManager {
         ssl_enabled: bool,
         managed_process_id: Option<String>,
         rule_type: String,
+        waf_enabled: bool,
     ) -> Result<(), String> {
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
         let ssl_enabled_int = if ssl_enabled { 1 } else { 0 };
+        let waf_enabled_int = if waf_enabled { 1 } else { 0 };
 
         let clean_domain = sanitize_host(&domain);
         let clean_alt_domain = alternative_domain
@@ -314,7 +325,7 @@ impl ProxyManager {
             None => if ssl_enabled { "pending".to_string() } else { "none".to_string() }
         };
 
-        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, alternative_domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ?, rule_type = ? WHERE id = ?")
+        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, alternative_domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ?, rule_type = ?, waf_enabled = ? WHERE id = ?")
             .bind(&name)
             .bind(&clean_domain)
             .bind(&clean_alt_domain)
@@ -326,6 +337,7 @@ impl ProxyManager {
             .bind(&new_status)
             .bind(&managed_process_id)
             .bind(&rule_type)
+            .bind(waf_enabled_int)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -343,6 +355,7 @@ impl ProxyManager {
             rule.ssl_status = new_status;
             rule.managed_process_id = managed_process_id;
             rule.rule_type = rule_type;
+            rule.waf_enabled = waf_enabled;
         }
         crate::slots::system::sync_firewall_rules(&self.pool);
         Ok(())
