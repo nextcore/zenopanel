@@ -1303,7 +1303,7 @@ pub fn register(engine: &mut Engine) {
     // ── system.firewall_status ────────────────────────────────────────────────
     engine.register(
         "system.firewall_status",
-        Arc::new(|_engine, _ctx, node, scope| {
+        Arc::new(|_engine, ctx, node, scope| {
             let mut target = "firewall_rules".to_string();
             for child in &node.children {
                 if child.name == "as" {
@@ -1311,71 +1311,33 @@ pub fn register(engine: &mut Engine) {
                 }
             }
 
-            let output = std::process::Command::new("iptables")
-                .args(&["-S", "INPUT"])
-                .output();
+            let app_state = ctx.get::<Arc<crate::AppState>>("app_state")
+                .map(|s| s.clone())
+                .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.firewall_status".to_string()) })?;
 
-            let mut list = Vec::new();
-            if let Ok(out) = output {
-                if out.status.success() {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    for line in stdout.lines() {
-                        if line.contains("ZenoPanel:") {
-                            let comment_marker = "ZenoPanel:";
-                            let name = if let Some(idx) = line.find(comment_marker) {
-                                let mut name_part = line[idx + comment_marker.len()..].trim();
-                                if name_part.starts_with('"') && name_part.ends_with('"') && name_part.len() >= 2 {
-                                    name_part = &name_part[1..name_part.len() - 1];
-                                } else if name_part.starts_with('\'') && name_part.ends_with('\'') && name_part.len() >= 2 {
-                                    name_part = &name_part[1..name_part.len() - 1];
-                                } else {
-                                    if name_part.ends_with('"') || name_part.ends_with('\'') {
-                                        name_part = &name_part[..name_part.len() - 1];
-                                    }
-                                    if name_part.starts_with('"') || name_part.starts_with('\'') {
-                                        name_part = &name_part[1..];
-                                    }
-                                }
-                                name_part.trim().to_string()
-                            } else {
-                                "Unknown".to_string()
-                            };
-
-                            let protocol = if line.contains("-p tcp") {
-                                "tcp".to_string()
-                            } else if line.contains("-p udp") {
-                                "udp".to_string()
-                            } else {
-                                "all".to_string()
-                            };
-
-                            let port = if let Some(idx) = line.find("--dport ") {
-                                let port_part = line[idx + 8..].split_whitespace().next().unwrap_or("");
-                                port_part.to_string()
-                            } else {
-                                "all".to_string()
-                            };
-
-                            let action = if line.contains("-j ACCEPT") {
-                                "ACCEPT".to_string()
-                            } else if line.contains("-j DROP") {
-                                "DROP".to_string()
-                            } else if line.contains("-j REJECT") {
-                                "REJECT".to_string()
-                            } else {
-                                "UNKNOWN".to_string()
-                            };
-
-                            let mut rule_map = HashMap::new();
-                            rule_map.insert("name".to_string(), Value::String(name));
-                            rule_map.insert("port".to_string(), Value::String(port));
-                            rule_map.insert("protocol".to_string(), Value::String(protocol));
-                            rule_map.insert("action".to_string(), Value::String(action));
-                            list.push(Value::Map(rule_map));
+            let db_manager = app_state.db_manager.clone();
+            let list = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                        if let Ok(rows) = sqlx::query_as::<_, (String, String, String, String)>(
+                            "SELECT name, port, protocol, action FROM firewall_rules ORDER BY created_at DESC"
+                        )
+                        .fetch_all(&pool)
+                        .await
+                        {
+                            return rows.into_iter().map(|(name, port, protocol, action)| {
+                                let mut m = HashMap::new();
+                                m.insert("name".to_string(), Value::String(name));
+                                m.insert("port".to_string(), Value::String(port));
+                                m.insert("protocol".to_string(), Value::String(protocol));
+                                m.insert("action".to_string(), Value::String(action));
+                                Value::Map(m)
+                            }).collect::<Vec<_>>();
                         }
                     }
-                }
-            }
+                    Vec::new()
+                })
+            });
 
             scope.set(&target, Value::List(list));
             Ok(())
@@ -1965,23 +1927,49 @@ pub fn register(engine: &mut Engine) {
 
 
 pub fn clear_zenopanel_system_rules() {
-    if let Ok(out) = std::process::Command::new("iptables").args(&["-S", "INPUT"]).output() {
+    let is_root = unsafe { libc::getuid() } == 0;
+    
+    // 1. Get current iptables ruleset via iptables-save
+    let save_output = if is_root {
+        std::process::Command::new("iptables-save").output()
+    } else {
+        std::process::Command::new("sudo").args(&["iptables-save"]).output()
+    };
+
+    if let Ok(out) = save_output {
         if out.status.success() {
             let stdout = String::from_utf8_lossy(&out.stdout);
-            let mut rules_to_delete = Vec::new();
+            
+            // 2. Filter out any rules that contain our panel comment markers
+            let mut clean_rules = String::new();
             for line in stdout.lines() {
-                // Clear both ZenoPanelSystem: (auto rules) and ZenoPanel: (user-defined rules)
                 if line.contains("ZenoPanelSystem:") || line.contains("ZenoPanel:") {
-                    if line.starts_with("-A INPUT ") {
-                        rules_to_delete.push(line["-A INPUT ".len()..].to_string());
-                    }
+                    // Skip this line to delete the rule
+                    continue;
                 }
+                clean_rules.push_str(line);
+                clean_rules.push('\n');
             }
-            for rule in rules_to_delete {
-                let args: Vec<&str> = rule.split_whitespace().collect();
-                let mut delete_args = vec!["-D", "INPUT"];
-                delete_args.extend(args);
-                let _ = std::process::Command::new("iptables").args(&delete_args).output();
+
+            // 3. Restore the cleaned ruleset via iptables-restore
+            let mut restore_cmd = if is_root {
+                std::process::Command::new("iptables-restore")
+            } else {
+                let mut cmd = std::process::Command::new("sudo");
+                cmd.arg("iptables-restore");
+                cmd
+            };
+
+            if let Ok(mut child) = restore_cmd
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn() 
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(clean_rules.as_bytes());
+                }
+                let _ = child.wait_with_output();
             }
         }
     }
@@ -2025,8 +2013,15 @@ pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
     // Clear all panel-managed rules (both system and user-defined) for a clean slate
     clear_zenopanel_system_rules();
 
+    let is_root = unsafe { libc::getuid() } == 0;
     let apply_rule = |args: &[&str]| {
-        let _ = std::process::Command::new("iptables").args(args).output();
+        if is_root {
+            let _ = std::process::Command::new("iptables").args(args).output();
+        } else {
+            let mut sudo_args = vec!["iptables"];
+            sudo_args.extend(args);
+            let _ = std::process::Command::new("sudo").args(&sudo_args).output();
+        }
     };
 
     // Re-apply user-defined custom rules from DB
@@ -2056,6 +2051,12 @@ pub fn sync_firewall_rules(pool: &sqlx::SqlitePool) {
         }
         if let Ok(app_tls_port) = std::env::var("APP_TLS_PORT") {
             let p = app_tls_port.trim_start_matches(':').to_string();
+            if !ports.contains(&p) && !p.is_empty() {
+                ports.push(p);
+            }
+        }
+        if let Ok(mgmt_port) = std::env::var("MGMT_PORT") {
+            let p = mgmt_port.trim_start_matches(':').to_string();
             if !ports.contains(&p) && !p.is_empty() {
                 ports.push(p);
             }
