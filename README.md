@@ -147,39 +147,6 @@ ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, pan
 
 ---
 
-## 🗺️ Roadmap
-
-### ✅ Sudah Tersedia
-- Container runtime berbasis `runc` (embedded), pull dari Docker Hub, manajemen penuh dari UI
-- Docker Compose — YAML parser bawaan, service discovery, depends-on, networks
-- Rootless container support
-- TCP port proxy & Network bridge (veth pair + loopback NAT)
-- Integrasi File Manager untuk filesystem container
-- Volume & network management dinamis dari UI
-- Resource limits (RAM & CPU) per kontainer
-- Health checks & auto-restart kontainer
-- Self-update satu-klik tanpa *Text file busy*
-- Database hosting di kontainer terisolasi **Zeno Box** (MySQL 5.7/8, PostgreSQL) dengan Connection Pooling (ProxySQL & PgBouncer)
-- Visual Config Tuner database
-- Database maintenance (ANALYZE / OPTIMIZE / REPAIR / VACUUM) dari UI
-- Auto & manual backup database + volume ke cloud (S3-compatible & Google Drive)
-- **WAF** multi-layer (SQLi, XSS, RCE, Path Traversal, SSRF, Log4Shell, Scanner Bot)
-- **IP Block/Whitelist** — persistent di DB, live update tanpa restart
-- **Brute-force auto-block** — IP diblokir permanen setelah 5x gagal login
-- **Security response headers** bawaan
-- **Firewall rules persistent** — bertahan setelah restart, sinkronisasi otomatis saat startup
-- **DB health check** — reconnect otomatis jika pool MySQL/PostgreSQL terputus
-- Rate Limiter, SSL/TLS otomatis ACME Let's Encrypt & auto-renewal
-- Multi-User RBAC (Admin / Editor / Viewer)
-- Service Injector untuk Alpine Linux OpenRC
-
-### 🚧 Sedang Dikembangkan
-- Container Build dari Dockerfile
-- Dukungan Container Registry privat (login & pull dari registry privat)
-- Remote Database Access (akses ZenoBox dari luar server secara aman)
-
----
-
 ## 📥 Instalasi (Production)
 
 ```bash
