@@ -681,7 +681,7 @@ fn main() {
 
     let pool = &default_pool;
     
-    let mut db_waf_enabled = std::env::var("WAF_ENABLED").map(|v| v == "true").unwrap_or(true);
+    let mut db_waf_enabled = std::env::var("WAF_ENABLED").map(|v| v == "true").unwrap_or(false);
     if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'waf_enabled'")
         .fetch_optional(pool)
         .await

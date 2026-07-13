@@ -16,9 +16,27 @@ pub struct DBManager {
     pub pools: Arc<RwLock<HashMap<String, DbPool>>>,
 }
 
+fn get_container_data_dir() -> String {
+    if let Ok(dir) = std::env::var("ZENO_CONTAINER_DATA_DIR") {
+        return dir;
+    }
+    let default_path = "/var/lib/zeno-container";
+    if std::path::Path::new(default_path).exists() {
+        return default_path.to_string();
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let fallback = format!("{}/.zeno-container", home);
+        if std::path::Path::new(&fallback).exists() {
+            return fallback;
+        }
+    }
+    "./data/zeno-container".to_string()
+}
+
 fn resolve_container_ip_port(name: &str, host: &str, port: u16, default_port: u16) -> (String, u16) {
     if host == "127.0.0.1" || host == "localhost" {
-        let state_path = format!("/var/lib/zeno-container/containers/{}/state.json", name);
+        let data_dir = get_container_data_dir();
+        let state_path = format!("{}/containers/{}/state.json", data_dir, name);
         if let Ok(content) = std::fs::read_to_string(&state_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(ip) = json["env"]["ZENO_IP"].as_str() {
@@ -83,28 +101,63 @@ impl DBManager {
         password: &str,
         database: &str,
     ) -> Result<(), sqlx::Error> {
-        let (resolved_host, resolved_port) = resolve_container_ip_port(name, host, port, 3306);
+        let database_name = if database.is_empty() { "mysql" } else { database };
+        
         use sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
-        let mut options = MySqlConnectOptions::new()
-            .host(&resolved_host)
-            .port(resolved_port)
+        use sqlx::mysql::MySqlPoolOptions;
+        
+        // 1. Try to connect directly to the user-specified host/port first
+        let direct_options = MySqlConnectOptions::new()
+            .host(host)
+            .port(port)
             .username(user)
             .password(password)
+            .database(database_name)
             .ssl_mode(MySqlSslMode::Disabled);
-        if !database.is_empty() {
-            options = options.database(database);
-        } else {
-            options = options.database("mysql");
+            
+        let direct_err = match MySqlPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_secs(2))
+            .connect_with(direct_options)
+            .await
+        {
+            Ok(pool) => {
+                self.pools.write().await.insert(name.to_string(), DbPool::MySql(pool));
+                return Ok(());
+            }
+            Err(e) => {
+                println!("[DB DEBUG] Direct connection to {}:{} failed: {}. Trying container IP resolution...", host, port, e);
+                e
+            }
+        };
+        
+        // 2. If direct connection fails, fall back to container IP resolution
+        let (resolved_host, resolved_port) = resolve_container_ip_port(name, host, port, 3306);
+        if resolved_host != host || resolved_port != port {
+            let container_options = MySqlConnectOptions::new()
+                .host(&resolved_host)
+                .port(resolved_port)
+                .username(user)
+                .password(password)
+                .database(database_name)
+                .ssl_mode(MySqlSslMode::Disabled);
+                
+            match MySqlPoolOptions::new()
+                .acquire_timeout(std::time::Duration::from_secs(3))
+                .connect_with(container_options)
+                .await
+            {
+                Ok(pool) => {
+                    self.pools.write().await.insert(name.to_string(), DbPool::MySql(pool));
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("[DB DEBUG] Container connection to {}:{} failed: {}", resolved_host, resolved_port, e);
+                    return Err(e);
+                }
+            }
         }
         
-        use sqlx::mysql::MySqlPoolOptions;
-        let pool = MySqlPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_secs(3))
-            .connect_with(options)
-            .await?;
-            
-        self.pools.write().await.insert(name.to_string(), DbPool::MySql(pool));
-        Ok(())
+        Err(direct_err)
     }
 
     pub async fn add_postgres_connection(
@@ -116,26 +169,67 @@ impl DBManager {
         password: &str,
         database: &str,
     ) -> Result<(), sqlx::Error> {
-        let (resolved_host, resolved_port) = resolve_container_ip_port(name, host, port, 5432);
+        let database_name = if database.is_empty() { "postgres" } else { database };
+        
         use sqlx::postgres::{PgConnectOptions, PgSslMode};
-        let mut options = PgConnectOptions::new()
-            .host(&resolved_host)
-            .port(resolved_port)
+        use sqlx::postgres::PgPoolOptions;
+        
+        // 1. Try to connect directly to the user-specified host/port first
+        let mut direct_options = PgConnectOptions::new()
+            .host(host)
+            .port(port)
             .username(user)
             .password(password)
             .ssl_mode(PgSslMode::Disable);
         if !database.is_empty() {
-            options = options.database(database);
+            direct_options = direct_options.database(database_name);
         }
         
-        use sqlx::postgres::PgPoolOptions;
-        let pool = PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_secs(3))
-            .connect_with(options)
-            .await?;
+        let direct_err = match PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_secs(2))
+            .connect_with(direct_options)
+            .await
+        {
+            Ok(pool) => {
+                self.pools.write().await.insert(name.to_string(), DbPool::Postgres(pool));
+                return Ok(());
+            }
+            Err(e) => {
+                println!("[DB DEBUG] Direct connection to {}:{} failed: {}. Trying container IP resolution...", host, port, e);
+                e
+            }
+        };
+        
+        // 2. If direct connection fails, fall back to container IP resolution
+        let (resolved_host, resolved_port) = resolve_container_ip_port(name, host, port, 5432);
+        if resolved_host != host || resolved_port != port {
+            let mut container_options = PgConnectOptions::new()
+                .host(&resolved_host)
+                .port(resolved_port)
+                .username(user)
+                .password(password)
+                .ssl_mode(PgSslMode::Disable);
+            if !database.is_empty() {
+                container_options = container_options.database(database_name);
+            }
             
-        self.pools.write().await.insert(name.to_string(), DbPool::Postgres(pool));
-        Ok(())
+            match PgPoolOptions::new()
+                .acquire_timeout(std::time::Duration::from_secs(3))
+                .connect_with(container_options)
+                .await
+            {
+                Ok(pool) => {
+                    self.pools.write().await.insert(name.to_string(), DbPool::Postgres(pool));
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("[DB DEBUG] Container connection to {}:{} failed: {}", resolved_host, resolved_port, e);
+                    return Err(e);
+                }
+            }
+        }
+        
+        Err(direct_err)
     }
 
     pub async fn get_pool(&self, name: &str) -> Option<DbPool> {
