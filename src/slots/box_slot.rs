@@ -633,12 +633,70 @@ fn run_privileged_status(cmd: &str, args: &[&str]) -> io::Result<std::process::E
     }
 }
 
+fn run_privileged_output(cmd: &str, args: &[&str]) -> io::Result<std::process::Output> {
+    let is_root = unsafe { libc::getuid() == 0 };
+    if is_root {
+        Command::new(cmd)
+            .args(args)
+            .output()
+    } else {
+        let mut all_args = vec![cmd];
+        all_args.extend_from_slice(args);
+        Command::new("sudo")
+            .args(&all_args)
+            .output()
+    }
+}
+
 fn run_cmd_status_silent(cmd: &str, args: &[&str]) -> io::Result<std::process::ExitStatus> {
     Command::new(cmd)
         .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
+}
+
+fn resolve_vfs_clashes(src_dir: &std::path::Path, dst_dir: &std::path::Path) -> std::io::Result<()> {
+    if !src_dir.exists() {
+        return Ok(());
+    }
+    
+    fn walk_and_resolve(base_src: &std::path::Path, current_src: &std::path::Path, dst_dir: &std::path::Path) -> std::io::Result<()> {
+        let entries = std::fs::read_dir(current_src)?;
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            let rel_path = path.strip_prefix(base_src)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let target_path = dst_dir.join(rel_path);
+
+            if target_path.symlink_metadata().is_ok() {
+                let src_meta = entry.path().symlink_metadata()?;
+                let dst_meta = target_path.symlink_metadata()?;
+
+                let src_is_dir = src_meta.is_dir();
+                let dst_is_dir = dst_meta.is_dir();
+
+                // If either source or destination is not a directory, the destination
+                // must be deleted to allow the new file/symlink to overwrite it
+                // (only directories should be merged).
+                if !src_is_dir || !dst_is_dir {
+                    if dst_is_dir {
+                        std::fs::remove_dir_all(&target_path)?;
+                    } else {
+                        std::fs::remove_file(&target_path)?;
+                    }
+                }
+            }
+
+            if entry.file_type()?.is_dir() {
+                walk_and_resolve(base_src, &path, dst_dir)?;
+            }
+        }
+        Ok(())
+    }
+
+    walk_and_resolve(src_dir, src_dir, dst_dir)
 }
 
 fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> {
@@ -685,23 +743,50 @@ fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(), String> 
 
     // Use sudo only if not already root, so the mount command succeeds regardless of whether the zeno
     // process itself was started with root privileges.
-    let status = run_privileged_status("mount", &["-t", "overlay", "overlay", "-o", &opts, &dst_rootfs_str])
+    let mount_output = run_privileged_output("mount", &["-t", "overlay", "overlay", "-o", &opts, &dst_rootfs_str])
         .map_err(|e| format!("Failed to run mount command: {}", e))?;
 
-    if !status.success() {
+    if !mount_output.status.success() {
+        let mount_err_msg = String::from_utf8_lossy(&mount_output.stderr).trim().to_string();
+
         // Fallback: Mirror Docker's VFS driver by copying layer files recursively
         // when overlayfs mount is unsupported (e.g. on OpenVZ / Virtuozzo VPS)
         for layer in &layers {
             let src_rootfs = layers_dir.join(layer).join("rootfs");
             if src_rootfs.exists() {
+                if let Err(e) = resolve_vfs_clashes(&src_rootfs, &dst_rootfs) {
+                    return Err(format!("VFS fallback clash resolution failed for layer {}: {}", layer, e));
+                }
+
                 let src_str = format!("{}/.", src_rootfs.to_string_lossy());
                 let dst_str = dst_rootfs.to_string_lossy().to_string();
-                let cp_status = run_privileged_status("cp", &["-a", &src_str, &dst_str])
-                    .map_err(|e| format!("Failed to run cp command for VFS fallback: {}", e))?;
-                if !cp_status.success() {
+                let cp_res = run_privileged_output("cp", &["-a", &src_str, &dst_str]);
+                
+                let (success, cp_err_msg) = match cp_res {
+                    Ok(out) if out.status.success() => (true, String::new()),
+                    Ok(out) => (false, String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                    Err(e) => (false, e.to_string()),
+                };
+
+                let (success, final_err_msg) = if !success {
+                    match Command::new("cp")
+                        .args(&["-a", &src_str, &dst_str])
+                        .output() 
+                    {
+                        Ok(out) if out.status.success() => (true, String::new()),
+                        Ok(out) => (false, String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                        Err(e) => (false, e.to_string()),
+                    }
+                } else {
+                    (success, cp_err_msg)
+                };
+
+                if !success {
                     return Err(format!(
-                        "Overlay mount failed, and VFS copy fallback failed for layer: {}",
-                        layer
+                        "Overlay mount failed ({}), and VFS copy fallback failed for layer {}: {}",
+                        mount_err_msg,
+                        layer,
+                        final_err_msg
                     ));
                 }
             }
