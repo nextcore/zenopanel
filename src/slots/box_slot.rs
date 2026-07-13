@@ -1629,6 +1629,9 @@ fn container_start(id: &str) -> Result<(), String> {
         return Err(format!("Container {} is already running", id));
     }
 
+    // Ensure overlayfs is mounted (mount can be lost after a system restart/reboot)
+    mount_overlayfs(&state.image, &data_dir, id)?;
+
     // Clean up any residual network interfaces and rules from a previous crashed run
     let old_ip = state.env.as_ref().and_then(|e| e.get("ZENO_IP").cloned()).unwrap_or_default();
     let old_ports = state.ports.clone().unwrap_or_default();
