@@ -3,14 +3,11 @@ use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use serde::{Serialize, Deserialize};
-use serde_json::json;
 use zenocore::{Engine, SlotMeta, Value};
 use crate::slots::resolve_node_value;
 
 use super::common::{
-    get_data_dir, container_dir, rootfs_dir,
-    parse_port_rule, save_container_state, load_container_state,
-    ContainerState
+    get_data_dir, container_dir, rootfs_dir, parse_image_ref
 };
 use super::container::{
     container_create, container_start, container_stop, container_delete,
@@ -1325,6 +1322,7 @@ fn register_box_compose_git_sync(engine: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::common::parse_port_rule;
     use super::super::image::{get_docker_auth_for_registry, parse_www_authenticate};
 
     static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());

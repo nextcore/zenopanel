@@ -47,6 +47,40 @@ pub struct ImageRef {
     pub tag: String,
 }
 
+pub fn parse_image_ref(image: &str) -> ImageRef {
+    let (image_no_tag, tag) = if let Some(idx) = image.rfind(':') {
+        let potential_tag = &image[idx + 1..];
+        if potential_tag.contains('/') {
+            (image, "latest")
+        } else {
+            (&image[..idx], potential_tag)
+        }
+    } else {
+        (image, "latest")
+    };
+
+    let parts: Vec<&str> = image_no_tag.splitn(2, '/').collect();
+    let (registry, repository) = if parts.len() == 2 && (parts[0].contains('.') || parts[0].contains(':')) {
+        (parts[0], parts[1].to_string())
+    } else if parts.len() == 1 {
+        ("https://registry-1.docker.io", format!("library/{}", parts[0]))
+    } else {
+        ("https://registry-1.docker.io", image_no_tag.to_string())
+    };
+
+    let final_registry = if registry.starts_with("http://") || registry.starts_with("https://") {
+        registry.to_string()
+    } else {
+        format!("https://{}", registry)
+    };
+
+    ImageRef {
+        registry: final_registry,
+        repository,
+        tag: tag.to_string(),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PortRule {
     pub host_ip: Option<String>,
@@ -98,7 +132,7 @@ pub fn parse_port_rule(p: &str) -> Option<PortRule> {
     }
 }
 
-pub(crate) fn get_runc_bin() -> String {
+pub fn get_runc_bin() -> String {
     if let Ok(val) = std::env::var("ZENO_CONTAINER_RUNC") {
         return val;
     }

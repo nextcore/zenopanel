@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::path::Path;
 use std::fs;
 use std::process::Command;
 use zenocore::{Engine, SlotMeta, Value};
 use crate::slots::resolve_node_value;
 
 use super::common::{
-    get_data_dir, run_cmd_status_silent, run_privileged_status,
+    get_data_dir, run_cmd_status_silent,
     get_networks, save_networks, rootfs_dir, parse_port_rule,
     NetworkConfig
 };

@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
-use std::io::{self, Write};
-use serde_json::json;
+use std::io;
+use std::process::Command;
 use zenocore::{Engine, SlotMeta, Value};
 use crate::slots::resolve_node_value;
 
 use super::common::{
     get_data_dir, container_dir, rootfs_dir, is_overlay_mounted,
-    run_privileged_output, run_privileged_status, ImageRef, parse_image_ref
+    run_privileged_output, ImageRef, parse_image_ref
 };
 
 pub fn register(engine: &mut Engine) {
@@ -19,7 +19,7 @@ pub fn register(engine: &mut Engine) {
     register_box_prune(engine);
 }
 
-fn get_docker_auth_for_registry(registry_url: &str) -> Option<(String, String)> {
+pub(crate) fn get_docker_auth_for_registry(registry_url: &str) -> Option<(String, String)> {
     let home = std::env::var("HOME").ok().map(PathBuf::from)?;
     let paths: [PathBuf; 2] = [
         home.join(".docker/config.json"),
@@ -522,7 +522,7 @@ pub(crate) fn mount_overlayfs(image: &str, data_dir: &str, id: &str) -> Result<(
                     {
                         Ok(out) if out.status.success() => (true, String::new()),
                         Ok(out) => (false, String::from_utf8_lossy(&out.stderr).trim().to_string()),
-                        Err(e) => (false, e.to_string()),
+                        Err(e) => (false, format!("{}", e)),
                     }
                 } else {
                     (success, cp_err_msg)

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::process::Command;
 use serde_json::json;
 use zenocore::{Engine, SlotMeta, Value};
@@ -10,7 +10,7 @@ use crate::slots::resolve_node_value;
 
 use super::common::{
     get_data_dir, container_dir, bundle_dir, rootfs_dir, state_file, log_path,
-    runc_exec, run_privileged_status, run_privileged_output,
+    runc_exec, run_privileged_status,
     save_container_state, load_container_state,
     ContainerState, parse_image_ref
 };
@@ -54,7 +54,7 @@ fn check_oom_killed(id: &str) -> bool {
     false
 }
 
-pub(crate) fn container_list_internal(data_dir: &str, auto_restart: bool) -> Result<Vec<ContainerState>, String> {
+pub fn container_list_internal(data_dir: &str, auto_restart: bool) -> Result<Vec<ContainerState>, String> {
     let containers_dir = Path::new(data_dir).join("containers");
     if !containers_dir.exists() {
         return Ok(Vec::new());
