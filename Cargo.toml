@@ -1,6 +1,6 @@
 [package]
 name = "zeno"
-version = "1.5.14"
+version = "1.5.15"
 edition = "2024"
 
 

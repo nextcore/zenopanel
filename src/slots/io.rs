@@ -739,4 +739,56 @@ pub fn register(engine: &mut Engine) {
             value_type: "".to_string(),
         },
     );
+
+    engine.register(
+        "io.exists",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut path = String::new();
+            let mut target = "exists".to_string();
+
+            if node.value.is_some() {
+                path = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "path" {
+                    path = val.to_string_coerce();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let exists = std::path::Path::new(&path).exists();
+            scope.set(&target, Value::Bool(exists));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "io.is_dir",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut path = String::new();
+            let mut target = "is_dir".to_string();
+
+            if node.value.is_some() {
+                path = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "path" {
+                    path = val.to_string_coerce();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let is_dir = std::path::Path::new(&path).is_dir();
+            scope.set(&target, Value::Bool(is_dir));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }

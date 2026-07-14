@@ -6,10 +6,32 @@ http.get: '/api/files/list' {
         default: '.'
         as: $dir_path
     }
-    system.dir_list: $dir_path { as: $files }
-    http.ok: {
-        data: $files
-        current_path: $dir_path
+    io.exists: $dir_path { as: $exists }
+    if: $exists {
+        then: {
+            io.is_dir: $dir_path { as: $is_directory }
+            if: $is_directory {
+                then: {
+                    system.dir_list: $dir_path { as: $files }
+                    http.ok: {
+                        data: $files
+                        current_path: $dir_path
+                    }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Path bukan sebuah folder"
+                    }
+                }
+            }
+        }
+        else: {
+            http.bad_request: {
+                success: false,
+                message: "Folder tidak ditemukan"
+            }
+        }
     }
 }
 
@@ -17,8 +39,30 @@ http.get: '/api/files/list' {
 http.get: '/api/files/read' {
     auth.guard
     http.query: 'path' { as: $file_path }
-    io.file.read: $file_path { as: $content }
-    http.ok: { content: $content }
+    io.exists: $file_path { as: $exists }
+    if: $exists {
+        then: {
+            io.is_dir: $file_path { as: $is_directory }
+            if: $is_directory {
+                then: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Path adalah sebuah folder, bukan file"
+                    }
+                }
+                else: {
+                    io.file.read: $file_path { as: $content }
+                    http.ok: { content: $content }
+                }
+            }
+        }
+        else: {
+            http.bad_request: {
+                success: false,
+                message: "Berkas tidak ditemukan"
+            }
+        }
+    }
 }
 
 # 8. File Manager - Write File API
@@ -70,11 +114,22 @@ http.post: '/api/files/archive' {
     http.json_body: { as: $body }
     var: $src_path { val: $body.path }
     var: $dest_path { val: $body.dest }
-    io.file.archive: {
-        path: $src_path
-        dest: $dest_path
+    io.exists: $src_path { as: $exists }
+    if: $exists {
+        then: {
+            io.file.archive: {
+                path: $src_path
+                dest: $dest_path
+            }
+            http.ok: { message: "Archive berhasil dibuat" }
+        }
+        else: {
+            http.bad_request: {
+                success: false,
+                message: "Berkas atau folder sumber tidak ditemukan"
+            }
+        }
     }
-    http.ok: { message: "Archive berhasil dibuat" }
 }
 
 # 10c. File Manager - Extract Archive API
@@ -83,11 +138,22 @@ http.post: '/api/files/extract' {
     http.json_body: { as: $body }
     var: $src_path { val: $body.path }
     var: $dest_path { val: $body.dest }
-    io.file.extract: {
-        path: $src_path
-        dest: $dest_path
+    io.exists: $src_path { as: $exists }
+    if: $exists {
+        then: {
+            io.file.extract: {
+                path: $src_path
+                dest: $dest_path
+            }
+            http.ok: { message: "Archive berhasil diekstrak" }
+        }
+        else: {
+            http.bad_request: {
+                success: false,
+                message: "Archive tidak ditemukan"
+            }
+        }
     }
-    http.ok: { message: "Archive berhasil diekstrak" }
 }
 
 # 10d. File Manager - Upload Files API
@@ -131,12 +197,23 @@ http.post: '/api/files/chmod' {
         default: false
         as: $recursive
     }
-    io.file.chmod: {
-        path: $file_path
-        mode: $mode
-        recursive: $recursive
+    io.exists: $file_path { as: $exists }
+    if: $exists {
+        then: {
+            io.file.chmod: {
+                path: $file_path
+                mode: $mode
+                recursive: $recursive
+            }
+            http.ok: { message: "Permissions berhasil diperbarui" }
+        }
+        else: {
+            http.bad_request: {
+                success: false,
+                message: "Berkas atau folder tidak ditemukan"
+            }
+        }
     }
-    http.ok: { message: "Permissions berhasil diperbarui" }
 }
 
 # 10f. File Manager - Download File API
