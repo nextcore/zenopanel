@@ -173,6 +173,7 @@ import {
   closeAddNetworkModal,
   submitAddNetwork,
   deleteNetwork,
+  pruneUnusedImages,
 } from "./containers.js";
 import {
   openPortCheckModal,
@@ -236,6 +237,25 @@ import {
   applyCronCommandPreset,
   onCronTaskTypeChange,
 } from "./cron.js";
+import {
+  initWebsitesTab,
+  openAddWebsiteModal,
+  closeAddWebsiteModal,
+  submitAddWebsite,
+  deleteWebsite,
+  toggleWebsite,
+  toggleWebDbFields,
+  closeDeploySuccessModal,
+  openWebSettingsModal,
+  closeWebSettingsModal,
+  switchSettingsTab,
+  addDomainBinding,
+  deleteDomainBinding,
+  toggleLetsEncryptSSL,
+  openDocrootInFileManager,
+  openWebDocrootPicker,
+  saveWebDocroot,
+} from "./websites.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
 // This ensures any inline blade HTML template access matches module variables dynamically.
@@ -550,6 +570,7 @@ const functionsToBind = {
   closeAddNetworkModal,
   submitAddNetwork,
   deleteNetwork,
+  pruneUnusedImages,
   loadCronJobs,
   renderCronJobs,
   openAddCronModal,
@@ -562,6 +583,23 @@ const functionsToBind = {
   updateCronExplanation,
   applyCronCommandPreset,
   onCronTaskTypeChange,
+  initWebsitesTab,
+  openAddWebsiteModal,
+  closeAddWebsiteModal,
+  submitAddWebsite,
+  deleteWebsite,
+  toggleWebsite,
+  toggleWebDbFields,
+  closeDeploySuccessModal,
+  openWebSettingsModal,
+  closeWebSettingsModal,
+  switchSettingsTab,
+  addDomainBinding,
+  deleteDomainBinding,
+  toggleLetsEncryptSSL,
+  openDocrootInFileManager,
+  openWebDocrootPicker,
+  saveWebDocroot,
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {
@@ -632,6 +670,10 @@ window.addEventListener("DOMContentLoaded", () => {
         `;
     document.head.appendChild(style);
   }
+
+  // Force Developer Mode to show all standard menus
+  localStorage.setItem("zenopanel_ui_mode", "developer");
+  document.body.classList.add("developer-mode");
 
   // Initialize Navigation Listeners
   initNavigation();

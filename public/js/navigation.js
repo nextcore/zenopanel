@@ -24,6 +24,7 @@ import {
 import { loadUsers } from "./users.js";
 import { loadSettings, loadSecuritySettings } from "./settings.js";
 import { loadCronJobs } from "./cron.js";
+import { initWebsitesTab } from "./websites.js";
 
 // Tab Navigation state
 export let currentTab = "dashboard";
@@ -125,6 +126,10 @@ export function runTabInit(tab) {
 
   if (tab === "security") {
     loadSecuritySettings();
+  }
+
+  if (tab === "websites") {
+    initWebsitesTab();
   }
 }
 

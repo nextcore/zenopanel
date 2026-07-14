@@ -28,6 +28,9 @@
                     <button class="btn-action" onclick="openContainerImagesModal()" style="display:flex; align-items:center; gap:6px;">
                         <i class="fa-solid fa-layer-group"></i> Images
                     </button>
+                    <button class="btn-action" onclick="pruneUnusedImages()" style="display:flex; align-items:center; gap:6px; background: rgba(239, 68, 68, 0.05); border-color: rgba(239, 68, 68, 0.15); color: #fca5a5;">
+                        <i class="fa-solid fa-broom"></i> Clean Cache
+                    </button>
                     <button class="btn-primary-action" onclick="openAddContainerModal()">
                         <i class="fa-solid fa-plus"></i> Create Container
                     </button>

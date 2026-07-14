@@ -1637,6 +1637,31 @@ fn sync_hosts_entries(data_dir: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn check_oom_killed(id: &str) -> bool {
+    let candidates = [
+        format!("/sys/fs/cgroup/runc/{}/memory.events", id),
+        format!("/sys/fs/cgroup/{}/memory.events", id),
+        format!("/sys/fs/cgroup/system.slice/runc-{}.scope/memory.events", id),
+        format!("/sys/fs/cgroup/unified/runc/{}/memory.events", id),
+    ];
+    for path in &candidates {
+        if let Ok(content) = fs::read_to_string(path) {
+            for line in content.lines() {
+                if line.starts_with("oom_kill ") {
+                    if let Some(val_str) = line.split_whitespace().nth(1) {
+                        if let Ok(val) = val_str.parse::<i32>() {
+                            if val > 0 {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn container_list_internal(data_dir: &str, auto_restart: bool) -> Result<Vec<ContainerState>, String> {
     let containers_dir = Path::new(data_dir).join("containers");
     if !containers_dir.exists() {
@@ -1650,17 +1675,21 @@ pub(crate) fn container_list_internal(data_dir: &str, auto_restart: bool) -> Res
             if entry.path().is_dir() {
                 let id = entry.file_name().to_string_lossy().to_string();
                 if let Ok(mut state) = load_container_state(&id) {
-                    if state.status != "stopped" {
+                    if state.status != "stopped" && state.status != "oom_killed" {
                         let output = runc_exec(&["state", &id]);
                         if let Ok(out) = output {
-                            if out.status.success() {
+                            if runc_exec(&["state", &id]).is_ok() && out.status.success() {
                                 let out_str = String::from_utf8_lossy(&out.stdout);
                                 if let Ok(runc_st) = serde_json::from_str::<serde_json::Value>(&out_str) {
-                                    let runc_status = runc_st.get("status").and_then(|s| s.as_str()).unwrap_or("stopped");
+                                    let mut runc_status = runc_st.get("status").and_then(|s| s.as_str()).unwrap_or("stopped").to_string();
                                     let runc_pid = runc_st.get("pid").and_then(|p| p.as_i64()).unwrap_or(0) as i32;
 
+                                    if runc_status == "stopped" && check_oom_killed(&id) {
+                                        runc_status = "oom_killed".to_string();
+                                    }
+
                                     if state.status != runc_status || state.pid != runc_pid {
-                                        state.status = runc_status.to_string();
+                                        state.status = runc_status;
                                         state.pid = runc_pid;
                                         if let Err(e) = save_container_state(&state) {
                                             eprintln!("  ⚠ Failed to save container state: {}", e);
@@ -1670,7 +1699,8 @@ pub(crate) fn container_list_internal(data_dir: &str, auto_restart: bool) -> Res
                                 }
                             } else {
                                 if state.status == "running" || state.status == "created" {
-                                    state.status = "stopped".to_string();
+                                    let is_oom = check_oom_killed(&id);
+                                    state.status = if is_oom { "oom_killed".to_string() } else { "stopped".to_string() };
                                     state.pid = 0;
                                     if let Err(e) = save_container_state(&state) {
                                         eprintln!("  ⚠ Failed to save container state: {}", e);
@@ -2170,17 +2200,15 @@ fn prune_unused_layers() -> io::Result<()> {
 
     // 1. Scan image metadata directories to find used layers
     if let Ok(entries) = fs::read_dir(&images_dir) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir() && entry.file_name() != "layers" {
-                    let layers_json_path = path.join("layers.json");
-                    if layers_json_path.exists() {
-                        if let Ok(file) = File::open(&layers_json_path) {
-                            if let Ok(layers) = serde_json::from_reader::<_, Vec<String>>(file) {
-                                for layer in layers {
-                                    used_layers.insert(layer);
-                                }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && entry.file_name() != "layers" {
+                let layers_json_path = path.join("layers.json");
+                if layers_json_path.exists() {
+                    if let Ok(file) = File::open(&layers_json_path) {
+                        if let Ok(layers) = serde_json::from_reader::<_, Vec<String>>(file) {
+                            for layer in layers {
+                                used_layers.insert(layer);
                             }
                         }
                     }
@@ -2189,18 +2217,16 @@ fn prune_unused_layers() -> io::Result<()> {
         }
     }
 
-    // 2. Scan layers directory and delete unused ones
+    // 2. Scan layers directory and delete unused OCI filesystem layers
     let layers_dir = images_dir.join("layers");
     if layers_dir.exists() {
         if let Ok(entries) = fs::read_dir(&layers_dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        let layer_name = entry.file_name().to_string_lossy().to_string();
-                        if !used_layers.contains(&layer_name) {
-                            let _ = fs::remove_dir_all(&path);
-                        }
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let layer_name = entry.file_name().to_string_lossy().to_string();
+                    if !used_layers.contains(&layer_name) {
+                        let _ = fs::remove_dir_all(&path);
                     }
                 }
             }

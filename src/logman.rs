@@ -45,12 +45,25 @@ impl LogManager {
     }
 
     async fn check_and_run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let max_size_mb = self.get_setting("log_max_size_mb").await
+            .parse::<u64>().unwrap_or(10);
+
+        // 1. Always check size-based log file limits on every check loop (every 60s)
+        let (rotated, errors) = self.run_size_based_rotation(max_size_mb);
+        if rotated > 0 {
+            println!("[LogManager] Size-based rotation triggered: rotated {} log file(s)", rotated);
+        }
+        if !errors.is_empty() {
+            eprintln!("[LogManager] Errors during size-based rotation: {}", errors.join("; "));
+        }
+
+        // 2. Perform time-based checks (interval_hours) for database WAF cleanup
         let interval_hours = self.get_setting("log_rotation_interval_hours").await
             .parse::<i64>().unwrap_or(24);
         let last_run_str = self.get_setting("log_last_rotation").await;
 
         let now = chrono::Utc::now();
-        let should_run = if last_run_str.is_empty() {
+        let should_run_db = if last_run_str.is_empty() {
             true
         } else if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&last_run_str) {
             now.signed_duration_since(last.with_timezone(&chrono::Utc)).num_hours() >= interval_hours
@@ -58,25 +71,48 @@ impl LogManager {
             true
         };
 
-        if should_run {
-            println!("[LogManager] Log rotation is due. Starting...");
-            let max_size_mb = self.get_setting("log_max_size_mb").await
-                .parse::<u64>().unwrap_or(10);
+        if should_run_db {
+            println!("[LogManager] Time-based database log cleanup is due. Starting...");
             let waf_retention_days = self.get_setting("waf_log_retention_days").await
                 .parse::<i64>().unwrap_or(30);
 
-            let summary = self.run_rotation(max_size_mb, waf_retention_days).await;
+            let mut waf_deleted = 0i64;
+            let mut db_errors = Vec::new();
+            let table_exists: Option<(String,)> = sqlx::query_as(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='waf_logs'"
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .unwrap_or(None);
+
+            if table_exists.is_some() {
+                let cutoff = (chrono::Utc::now() - chrono::Duration::days(waf_retention_days)).to_rfc3339();
+                match sqlx::query("DELETE FROM waf_logs WHERE timestamp < ?")
+                    .bind(&cutoff)
+                    .execute(&self.pool)
+                    .await
+                {
+                     Ok(res) => waf_deleted = res.rows_affected() as i64,
+                     Err(e) => db_errors.push(format!("waf_logs cleanup: {}", e)),
+                }
+            }
+
+            let summary = format!(
+                "Periodic WAF database cleanup completed. Deleted {} WAF log entries{}",
+                waf_deleted,
+                if db_errors.is_empty() { String::new() } else { format!(". Errors: {}", db_errors.join("; ")) }
+            );
+
             let ts = chrono::Utc::now().to_rfc3339();
             self.save_setting("log_last_rotation", &ts).await;
             self.save_setting("log_last_status", &summary).await;
-            println!("[LogManager] Rotation done: {}", summary);
+            println!("[LogManager] WAF database log cleanup done: {}", summary);
         }
 
         Ok(())
     }
 
-    /// Run rotation synchronously. Returns a human-readable summary.
-    pub async fn run_rotation(&self, max_size_mb: u64, waf_retention_days: i64) -> String {
+    pub fn run_size_based_rotation(&self, max_size_mb: u64) -> (usize, Vec<String>) {
         let base = std::env::var("ZENO_CONTAINER_DATA_DIR")
             .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
         let containers_dir = std::path::PathBuf::from(&base).join("containers");
@@ -84,7 +120,7 @@ impl LogManager {
         let mut rotated_count = 0usize;
         let mut errors: Vec<String> = Vec::new();
 
-        // ── 1. Rotate container console.log files ────────────────────────────
+        // Rotate container console.log files
         if containers_dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&containers_dir) {
                 for entry in entries.flatten() {
@@ -103,7 +139,7 @@ impl LogManager {
             }
         }
 
-        // ── 1b. Rotate main access.log file ────────────────────────────
+        // Rotate main access.log file
         let access_log_path = std::path::PathBuf::from("logs").join("access.log");
         if access_log_path.exists() {
             if let Ok(meta) = std::fs::metadata(&access_log_path) {
@@ -116,6 +152,13 @@ impl LogManager {
                 }
             }
         }
+
+        (rotated_count, errors)
+    }
+
+    /// Run rotation synchronously. Returns a human-readable summary.
+    pub async fn run_rotation(&self, max_size_mb: u64, waf_retention_days: i64) -> String {
+        let (rotated_count, mut errors) = self.run_size_based_rotation(max_size_mb);
 
         // ── 2. Clean up old WAF log entries from SQLite ───────────────────────
         let mut waf_deleted = 0i64;

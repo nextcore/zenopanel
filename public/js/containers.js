@@ -62,6 +62,9 @@ export function renderContainers(containers) {
     } else if (container.status === "created") {
       statusBadge =
         '<span class="status-badge starting" style="background:rgba(245,158,11,0.1); color:#f59e0b; border:1px solid rgba(245,158,11,0.2); padding:3px 8px; border-radius:4px; font-size:0.75rem;">Created</span>';
+    } else if (container.status === "oom_killed") {
+      statusBadge =
+        '<span class="status-badge stopped" style="background:rgba(239,68,68,0.1); color:var(--danger); border:1px solid rgba(239,68,68,0.2); padding:3px 8px; border-radius:4px; font-size:0.75rem; display:inline-flex; align-items:center; gap:6px;"><i class="fa-solid fa-triangle-exclamation"></i> OOM Killed</span>';
     }
 
     const tr = document.createElement("tr");
@@ -687,12 +690,20 @@ export function switchContainerSubTab(tab) {
     tab === "containers" ? "block" : "none";
   document.getElementById("subtab-compose").style.display =
     tab === "compose" ? "block" : "none";
+  document.getElementById("subtab-volumes").style.display =
+    tab === "volumes" ? "block" : "none";
+  document.getElementById("subtab-networks").style.display =
+    tab === "networks" ? "block" : "none";
 
   if (tab === "compose") {
     import("./compose.js").then((m) => {
       m.loadComposeProjects();
       m.loadComposeYaml();
     });
+  } else if (tab === "volumes") {
+    loadVolumes();
+  } else if (tab === "networks") {
+    loadNetworks();
   }
 }
 
@@ -1051,5 +1062,33 @@ export function deleteNetwork(name) {
 export function openContainerTerminal(id) {
   window.pendingContainerTerminalId = id;
   window.switchTab("terminal");
+}
+
+export function pruneUnusedImages() {
+  if (!confirm("Are you sure you want to clean cache?\n\nThis will permanently delete all orphaned OCI layers that are not referenced by any cached images, freeing up disk space.")) {
+    return;
+  }
+
+  showToast("info", "Cleaning up unused images and OCI layers...");
+  
+  fetch("/api/containers/prune", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCSRFToken(),
+    }
+  })
+  .then(res => res.json())
+  .then(res => {
+    if (res.success) {
+      showToast("success", "Cache cleaned successfully! Unused images and layers removed.");
+    } else {
+      showToast("error", res.message || "Failed to clean cache");
+    }
+  })
+  .catch(err => {
+    console.error(err);
+    showToast("error", "Network error occurred during cleanup");
+  });
 }
 

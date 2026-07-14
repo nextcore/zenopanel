@@ -1,0 +1,488 @@
+# Websites Standard Mode API
+
+http.post: '/api/websites/create' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $domain { val: $body.domain }
+    var: $app_type { val: $body.app_type }
+    var: $port { val: $body.port }
+    var: $container_name { val: $body.container_name }
+    var: $volume_name { val: $body.volume_name }
+
+    coalesce: $body.create_db {
+        default: false
+        as: $create_db
+    }
+
+    if: $app_type == 'static' {
+        then: {
+            # 1. Create static directory on host
+            system.exec: 'mkdir -p /var/www/' + $domain
+            system.exec: 'echo "<h1>Welcome to ' + $domain + '</h1><p>Your static website has been successfully deployed via ZenoPanel Static Hosting.</p>" > /var/www/' + $domain + '/index.html'
+
+            # 2. Add Pingora Static Rule
+            proxy.add: $container_name {
+                domain: $domain
+                path: '/'
+                target: '/var/www/' + $domain
+                strip_path: false
+                enabled: true
+                ssl_enabled: false
+                rule_type: 'static'
+                managed_process_id: $container_name
+                as: $proxy_res
+            }
+
+            if: $proxy_res.success {
+                then: {
+                    http.ok: { success: true, message: "Website created successfully using static hosting" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Failed to add proxy rule: " + $proxy_res.stderr }
+                }
+            }
+        }
+        else: {
+            # Setup defaults depending on app_type
+            var: $image { val: '' }
+            var: $internal_port { val: '' }
+            var: $cmd { val: [] }
+
+            if: $app_type == 'php' {
+                then: {
+                    var: $image { val: 'dunglas/frankenphp:latest-alpine' }
+                    var: $internal_port { val: '80' }
+                }
+            }
+            if: $app_type == 'wordpress' {
+                then: {
+                    var: $image { val: 'dunglas/frankenphp:latest-alpine' }
+                    var: $internal_port { val: '80' }
+                }
+            }
+            if: $app_type == 'node' {
+                then: {
+                    var: $image { val: 'node:alpine' }
+                    var: $internal_port { val: '3000' }
+                    var: $cmd { val: ['node', '/app/server.js'] }
+                }
+            }
+            if: $app_type == 'python' {
+                then: {
+                    var: $image { val: 'python:alpine' }
+                    var: $internal_port { val: '8000' }
+                    var: $cmd { val: ['uvicorn', 'main:app', '--host', '0.0.0.0', '--port', '8000'] }
+                }
+            }
+
+            # 1. Pull base image
+            box.pull: $image { as: $pull_res }
+
+            if: $pull_res.success {
+                then: {
+                    # 2. Create the volume
+                    box.volume_create: {
+                        name: $volume_name
+                        as: $vol_res
+                    }
+
+                    # Define port mappings list
+                    var: $ports { val: [] }
+                    list.push: $ports { val: $port + ':' + $internal_port }
+
+                    # Define volume mounts list
+                    var: $volumes { val: [] }
+                    list.push: $volumes { val: $volume_name + ':/app' }
+
+                    # 3. Create Zeno Box container
+                    box.create: {
+                        name: $container_name
+                        image: $image
+                        cmd: $cmd
+                        ports: $ports
+                        volumes: $volumes
+                        as: $create_res
+                    }
+
+                    if: $create_res.success {
+                        then: {
+                            # 4. Generate default welcome files inside the volume
+                            if: $app_type == 'php' {
+                                then: {
+                                    system.exec: 'echo "<?php echo \"<h1>Welcome to ' + $domain + '</h1><p>Your PHP FrankenPHP website has been successfully deployed via Zeno Box.</p>\"; phpinfo(); ?>" > /var/lib/zeno-container/volumes/' + $volume_name + '/index.php'
+                                }
+                            }
+                            if: $app_type == 'wordpress' {
+                                then: {
+                                    system.exec: 'curl -s -o /tmp/wordpress.tar.gz https://wordpress.org/latest.tar.gz && tar -xzf /tmp/wordpress.tar.gz -C /var/lib/zeno-container/volumes/' + $volume_name + ' --strip-components=1 && rm /tmp/wordpress.tar.gz'
+                                    if: $create_db {
+                                        then: {
+                                            var: $db_server_id_local { val: $body.db_server_id }
+                                            cast.to_int: $db_server_id_local { as: $db_server_id_local_int }
+                                            db.select: "SELECT host, port FROM db_servers WHERE id = ?" {
+                                                bind: [$db_server_id_local_int]
+                                                first: true
+                                                as: $srv_local
+                                            }
+                                            if: $srv_local {
+                                                then: {
+                                                    var: $s_host { val: $srv_local.host }
+                                                    var: $s_port { val: $srv_local.port }
+                                                    system.exec: 'cp /var/lib/zeno-container/volumes/' + $volume_name + '/wp-config-sample.php /var/lib/zeno-container/volumes/' + $volume_name + '/wp-config.php'
+                                                    system.exec: 'sed -i "s/database_name_here/' + $db_name + '/" /var/lib/zeno-container/volumes/' + $volume_name + '/wp-config.php'
+                                                    system.exec: 'sed -i "s/username_here/' + $db_user + '/" /var/lib/zeno-container/volumes/' + $volume_name + '/wp-config.php'
+                                                    system.exec: 'sed -i "s/password_here/' + $db_password + '/" /var/lib/zeno-container/volumes/' + $volume_name + '/wp-config.php'
+                                                    system.exec: 'sed -i "s/localhost/' + $s_host + ':' + $s_port + '/" /var/lib/zeno-container/volumes/' + $volume_name + '/wp-config.php'
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                             if: $app_type == 'node' {
+                                 then: {
+                                     system.exec: 'echo "const http = require(\x27http\x27);\nconst server = http.createServer((req, res) => {\n  res.writeHead(200, {\x27Content-Type\x27: \x27text/html\x27});\n  res.end(\x27<h1>Welcome to ' + $domain + '</h1><p>Your Node.js website has been successfully deployed via Zeno Box.</p>\x27);\n});\nserver.listen(3000, () => console.log(\x27Server is running on port 3000\x27));" > /var/lib/zeno-container/volumes/' + $volume_name + '/server.js'
+                                 }
+                             }
+                             if: $app_type == 'python' {
+                                 then: {
+                                     system.exec: 'echo "from fastapi import FastAPI\nfrom fastapi.responses import HTMLResponse\napp = FastAPI()\n@app.get(\x27/\x27, response_class=HTMLResponse)\ndef read_root():\n    return \x27<h1>Welcome to ' + $domain + '</h1><p>Your Python FastAPI website has been successfully deployed via Zeno Box.</p>\x27" > /var/lib/zeno-container/volumes/' + $volume_name + '/main.py'
+                                 }
+                             }
+
+                             # 5. Start Zeno Box container
+                             box.start: $container_name { as: $start_res }
+
+                             if: $start_res.success {
+                                 then: {
+                                     # 6. Add Pingora Reverse Proxy rule
+                                     proxy.add: $container_name {
+                                         domain: $domain
+                                         path: '/'
+                                         target: 'http://127.0.0.1:' + $port
+                                         strip_path: false
+                                         enabled: true
+                                         ssl_enabled: false
+                                         rule_type: 'proxy'
+                                         managed_process_id: $container_name
+                                         as: $proxy_res
+                                     }
+
+                                    # 7. Optional Database creation
+                                    var: $db_res_info { val: { host: '127.0.0.1', port: 3306 } }
+
+                                    if: $create_db {
+                                        then: {
+                                            var: $db_server_id { val: $body.db_server_id }
+                                            var: $db_name { val: $body.db_name }
+                                            var: $db_user { val: $body.db_user }
+                                            var: $db_password { val: $body.db_password }
+
+                                            cast.to_int: $db_server_id { as: $db_server_id_int }
+
+                                            # Fetch DB Server metadata
+                                            db.select: "SELECT name, driver, host, port FROM db_servers WHERE id = ?" {
+                                                bind: [$db_server_id_int]
+                                                first: true
+                                                as: $server
+                                            }
+
+                                            if: $server {
+                                                then: {
+                                                    var: $driver { val: $server.driver }
+                                                    var: $server_name { val: $server.name }
+                                                    var: $server_host { val: $server.host }
+                                                    var: $server_port { val: $server.port }
+
+                                                    var: $db_res_info {
+                                                        val: {
+                                                            host: $server_host,
+                                                            port: $server_port
+                                                        }
+                                                    }
+
+                                                    if: "$driver == 'mysql'" {
+                                                        then: {
+                                                            db.execute: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" { db: $server_name }
+                                                            db.execute: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" { db: $server_name }
+                                                            db.execute: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" { db: $server_name }
+                                                            db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                                                        }
+                                                    }
+
+                                                    if: "$driver == 'postgres'" {
+                                                        then: {
+                                                            db.execute: "CREATE DATABASE \"${db_name}\" ENCODING 'UTF8'" { db: $server_name }
+                                                            db.execute: "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}'" { db: $server_name }
+                                                            db.execute: "GRANT ALL PRIVILEGES ON DATABASE \"${db_name}\" TO \"${db_user}\"" { db: $server_name }
+                                                        }
+                                                    }
+
+                                                    # Register in local ZenoPanel SQLite database
+                                                    db.execute: "INSERT INTO db_databases (server_id, db_name, db_user, db_password, access_type, charset, collation, description) VALUES (?, ?, ?, ?, 'remote', 'utf8mb4', 'utf8mb4_unicode_ci', ?)" {
+                                                        bind: [$db_server_id_int, $db_name, $db_user, $db_password, "Auto-created db for website " + $domain]
+                                                    }
+
+                                                    # Record user in db_users
+                                                    var: $new_db_id { val: $db_last_id }
+                                                    db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, 'remote', 'ALL')" {
+                                                        bind: [$new_db_id, $db_user, $db_password]
+                                                    }
+
+                                                    # Establish connection pool
+                                                    db.connect: {
+                                                        name: $db_name
+                                                        driver: $driver
+                                                        host: $server_host
+                                                        port: $server_port
+                                                        user: $db_user
+                                                        password: $db_password
+                                                        database: $db_name
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    http.ok: { success: true, message: "Website created successfully", db: $db_res_info }
+                                }
+                                else: {
+                                    http.bad_request: { success: false, message: "Failed to start container: " + $start_res.stderr }
+                                }
+                            }
+                        }
+                        else: {
+                            http.bad_request: { success: false, message: "Failed to create container: " + $create_res.stderr }
+                        }
+                    }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Failed to pull image: " + $pull_res.stderr }
+                }
+            }
+        }
+    }
+}
+
+http.post: '/api/websites/delete' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $domain { val: $body.domain }
+    var: $container_name { val: $body.container_name }
+    var: $volume_name { val: $body.volume_name }
+
+    # Query proxy rule by domain to get its ID and rule type
+    db.select: "SELECT id, rule_type FROM proxy_rules WHERE domain = ?" {
+        bind: [$domain]
+        first: true
+        as: $r_info
+    }
+
+    var: $is_static { val: false }
+    if: $r_info {
+        then: {
+            if: $r_info.rule_type == 'static' {
+                then: {
+                    var: $is_static { val: true }
+                }
+            }
+
+            # Delete the proxy rule by its actual UUID ID
+            proxy.delete: $r_info.id { as: $proxy_del_res }
+        }
+    }
+
+    if: $is_static {
+        then: {
+            # Clean up the custom static files directory
+            system.exec: 'rm -rf /var/www/' + $domain
+        }
+        else: {
+            # 1. Stop and Delete Container
+            box.delete: $container_name { as: $box_del_res }
+
+            # 2. Clean up OCI volume
+            box.volume_delete: {
+                name: $volume_name
+                as: $vol_del_res
+            }
+
+            # Ensure physical volume files are removed
+            system.exec: 'rm -rf /var/lib/zeno-container/volumes/' + $volume_name
+        }
+    }
+
+    http.ok: { success: true, message: "Website deleted successfully" }
+}
+
+http.get: '/api/websites/settings' {
+    auth.guard
+    http.query: 'proxy_id' { as: $proxy_id }
+    http.query: 'domain' { as: $domain }
+
+    # Query proxy rule
+    db.select: "SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type, waf_enabled FROM proxy_rules WHERE id = ?" {
+        bind: [$proxy_id]
+        first: true
+        as: $rule
+    }
+
+    if: $rule {
+        then: {
+            # Find DB credentials associated with this site
+            db.select: "SELECT db_servers.host, db_servers.port, db_databases.db_name, db_databases.db_user, db_databases.db_password FROM db_databases JOIN db_servers ON db_databases.server_id = db_servers.id WHERE db_databases.description LIKE ?" {
+                bind: ['%website ' + $domain + '%']
+                first: true
+                as: $db_info
+            }
+
+            http.ok: {
+                success: true,
+                rule: $rule,
+                db: $db_info
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Proxy rule not found" }
+        }
+    }
+}
+
+http.post: '/api/websites/settings/update_domains' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $proxy_id { val: $body.proxy_id }
+    var: $domains { val: $body.domains }
+
+    db.select: "SELECT name, domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled FROM proxy_rules WHERE id = ?" {
+        bind: [$proxy_id]
+        first: true
+        as: $rule
+    }
+
+    if: $rule {
+        then: {
+            # Call proxy.update to update in-memory cache and DB
+            proxy.update: $proxy_id {
+                name: $rule.name
+                domain: $rule.domain
+                alternative_domain: $domains
+                path: $rule.path
+                target: $rule.target
+                strip_path: $rule.strip_path
+                enabled: $rule.enabled
+                ssl_enabled: $rule.ssl_enabled
+                rule_type: $rule.rule_type
+                managed_process_id: $rule.managed_process_id
+                as: $success
+            }
+
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Bound domains updated successfully" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Failed to update domains" }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Proxy rule not found" }
+        }
+    }
+}
+
+http.post: '/api/websites/settings/toggle_ssl' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $proxy_id { val: $body.proxy_id }
+    var: $enabled { val: $body.enabled }
+
+    db.select: "SELECT name, domain, alternative_domain, path, target, strip_path, enabled, managed_process_id, rule_type, waf_enabled FROM proxy_rules WHERE id = ?" {
+        bind: [$proxy_id]
+        first: true
+        as: $rule
+    }
+
+    if: $rule {
+        then: {
+            proxy.update: $proxy_id {
+                name: $rule.name
+                domain: $rule.domain
+                alternative_domain: $rule.alternative_domain
+                path: $rule.path
+                target: $rule.target
+                strip_path: $rule.strip_path
+                enabled: $rule.enabled
+                ssl_enabled: $enabled
+                rule_type: $rule.rule_type
+                managed_process_id: $rule.managed_process_id
+                as: $success
+            }
+
+            if: $success {
+                then: {
+                    # If enabling, set status to pending to trigger fallback and ACME flow
+                    if: $enabled {
+                        then: {
+                            db.execute: "UPDATE proxy_rules SET ssl_status = 'pending' WHERE id = ?" {
+                                bind: [$proxy_id]
+                            }
+                        }
+                    }
+                    http.ok: { success: true, message: "SSL status toggled successfully" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Failed to toggle SSL status" }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Proxy rule not found" }
+        }
+    }
+}
+
+http.post: '/api/websites/settings/update_docroot' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $proxy_id { val: $body.proxy_id }
+    var: $target { val: $body.target }
+
+    db.select: "SELECT name, domain, alternative_domain, path, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled FROM proxy_rules WHERE id = ?" {
+        bind: [$proxy_id]
+        first: true
+        as: $rule
+    }
+
+    if: $rule {
+        then: {
+            proxy.update: $proxy_id {
+                name: $rule.name
+                domain: $rule.domain
+                alternative_domain: $rule.alternative_domain
+                path: $rule.path
+                target: $target
+                strip_path: $rule.strip_path
+                enabled: $rule.enabled
+                ssl_enabled: $rule.ssl_enabled
+                rule_type: $rule.rule_type
+                managed_process_id: $rule.managed_process_id
+                as: $success
+            }
+
+            if: $success {
+                then: {
+                    http.ok: { success: true, message: "Document root updated successfully" }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Failed to update document root" }
+                }
+            }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Proxy rule not found" }
+        }
+    }
+}
+

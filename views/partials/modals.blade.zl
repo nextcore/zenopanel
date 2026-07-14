@@ -634,9 +634,9 @@
                 </div>
             </div>
             <div class="form-group" style="margin-bottom:4px;">
-                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Data Directory</label>
-                <input type="text" id="install-db-data-dir" placeholder="/var/lib/zenopanel/db/mysql-main" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
-                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Data akan di-mount ke path ini pada host.</div>
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Data Volume / Directory</label>
+                <input type="text" id="install-db-data-dir" placeholder="e.g. mysql_main_data" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Gunakan nama Volume kontainer (contoh: mysql_data) atau path folder host (contoh: /var/lib/mysql).</div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; margin-bottom:4px;">
                 <div class="form-group">
@@ -1229,6 +1229,239 @@
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
             <button class="btn-action" onclick="closeCreateBackupScheduleModal()">Cancel</button>
             <button class="btn-primary-action" onclick="submitCreateBackupSchedule()">Save Schedule</button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Website Modal -->
+<div class="modal-overlay" id="add-website-modal">
+    <div class="modal-card" style="max-width:450px;">
+        <div class="modal-header">
+            <div class="modal-title">Add Website</div>
+            <div class="modal-close" onclick="closeAddWebsiteModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="padding:15px 0;">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Domain Name</label>
+                <input type="text" id="web-domain" placeholder="e.g. my-app.com" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Application Type</label>
+                <select id="web-type" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                    <option value="static" selected>Static HTML (Pingora)</option>
+                    <option value="php">PHP (FrankenPHP)</option>
+                    <option value="wordpress">WordPress (FrankenPHP)</option>
+                    <option value="node">Node.js (Express)</option>
+                    <option value="python">Python (FastAPI)</option>
+                </select>
+            </div>
+            
+            <div class="form-group" style="margin-bottom:15px; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="web-create-db" style="width:18px; height:18px; cursor:pointer;" onchange="toggleWebDbFields()">
+                <label for="web-create-db" style="font-weight:500; font-size:0.9rem; cursor:pointer; user-select:none;">Create Database</label>
+            </div>
+            
+            <div id="web-db-fields" style="display:none; border-top:1px dashed var(--card-border); padding-top:15px; margin-top:15px;">
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Database Server</label>
+                    <select id="web-db-server" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.8); color:var(--text-main); outline:none; cursor:pointer;">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+                <div class="form-group flex-2col" style="margin-bottom:15px; display:flex; gap:15px;">
+                    <div style="flex:1;">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">DB Name</label>
+                        <input type="text" id="web-db-name" placeholder="e.g. db_myapp" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">DB Username</label>
+                        <input type="text" id="web-db-user" placeholder="e.g. user_myapp" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">DB Password</label>
+                    <input type="text" id="web-db-password" placeholder="Database Password" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeAddWebsiteModal()">Cancel</button>
+            <button class="btn-primary-action" onclick="submitAddWebsite()">Deploy Website</button>
+        </div>
+    </div>
+</div>
+
+<!-- Deployment Success Modal -->
+<div class="modal-overlay" id="web-deploy-success-modal">
+    <div class="modal-card" style="max-width:450px;">
+        <div class="modal-header">
+            <div class="modal-title" style="color: var(--success);"><i class="fa-solid fa-circle-check"></i> Website Deployed!</div>
+            <div class="modal-close" onclick="closeDeploySuccessModal()">&times;</div>
+        </div>
+        <div class="modal-body" style="padding:15px 0;">
+            <div style="text-align:center; margin-bottom:20px;">
+                <div style="font-size:3rem; color:var(--success); margin-bottom:10px;"><i class="fa-solid fa-globe"></i></div>
+                <h4 style="margin:0; font-size:1.1rem;" id="success-web-domain">example.com</h4>
+                <p style="margin:5px 0 0 0; color:var(--text-muted); font-size:0.9rem;">Your website has been deployed successfully.</p>
+            </div>
+            
+            <div id="success-db-info" style="display:none; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+                <h5 style="margin:0 0 10px 0; font-size:0.95rem; color:#fff;"><i class="fa-solid fa-database" style="color:var(--accent-primary);"></i> Database Details</h5>
+                <div style="display:flex; flex-direction:column; gap:8px; font-size:0.88rem; background:rgba(255,255,255,0.02); padding:12px; border-radius:8px; border:1px solid var(--card-border);">
+                    <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">DB Host:</span><code style="color:#fff;" id="success-db-host">127.0.0.1</code></div>
+                    <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">DB Port:</span><code style="color:#fff;" id="success-db-port">3306</code></div>
+                    <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">DB Name:</span><code style="color:#fff;" id="success-db-name">db_name</code></div>
+                    <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">DB User:</span><code style="color:#fff;" id="success-db-user">db_user</code></div>
+                    <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">DB Password:</span><code style="color:#fff;" id="success-db-pass">db_pass</code></div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-primary-action" onclick="closeDeploySuccessModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Website Settings Modal -->
+<style>
+.settings-tab-btn {
+    transition: all 0.2s ease;
+    border-left: 3px solid transparent !important;
+}
+.settings-tab-btn:hover {
+    background: rgba(255,255,255,0.03) !important;
+    color: #fff !important;
+}
+.settings-tab-btn.active {
+    background: rgba(59, 130, 246, 0.08) !important;
+    color: var(--accent-primary) !important;
+    border-left: 3px solid var(--accent-primary) !important;
+}
+</style>
+<div class="modal-overlay" id="web-settings-modal">
+    <div class="modal-card" style="max-width:750px; width:95%; height:500px; display:flex !important; flex-direction:column !important; padding:0 !important; overflow:hidden; background:rgba(10,15,30,0.95); border:1px solid rgba(255,255,255,0.08);">
+        <div class="modal-header" style="padding:15px 20px; border-bottom:1px solid var(--card-border); flex-shrink:0;">
+            <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                <i class="fa-solid fa-gears" style="color:var(--accent-primary);"></i>
+                <span id="settings-web-title">Website Settings: example.com</span>
+            </div>
+            <div class="modal-close" onclick="closeWebSettingsModal()">&times;</div>
+        </div>
+        
+        <div style="display:flex !important; flex-direction:row !important; flex-grow:1; overflow:hidden; padding:0;">
+            <!-- Settings Sidebar Tabs -->
+            <div style="width:180px; background:rgba(255,255,255,0.01); border-right:1px solid var(--card-border); display:flex; flex-direction:column; padding:15px 0; flex-shrink:0;">
+                <button class="settings-tab-btn active" id="tab-btn-domains" onclick="switchSettingsTab('domains')" style="width:100%; text-align:left; padding:10px 20px; border:none; background:transparent; color:#fff; font-size:0.9rem; cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-earth-americas" style="width:16px;"></i> Domains
+                </button>
+                <button class="settings-tab-btn" id="tab-btn-docroot" onclick="switchSettingsTab('docroot')" style="width:100%; text-align:left; padding:10px 20px; border:none; background:transparent; color:var(--text-muted); font-size:0.9rem; cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-folder-open" style="width:16px;"></i> Doc Root
+                </button>
+                <button class="settings-tab-btn" id="tab-btn-ssl" onclick="switchSettingsTab('ssl')" style="width:100%; text-align:left; padding:10px 20px; border:none; background:transparent; color:var(--text-muted); font-size:0.9rem; cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-shield-halved" style="width:16px;"></i> SSL
+                </button>
+                <button class="settings-tab-btn" id="tab-btn-db" onclick="switchSettingsTab('db')" style="width:100%; text-align:left; padding:10px 20px; border:none; background:transparent; color:var(--text-muted); font-size:0.9rem; cursor:pointer; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-database" style="width:16px;"></i> Database
+                </button>
+            </div>
+            
+            <!-- Settings Content Panels -->
+            <div style="flex-grow:1; padding:20px; overflow-y:auto; position:relative; display:block;">
+                <input type="hidden" id="settings-proxy-id">
+                <input type="hidden" id="settings-proxy-domain">
+                <input type="hidden" id="settings-proxy-alt-domains">
+                <input type="hidden" id="settings-proxy-volume">
+                
+                <!-- 1. Domains Panel -->
+                <div class="settings-panel" id="settings-panel-domains" style="display:block;">
+                    <h4 style="margin:0 0 15px 0; font-size:1rem; color:#fff;">Domain Binding</h4>
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:15px;">Bind alternative domains or subdomains to point to this website. Separate multiple domains with commas.</p>
+                    
+                    <div style="display:flex; gap:10px; margin-bottom:20px;">
+                        <input type="text" id="settings-add-domain-input" placeholder="e.g. www.example.com, test.example.com" style="flex-grow:1; padding:9px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.9rem;">
+                        <button class="btn-primary-action" onclick="addDomainBinding()" style="padding:9px 15px;">Bind Domains</button>
+                    </div>
+                    
+                    <h5 style="margin:0 0 10px 0; font-size:0.9rem; color:#fff;">Currently Bound Domains</h5>
+                    <div id="settings-domains-list" style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto; background:rgba(255,255,255,0.02); padding:10px; border-radius:6px; border:1px solid var(--card-border);">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </div>
+                
+                <!-- 2. Doc Root Panel -->
+                <div class="settings-panel" id="settings-panel-docroot" style="display:none;">
+                    <h4 style="margin:0 0 15px 0; font-size:1rem; color:#fff;">Document Root Directory</h4>
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:15px;" id="settings-docroot-desc">This is the absolute storage directory on the host where your website files are stored.</p>
+                    
+                    <div style="background:rgba(255,255,255,0.02); padding:15px; border-radius:8px; border:1px solid var(--card-border); margin-bottom:20px;">
+                        <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:8px;">Path on Host:</div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input type="text" id="settings-docroot-path-input" style="flex-grow:1; padding:9px 12px; border-radius:6px; border:1px solid var(--card-border); background:rgba(0,0,0,0.2); color:#a78bfa; font-family:var(--font-code); font-size:0.85rem; outline:none;" readonly>
+                            <button class="btn-primary-action" id="settings-docroot-select-btn" onclick="openWebDocrootPicker()" style="padding:9px 15px; display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <i class="fa-solid fa-folder-tree"></i> Select
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button class="btn-primary-action" id="settings-docroot-save-btn" onclick="saveWebDocroot()" style="display:inline-flex; align-items:center; gap:8px;">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Path
+                        </button>
+                        <button class="btn-action" onclick="openDocrootInFileManager()" style="display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); color:#fff; border:1px solid var(--card-border); padding:9px 15px; border-radius:6px; cursor:pointer;">
+                            <i class="fa-solid fa-folder-open"></i> Open in File Manager
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 3. SSL Panel -->
+                <div class="settings-panel" id="settings-panel-ssl" style="display:none;">
+                    <h4 style="margin:0 0 15px 0; font-size:1rem; color:#fff;">Let's Encrypt SSL Protection</h4>
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:15px;">Enable free HTTPS protection via Let's Encrypt automated certification authority.</p>
+                    
+                    <div style="background:rgba(255,255,255,0.02); padding:15px; border-radius:8px; border:1px solid var(--card-border); margin-bottom:20px; display:flex; align-items:center; justify-content:space-between;">
+                        <div>
+                            <div style="font-size:0.9rem; font-weight:600; color:#fff; margin-bottom:4px;">SSL Certificate Status</div>
+                            <div style="font-size:0.85rem;" id="settings-ssl-status-text">SSL is disabled</div>
+                        </div>
+                        <div id="settings-ssl-status-badge">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                    
+                    <div id="settings-ssl-requirements" style="background:rgba(239,68,68,0.03); border:1px solid rgba(239,68,68,0.15); padding:12px; border-radius:6px; color:#fca5a5; font-size:0.82rem; margin-bottom:20px; line-height:1.4;">
+                        <div style="font-weight:600; margin-bottom:4px;"><i class="fa-solid fa-circle-info"></i> Let's Encrypt Requirements:</div>
+                        • Domain must point to this server's public IP address.<br>
+                        • Port 80 and 443 must be open and accessible from the public internet.
+                    </div>
+                    
+                    <button class="btn-primary-action" id="btn-toggle-ssl" onclick="toggleLetsEncryptSSL()" style="display:inline-flex; align-items:center; gap:8px;">
+                        <i class="fa-solid fa-shield-halved"></i> Enable SSL (Let's Encrypt)
+                    </button>
+                </div>
+                
+                <!-- 4. Database Panel -->
+                <div class="settings-panel" id="settings-panel-db" style="display:none;">
+                    <h4 style="margin:0 0 15px 0; font-size:1rem; color:#fff;">Database Connection Information</h4>
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:15px;">View linked database schema details configured for this website.</p>
+                    
+                    <div id="settings-db-not-linked" style="display:none; text-align:center; padding:30px; color:var(--text-muted);">
+                        <i class="fa-solid fa-database" style="font-size:2rem; opacity:0.3; margin-bottom:10px; display:block;"></i>
+                        No database is linked to this website.
+                    </div>
+                    
+                    <div id="settings-db-details" style="display:flex; flex-direction:column; gap:10px; font-size:0.88rem; background:rgba(255,255,255,0.02); padding:15px; border-radius:8px; border:1px solid var(--card-border);">
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.02); padding-bottom:8px;"><span style="color:var(--text-muted);">Database Server:</span><span style="color:#fff;" id="settings-db-host">127.0.0.1</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.02); padding-bottom:8px;"><span style="color:var(--text-muted);">Database Port:</span><span style="color:#fff;" id="settings-db-port">3306</span></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.02); padding-bottom:8px;"><span style="color:var(--text-muted);">DB Name:</span><code style="color:#fff;" id="settings-db-name">db_name</code></div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.02); padding-bottom:8px;"><span style="color:var(--text-muted);">DB User:</span><code style="color:#fff;" id="settings-db-user">db_user</code></div>
+                        <div style="display:flex; justify-content:space-between; padding-bottom:4px;"><span style="color:var(--text-muted);">DB Password:</span><code style="color:#fff;" id="settings-db-pass">db_pass</code></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modal-footer" style="padding:12px 20px; border-top:1px solid var(--card-border); flex-shrink:0; display:flex; justify-content:flex-end;">
+            <button class="btn-primary-action" onclick="closeWebSettingsModal()">Close Settings</button>
         </div>
     </div>
 </div>

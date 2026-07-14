@@ -1,0 +1,13 @@
+services:
+  ${name}:
+    image: ${engine}
+    container_name: ${name}
+    environment:
+      - MYSQL_ROOT_PASSWORD=${root_password}
+    ports:
+      - '${bind_prefix}:${port}:${db_port_internal}'
+    volumes:
+      - ${data_dir}:${data_volume}
+      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d
+    restart: unless-stopped
+${limits_yaml}${volumes_block}

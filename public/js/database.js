@@ -913,11 +913,11 @@ export function onInstallDbEngineChange() {
         poolPortField.value = isPostgres ? '6432' : '6033';
     }
 
-    // Suggest name and data dir based on engine (only if field is empty)
-    const shortName = engine.replace(':', '-').replace(/\./g, '');
+    // Suggest name and data dir/volume based on engine (only if field is empty)
+    const shortName = engine.replace(':', '-').replace(/\./g, '').replace(/-/g, '_');
     if (nameField && !nameField.value) nameField.value = shortName;
     if (dataDirField && !dataDirField.value) {
-        dataDirField.value = `/var/lib/zenopanel/db/${shortName}`;
+        dataDirField.value = `${shortName}_data`;
     }
 }
 

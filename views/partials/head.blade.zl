@@ -1488,5 +1488,10 @@
                 align-items: flex-end !important;
             }
         }
+
+        /* Developer Mode hiding logic */
+        body:not(.developer-mode) .developer-only {
+            display: none !important;
+        }
     </style>
 </head>

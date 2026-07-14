@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use zenocore::{Diagnostic, Engine, Node, Scope, Value};
 
 pub mod auth;
-pub mod box_slot;
+pub mod zeno_box;
 pub mod db;
 pub mod http;
 pub mod io;
@@ -220,7 +220,7 @@ pub(crate) fn send_json_response(
 
 pub fn register_custom_slots(engine: &mut Engine) {
     auth::register(engine);
-    box_slot::register(engine);
+    zeno_box::register(engine);
     db::register(engine);
     http::register(engine);
     io::register(engine);

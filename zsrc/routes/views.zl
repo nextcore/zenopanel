@@ -54,3 +54,8 @@ http.get: '/tab/cron' {
     auth.guard
     view.blade: 'partials/tab_cron'
 }
+
+http.get: '/tab/websites' {
+    auth.guard
+    view.blade: 'partials/tab_websites'
+}

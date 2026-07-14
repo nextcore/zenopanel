@@ -937,7 +937,7 @@ fn main() {
             .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
         
         loop {
-            match crate::slots::box_slot::container_list_internal(&data_dir, true) {
+            match crate::slots::zeno_box::container_list_internal(&data_dir, true) {
                 Ok(containers) => {
                     let payload = serde_json::json!({
                         "success": true,
@@ -2173,7 +2173,7 @@ async fn handle_terminal_socket(
             let data_dir = std::env::var("ZENO_CONTAINER_DATA_DIR")
                 .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
             let root = format!("{}/runc", data_dir);
-            let runc_bin = crate::slots::box_slot::get_runc_bin();
+            let runc_bin = crate::slots::zeno_box::get_runc_bin();
             cmd = CommandBuilder::new(runc_bin);
             cmd.args(&["--root", &root, "exec", "-t", id, "sh"]);
         }

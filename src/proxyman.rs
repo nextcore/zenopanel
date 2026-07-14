@@ -104,7 +104,7 @@ impl ProxyManager {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                 // Query targets from DB (for currently active/enabled rules)
-                let rows = match sqlx::query("SELECT target FROM proxy_rules WHERE enabled = 1")
+                let rows = match sqlx::query("SELECT target FROM proxy_rules WHERE enabled = 1 AND rule_type != 'static'")
                     .fetch_all(&pool_clone)
                     .await 
                 {
