@@ -185,12 +185,38 @@ impl ProxyHttp for ZenoGateway {
         let waf_check_port = waf_check_port.unwrap_or(80);
         let matched_rule = self.state.proxy_manager.match_rule(&waf_check_host, waf_check_port, path).await;
 
-        // Determine effective WAF setting: per-app overrides global
+        // Determine effective WAF setting: per-app overrides global. Exempt ZenoPanel's own admin panel.
         let global_waf = self.state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed);
-        let effective_waf = matched_rule.as_ref().map(|r| r.waf_enabled).unwrap_or(global_waf);
+        let effective_waf = if matched_rule.is_some() {
+            matched_rule.as_ref().map(|r| r.waf_enabled).unwrap_or(global_waf)
+        } else {
+            false // Exempt internal ZenoPanel admin panel
+        };
 
         if effective_waf {
             let mut block_reason: Option<crate::waf::WafMatch> = None;
+
+            // Body Size Limit & DoS Protection (Content-Length check)
+            let max_body_size_mb = if let Some(ref rule) = matched_rule {
+                if rule.max_body_size > 0 {
+                    rule.max_body_size as usize
+                } else {
+                    self.state.waf_max_body_size.load(std::sync::atomic::Ordering::Relaxed)
+                }
+            } else {
+                self.state.waf_max_body_size.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            let content_length = req_header.headers.get("content-length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(0);
+            
+            if max_body_size_mb > 0 && content_length > max_body_size_mb * 1024 * 1024 {
+                block_reason = Some(crate::waf::WafMatch { 
+                    reason: "Request Body Too Large (DoS Protection)", 
+                    severity: "high" 
+                });
+            }
 
             // Scanner bot detection
             let ua = req_header.headers.get("user-agent")
@@ -201,7 +227,7 @@ impl ProxyHttp for ZenoGateway {
             }
 
             if block_reason.is_none() {
-                if let Some(m) = crate::waf::is_malicious(path, true) {
+                if let Some(m) = crate::waf::is_malicious(path, false) { // Disable SSRF checks on path
                     block_reason = Some(m);
                 }
             }
@@ -217,21 +243,38 @@ impl ProxyHttp for ZenoGateway {
             if block_reason.is_none() {
                 for (name, value) in req_header.headers.iter() {
                     let name_str = name.as_str();
-                    if name_str == "user-agent" || name_str == "cookie" || name_str == "referer" {
+                    if name_str == "user-agent" || name_str == "referer" {
                         if let Ok(val_str) = value.to_str() {
-                            let check_ssrf = name_str != "referer"; // Disable SSRF checks on referer headers
-                            if let Some(m) = crate::waf::is_malicious(val_str, check_ssrf) {
+                            if let Some(m) = crate::waf::is_malicious(val_str, false) { // Disable SSRF checks on UA and Referer headers
                                 block_reason = Some(m);
                                 break;
                             }
                         }
+                    } else if name_str == "cookie" {
+                        if let Ok(val_str) = value.to_str() {
+                            for pair in val_str.split(';') {
+                                let pair = pair.trim();
+                                let mut cookie_parts = pair.splitn(2, '=');
+                                if let (Some(k), Some(v)) = (cookie_parts.next(), cookie_parts.next()) {
+                                    let key = k.trim();
+                                    if key == "zeno_token" || key == "_csrf" {
+                                        continue;
+                                    }
+                                    if let Some(m) = crate::waf::is_malicious(v, false) { // Disable SSRF checks on Cookie values
+                                        block_reason = Some(m);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if block_reason.is_some() {
+                        break;
                     }
                 }
             }
 
             if let Some(waf_match) = block_reason {
-                let html = crate::waf::render_blocked_page(waf_match.reason, ctx.client_ip);
-
                 // Log WAF to DB
                 let ip_str = ctx.client_ip.to_string();
                 let log_path = path_str.clone();
@@ -239,12 +282,13 @@ impl ProxyHttp for ZenoGateway {
                 let reason_str = waf_match.reason.to_string();
                 let severity_str = waf_match.severity.to_string();
                 let log_method = method_str.clone();
+                let reason_clone = reason_str.clone();
                 tokio::spawn(async move {
                     if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
                         let _ = sqlx::query("INSERT INTO waf_logs (ip, method, reason, severity, target) VALUES (?, ?, ?, ?, ?)")
                             .bind(ip_str)
                             .bind(log_method)
-                            .bind(reason_str)
+                            .bind(reason_clone)
                             .bind(severity_str)
                             .bind(log_path)
                             .execute(&pool)
@@ -252,13 +296,22 @@ impl ProxyHttp for ZenoGateway {
                     }
                 });
 
-                // Return 403 Forbidden response
-                let mut resp = ResponseHeader::build(StatusCode::FORBIDDEN, Some(1))?;
-                resp.insert_header("Content-Type", "text/html; charset=utf-8")?;
-                session.write_response_header(Box::new(resp), false).await?;
-                session.write_response_body(Some(html.into()), true).await?;
+                let dry_run = self.state.waf_dry_run.load(std::sync::atomic::Ordering::Relaxed);
+                if !dry_run {
+                    let html = crate::waf::render_blocked_page(waf_match.reason, ctx.client_ip);
+                    let status = if reason_str == "Request Body Too Large (DoS Protection)" {
+                        StatusCode::PAYLOAD_TOO_LARGE
+                    } else {
+                        StatusCode::FORBIDDEN
+                    };
+                    
+                    let mut resp = ResponseHeader::build(status, Some(1))?;
+                    resp.insert_header("Content-Type", "text/html; charset=utf-8")?;
+                    session.write_response_header(Box::new(resp), false).await?;
+                    session.write_response_body(Some(html.into()), true).await?;
 
-                return Ok(true);
+                    return Ok(true);
+                }
             }
         }
         } // end IP block/allow else block

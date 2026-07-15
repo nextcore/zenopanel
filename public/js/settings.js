@@ -259,6 +259,14 @@ export async function loadSecuritySettings() {
             if (wafCheckbox) {
                 wafCheckbox.checked = data.settings.waf_enabled;
             }
+            const dryRunCheckbox = document.getElementById('settings-waf-dry-run');
+            if (dryRunCheckbox) {
+                dryRunCheckbox.checked = data.settings.waf_dry_run;
+            }
+            const maxBodySizeInput = document.getElementById('settings-waf-max-body-size');
+            if (maxBodySizeInput) {
+                maxBodySizeInput.value = data.settings.waf_max_body_size;
+            }
             const rlCheckbox = document.getElementById('settings-rl-enabled');
             if (rlCheckbox) {
                 rlCheckbox.checked = data.settings.rate_limit_enabled;
@@ -300,6 +308,8 @@ export async function loadSecuritySettings() {
 
 export async function submitSaveSecurity() {
     const wafEnabled = document.getElementById('settings-waf-enabled').checked;
+    const wafDryRun = document.getElementById('settings-waf-dry-run').checked;
+    const wafMaxBodySize = parseInt(document.getElementById('settings-waf-max-body-size').value.trim(), 10) || 2;
     const rateLimitEnabled = document.getElementById('settings-rl-enabled').checked;
     const rateLimitMax = parseInt(document.getElementById('settings-rl-max').value.trim(), 10) || 1000;
     const rateLimitWindow = parseInt(document.getElementById('settings-rl-window').value.trim(), 10) || 60;
@@ -320,6 +330,8 @@ export async function submitSaveSecurity() {
             },
             body: JSON.stringify({
                 waf_enabled: wafEnabled,
+                waf_dry_run: wafDryRun,
+                waf_max_body_size: wafMaxBodySize,
                 rate_limit_enabled: rateLimitEnabled,
                 rate_limit_max: rateLimitMax,
                 rate_limit_window: rateLimitWindow

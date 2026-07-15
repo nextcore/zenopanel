@@ -679,6 +679,8 @@ pub fn register(engine: &mut Engine) {
 
             let mut map = HashMap::new();
             map.insert("waf_enabled".to_string(), Value::Bool(app_state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed)));
+            map.insert("waf_dry_run".to_string(), Value::Bool(app_state.waf_dry_run.load(std::sync::atomic::Ordering::Relaxed)));
+            map.insert("waf_max_body_size".to_string(), Value::Int(app_state.waf_max_body_size.load(std::sync::atomic::Ordering::Relaxed) as i64));
             map.insert("rate_limit_enabled".to_string(), Value::Bool(app_state.rate_limiter.is_enabled()));
             map.insert("rate_limit_max".to_string(), Value::Int(app_state.rate_limiter.max_requests() as i64));
             map.insert("rate_limit_window".to_string(), Value::Int(app_state.rate_limiter.window_secs() as i64));
@@ -694,6 +696,8 @@ pub fn register(engine: &mut Engine) {
         Arc::new(|engine, ctx, node, scope| {
             let mut target = "success".to_string();
             let mut waf_enabled = true;
+            let mut waf_dry_run = false;
+            let mut waf_max_body_size = 2;
             let mut rate_limit_enabled = true;
             let mut rate_limit_max = 1000;
             let mut rate_limit_window = 60;
@@ -702,6 +706,10 @@ pub fn register(engine: &mut Engine) {
                 let val = engine.resolve_shorthand_value(child, scope);
                 if child.name == "waf_enabled" {
                     waf_enabled = val.to_bool();
+                } else if child.name == "waf_dry_run" {
+                    waf_dry_run = val.to_bool();
+                } else if child.name == "waf_max_body_size" {
+                    waf_max_body_size = val.to_int() as usize;
                 } else if child.name == "rate_limit_enabled" {
                     rate_limit_enabled = val.to_bool();
                 } else if child.name == "rate_limit_max" {
@@ -718,6 +726,8 @@ pub fn register(engine: &mut Engine) {
                 .ok_or_else(|| Diagnostic { r#type: "error".to_string(), message: "AppState not found in Context".to_string(), filename: node.filename.clone(), line: node.line, col: node.col, slot: Some("system.update_security_settings".to_string()) })?;
 
             app_state.waf_enabled.store(waf_enabled, std::sync::atomic::Ordering::Relaxed);
+            app_state.waf_dry_run.store(waf_dry_run, std::sync::atomic::Ordering::Relaxed);
+            app_state.waf_max_body_size.store(waf_max_body_size, std::sync::atomic::Ordering::Relaxed);
             app_state.rate_limiter.update(rate_limit_enabled, rate_limit_max, rate_limit_window);
 
             let db_manager = app_state.db_manager.clone();
@@ -725,6 +735,14 @@ pub fn register(engine: &mut Engine) {
                 if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
                     let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
                         .bind(if waf_enabled { "true" } else { "false" })
+                        .execute(&pool)
+                        .await;
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_dry_run', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(if waf_dry_run { "true" } else { "false" })
+                        .execute(&pool)
+                        .await;
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_max_body_size', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(waf_max_body_size.to_string())
                         .execute(&pool)
                         .await;
                     let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")

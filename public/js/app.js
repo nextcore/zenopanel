@@ -14,6 +14,7 @@ import {
   initNavigation,
   toggleMobileSidebar,
   runTabInit,
+  toggleSecuritySubmenu,
 } from "./navigation.js";
 import {
   sysStatsInterval,
@@ -70,6 +71,10 @@ import {
   updateOctalFromCheckboxes,
   updateCheckboxesFromOctal,
   downloadFile,
+  bulkCopy,
+  bulkCut,
+  pasteClipboard,
+  updatePasteButton,
 } from "./filemanager.js";
 import {
   initDatabaseTab,
@@ -168,6 +173,7 @@ import {
   closeAddVolumeModal,
   submitAddVolume,
   deleteVolume,
+  browseVolumeFiles,
   loadNetworks,
   openAddNetworkModal,
   closeAddNetworkModal,
@@ -384,6 +390,7 @@ const functionsToBind = {
   switchTab,
   refreshCurrentTab,
   toggleMobileSidebar,
+  toggleSecuritySubmenu,
   setRingProgress,
   initPerformanceChart,
   initTrafficChart,
@@ -426,6 +433,10 @@ const functionsToBind = {
   submitChangePermissions,
   updateOctalFromCheckboxes,
   updateCheckboxesFromOctal,
+  bulkCopy,
+  bulkCut,
+  pasteClipboard,
+  updatePasteButton,
   initDatabaseTab,
   runSqlQuery,
   renderDbSelectResult,
@@ -565,6 +576,7 @@ const functionsToBind = {
   closeAddVolumeModal,
   submitAddVolume,
   deleteVolume,
+  browseVolumeFiles,
   loadNetworks,
   openAddNetworkModal,
   closeAddNetworkModal,
@@ -630,10 +642,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const usersTab = document.querySelector('.nav-item[data-tab="users"]');
     if (usersTab) usersTab.style.display = "none";
 
-    const securityTab = document.querySelector(
-      '.nav-item[data-tab="security"]',
-    );
+    const securityTab = document.getElementById("nav-security");
     if (securityTab) securityTab.style.display = "none";
+
+    const securitySubmenu = document.getElementById("security-submenu");
+    if (securitySubmenu) securitySubmenu.style.display = "none";
   }
 
   if (userRole === "viewer") {

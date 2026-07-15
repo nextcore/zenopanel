@@ -45,6 +45,16 @@ http.get: '/tab/security' {
     view.blade: 'partials/tab_security'
 }
 
+http.get: '/tab/firewall' {
+    auth.guard
+    view.blade: 'partials/tab_firewall'
+}
+
+http.get: '/tab/waf' {
+    auth.guard
+    view.blade: 'partials/tab_security'
+}
+
 http.get: '/tab/settings' {
     auth.guard
     view.blade: 'partials/tab_settings'

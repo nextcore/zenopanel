@@ -46,9 +46,20 @@
             <i class="fa-solid fa-users-gear"></i>
             <span>Users</span>
         </div>
-        <div class="nav-item" data-tab="security" id="nav-security" style="display: none;" hx-get="/tab/security" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-parent" id="nav-security" style="display: none;" onclick="toggleSecuritySubmenu(event)">
             <i class="fa-solid fa-shield-halved"></i>
             <span>Security</span>
+            <i class="fa-solid fa-chevron-down submenu-arrow" id="security-arrow" style="margin-left: auto; font-size: 0.8rem; transition: transform 0.2s;"></i>
+        </div>
+        <div class="submenu" id="security-submenu" style="display: none; padding-left: 16px; flex-direction: column; gap: 4px;">
+            <div class="nav-item submenu-item" data-tab="firewall" hx-get="/tab/firewall" hx-target="#viewport-container" hx-trigger="click" style="font-size: 0.88rem; padding: 10px 14px;">
+                <i class="fa-solid fa-border-all" style="font-size: 0.95rem;"></i>
+                <span>Firewall</span>
+            </div>
+            <div class="nav-item submenu-item" data-tab="waf" hx-get="/tab/waf" hx-target="#viewport-container" hx-trigger="click" style="font-size: 0.88rem; padding: 10px 14px;">
+                <i class="fa-solid fa-user-shield" style="font-size: 0.95rem;"></i>
+                <span>WAF</span>
+            </div>
         </div>
         <div class="nav-item" data-tab="settings" id="nav-settings" style="display: none;" hx-get="/tab/settings" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-sliders"></i>

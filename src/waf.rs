@@ -85,11 +85,89 @@ impl RateLimiter {
     }
 }
 
-// ── IpBlockList ──────────────────────────────────────────────────────────────
+// ── IpRule & IpBlockList ──────────────────────────────────────────────────────
 
-/// Live-updateable IP block/whitelist. "block" = denied, "allow" = whitelisted (bypasses WAF).
+#[derive(Clone, Debug)]
+pub enum IpRule {
+    Single(IpAddr),
+    CidrV4 {
+        network: std::net::Ipv4Addr,
+        mask: u32,
+    },
+    CidrV6 {
+        network: std::net::Ipv6Addr,
+        mask: u128,
+    }
+}
+
+impl IpRule {
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if s.contains('/') {
+            let parts: Vec<&str> = s.split('/').collect();
+            if parts.len() == 2 {
+                let ip_str = parts[0].trim();
+                let mask_str = parts[1].trim();
+                if let Ok(mask) = mask_str.parse::<u8>() {
+                    if let Ok(ip) = ip_str.parse::<IpAddr>() {
+                        match ip {
+                            IpAddr::V4(ipv4) => {
+                                if mask <= 32 {
+                                    let mask_val = if mask == 0 {
+                                        0
+                                    } else {
+                                        u32::MAX.checked_shl(32 - mask as u32).unwrap_or(0)
+                                    };
+                                    return Some(IpRule::CidrV4 {
+                                        network: ipv4,
+                                        mask: mask_val,
+                                    });
+                                }
+                            }
+                            IpAddr::V6(ipv6) => {
+                                if mask <= 128 {
+                                    let mask_val = if mask == 0 {
+                                        0
+                                    } else {
+                                        u128::MAX.checked_shl(128 - mask as u32).unwrap_or(0)
+                                    };
+                                    return Some(IpRule::CidrV6 {
+                                        network: ipv6,
+                                        mask: mask_val,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        } else {
+            s.parse::<IpAddr>().map(IpRule::Single).ok()
+        }
+    }
+
+    pub fn matches(&self, check_ip: &IpAddr) -> bool {
+        match (self, check_ip) {
+            (IpRule::Single(ip), other) => ip == other,
+            (IpRule::CidrV4 { network, mask }, IpAddr::V4(other)) => {
+                let net_u32 = u32::from(*network);
+                let other_u32 = u32::from(*other);
+                (net_u32 & mask) == (other_u32 & mask)
+            }
+            (IpRule::CidrV6 { network, mask }, IpAddr::V6(other)) => {
+                let net_u128 = u128::from(*network);
+                let other_u128 = u128::from(*other);
+                (net_u128 & mask) == (other_u128 & mask)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Live-updateable IP block/whitelist supporting CIDR. "block" = denied, "allow" = whitelisted (bypasses WAF).
 pub struct IpBlockList {
-    entries: Mutex<HashMap<IpAddr, String>>, // ip -> "block" | "allow"
+    entries: Mutex<HashMap<String, (IpRule, String)>>, // rule_str -> (IpRule, "block" | "allow")
 }
 
 impl IpBlockList {
@@ -99,29 +177,46 @@ impl IpBlockList {
         }
     }
 
-    /// Add or update an IP entry. `rule_type` is "block" or "allow".
+    /// Add or update an IP/CIDR entry. `rule_type` is "block" or "allow".
     pub fn add(&self, ip_str: &str, rule_type: &str) {
-        if let Ok(ip) = ip_str.trim().parse::<IpAddr>() {
+        let ip_str_trimmed = ip_str.trim();
+        if let Some(rule) = IpRule::parse(ip_str_trimmed) {
             let mut map = self.entries.lock().unwrap();
-            map.insert(ip, rule_type.to_string());
+            map.insert(ip_str_trimmed.to_string(), (rule, rule_type.to_string()));
         }
     }
 
     pub fn remove(&self, ip_str: &str) {
-        if let Ok(ip) = ip_str.trim().parse::<IpAddr>() {
-            self.entries.lock().unwrap().remove(&ip);
-        }
+        let ip_str_trimmed = ip_str.trim();
+        let mut map = self.entries.lock().unwrap();
+        map.remove(ip_str_trimmed);
     }
 
     /// Returns Some("block") if IP is blocked, Some("allow") if whitelisted, None if not in list.
     pub fn check(&self, ip: &IpAddr) -> Option<String> {
-        self.entries.lock().unwrap().get(ip).cloned()
+        let map = self.entries.lock().unwrap();
+        
+        // Priority 1: Check for explicit "allow" (whitelist) rules first
+        for (_, (rule, rule_type)) in map.iter() {
+            if rule_type == "allow" && rule.matches(ip) {
+                return Some("allow".to_string());
+            }
+        }
+        
+        // Priority 2: Check for "block" (blacklist) rules
+        for (_, (rule, rule_type)) in map.iter() {
+            if rule_type == "block" && rule.matches(ip) {
+                return Some("block".to_string());
+            }
+        }
+        
+        None
     }
 
     pub fn list(&self) -> Vec<(String, String)> {
-        self.entries.lock().unwrap()
-            .iter()
-            .map(|(ip, t)| (ip.to_string(), t.clone()))
+        let map = self.entries.lock().unwrap();
+        map.iter()
+            .map(|(ip_str, (_, t))| (ip_str.clone(), t.clone()))
             .collect()
     }
 }
@@ -999,7 +1094,7 @@ pub(crate) async fn waf_middleware(
             let uri = parts.uri.clone();
 
             // 2b. Path
-            if let Some(m) = is_malicious(uri.path(), true) {
+            if let Some(m) = is_malicious(uri.path(), false) { // Disable SSRF checks on path
                 block_reason = Some(m.reason);
                 block_severity = m.severity;
             }
@@ -1020,8 +1115,7 @@ pub(crate) async fn waf_middleware(
                     let name_str = name.as_str();
                     if name_str == "user-agent" || name_str == "referer" {
                         if let Ok(val_str) = value.to_str() {
-                            let check_ssrf = name_str != "referer"; // Disable SSRF checks on referer headers
-                            if let Some(m) = is_malicious(val_str, check_ssrf) {
+                            if let Some(m) = is_malicious(val_str, false) { // Disable SSRF checks on UA and Referer headers
                                 block_reason = Some(m.reason);
                                 block_severity = m.severity;
                                 break;
@@ -1037,7 +1131,7 @@ pub(crate) async fn waf_middleware(
                                     if key == "zeno_token" || key == "_csrf" {
                                         continue;
                                     }
-                                    if let Some(m) = is_malicious(v, true) {
+                                    if let Some(m) = is_malicious(v, false) { // Disable SSRF checks on Cookie values
                                         block_reason = Some(m.reason);
                                         block_severity = m.severity;
                                         break;
@@ -1059,7 +1153,10 @@ pub(crate) async fn waf_middleware(
 
             if !is_admin_or_login && block_reason.is_none() && (method == "POST" || method == "PUT" || method == "PATCH") {
                 if let Some(b) = body_opt.take() {
-                    match axum::body::to_bytes(b, 2 * 1024 * 1024).await {
+                    let limit_mb = state.waf_max_body_size.load(std::sync::atomic::Ordering::Relaxed);
+                    let limit_bytes = if limit_mb > 0 { limit_mb * 1024 * 1024 } else { 2 * 1024 * 1024 };
+
+                    match axum::body::to_bytes(b, limit_bytes).await {
                         Ok(bytes) => {
                             let body_str = String::from_utf8_lossy(&bytes);
                             if let Some(m) = is_malicious(&body_str, true) {
@@ -1080,19 +1177,27 @@ pub(crate) async fn waf_middleware(
     }
 
     if let Some(reason) = block_reason {
+        let dry_run = state.waf_dry_run.load(std::sync::atomic::Ordering::Relaxed);
+        let status = if reason == "Request Body Read Error / Payload Too Large" {
+            StatusCode::PAYLOAD_TOO_LARGE
+        } else {
+            StatusCode::FORBIDDEN
+        };
         let html = render_blocked_page(reason, ip);
-        let status = StatusCode::FORBIDDEN;
         log_waf_to_db(&state.db_manager, &ip_str, &method, reason, block_severity, &path);
         let latency = start.elapsed().as_millis() as u64;
         let bytes_sent = html.len() as u64;
         state.traffic_stats.record(req_size, bytes_sent, latency);
         let ua_clone = user_agent.clone(); let ip_clone = ip_str.clone(); let method_clone = method.clone(); let path_clone = path.clone();
         tokio::spawn(async move { write_access_log(&ip_clone, &method_clone, &path_clone, status.as_u16(), latency, bytes_sent, &ua_clone); });
-        return Response::builder()
-            .status(status)
-            .header("Content-Type", "text/html; charset=utf-8")
-            .body(Body::from(html))
-            .unwrap();
+        
+        if !dry_run {
+            return Response::builder()
+                .status(status)
+                .header("Content-Type", "text/html; charset=utf-8")
+                .body(Body::from(html))
+                .unwrap();
+        }
     }
 
     // Reconstruct request and pass through

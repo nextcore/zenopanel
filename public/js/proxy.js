@@ -341,6 +341,8 @@ export function openAddProxyModal() {
     if (sslCheck) sslCheck.checked = false;
     const wafCheck = document.getElementById('proxy-waf-enabled');
     if (wafCheck) wafCheck.checked = true;
+    const maxBodySizeInput = document.getElementById('proxy-max-body-size');
+    if (maxBodySizeInput) maxBodySizeInput.value = '';
     
     populateManagedProcessesDropdown('');
 
@@ -386,6 +388,8 @@ export function openEditProxyModal(id) {
     if (sslCheck) sslCheck.checked = rule.ssl_enabled;
     const wafCheck = document.getElementById('proxy-waf-enabled');
     if (wafCheck) wafCheck.checked = rule.waf_enabled !== false;
+    const maxBodySizeInput = document.getElementById('proxy-max-body-size');
+    if (maxBodySizeInput) maxBodySizeInput.value = rule.max_body_size || 0;
 
     populateManagedProcessesDropdown(rule.managed_process_id || '');
 
@@ -431,6 +435,8 @@ export function submitAddProxy() {
     const rule_type = typeSelect ? typeSelect.value : 'proxy';
     const wafCheck = document.getElementById('proxy-waf-enabled');
     const waf_enabled = wafCheck ? wafCheck.checked : true;
+    const maxBodySizeInput = document.getElementById('proxy-max-body-size');
+    const max_body_size = maxBodySizeInput ? (parseInt(maxBodySizeInput.value.trim(), 10) || 0) : 0;
 
     if (!name || !path || !target) {
         showToast('warning', 'Name, Path, and Target Destination are required');
@@ -438,7 +444,7 @@ export function submitAddProxy() {
     }
 
     const url = id ? '/api/proxy/update' : '/api/proxy/add';
-    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled };
+    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled, max_body_size };
     if (id) {
         body.id = id;
     }

@@ -101,6 +101,8 @@ pub(crate) struct AppState {
     pub(crate) login_limiter: Arc<LoginLimiter>,
     pub(crate) rate_limiter: Arc<crate::waf::RateLimiter>,
     pub(crate) waf_enabled: std::sync::atomic::AtomicBool,
+    pub(crate) waf_dry_run: std::sync::atomic::AtomicBool,
+    pub(crate) waf_max_body_size: std::sync::atomic::AtomicUsize,
     pub(crate) ip_block_list: Arc<crate::waf::IpBlockList>,
     pub(crate) traffic_stats: Arc<crate::waf::TrafficStatsManager>,
     pub(crate) backup_manager: Arc<crate::backupman::BackupManager>,
@@ -694,6 +696,32 @@ fn main() {
             .await;
     }
 
+    let mut db_waf_dry_run = false;
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'waf_dry_run'")
+        .fetch_optional(pool)
+        .await
+    {
+        db_waf_dry_run = db_val == "true";
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_dry_run', 'false')")
+            .execute(pool)
+            .await;
+    }
+
+    let mut db_waf_max_body_size = 2; // Default 2MB
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'waf_max_body_size'")
+        .fetch_optional(pool)
+        .await
+    {
+        if let Ok(val) = db_val.parse::<usize>() {
+            db_waf_max_body_size = val;
+        }
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_max_body_size', '2')")
+            .execute(pool)
+            .await;
+    }
+
     let mut db_rate_limit_enabled = std::env::var("RATE_LIMIT_ENABLED").map(|v| v == "true").unwrap_or(true);
     if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'rate_limit_enabled'")
         .fetch_optional(pool)
@@ -1027,6 +1055,8 @@ fn main() {
         login_limiter,
         rate_limiter,
         waf_enabled: std::sync::atomic::AtomicBool::new(db_waf_enabled),
+        waf_dry_run: std::sync::atomic::AtomicBool::new(db_waf_dry_run),
+        waf_max_body_size: std::sync::atomic::AtomicUsize::new(db_waf_max_body_size),
         ip_block_list,
         traffic_stats,
         backup_manager: backup_mgr,

@@ -879,9 +879,14 @@ export function loadVolumes() {
             <td style="font-family:var(--font-code); font-size:0.85rem;">${escapeHtml(vol.Driver)}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--text-muted);">${escapeHtml(vol.Mountpoint)}</td>
             <td style="text-align:right;">
-              <button class="btn-action" onclick="deleteVolume('${escapeHtml(vol.Name)}')" style="color:#ef4444; padding:4px 8px; font-size:0.8rem;">
-                <i class="fa-solid fa-trash-can"></i> Delete
-              </button>
+              <div style="display:inline-flex; gap:8px;">
+                <button class="btn-action" onclick="browseVolumeFiles('${escapeHtml(vol.Mountpoint)}', '${escapeHtml(vol.Name)}')" style="color:var(--accent-primary); border-color:rgba(59,130,246,0.2); background:rgba(59,130,246,0.05); padding:4px 8px; font-size:0.8rem;">
+                  <i class="fa-solid fa-folder-open"></i> Browse Files
+                </button>
+                <button class="btn-action" onclick="deleteVolume('${escapeHtml(vol.Name)}')" style="color:#ef4444; padding:4px 8px; font-size:0.8rem;">
+                  <i class="fa-solid fa-trash-can"></i> Delete
+                </button>
+              </div>
             </td>
           `;
           tbody.appendChild(tr);
@@ -893,6 +898,13 @@ export function loadVolumes() {
     .catch(() => {
       tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px; color:#ef4444;">Failed to load volumes.</td></tr>';
     });
+}
+
+export function browseVolumeFiles(path, name) {
+  window.currentFilePath = path;
+  window.loadFilesList(path);
+  window.switchTab("files");
+  showToast("success", `Browsing volume: ${name}`);
 }
 
 export function openAddVolumeModal() {

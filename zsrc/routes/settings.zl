@@ -155,6 +155,8 @@ http.post: '/api/settings/security' {
             http.json_body: { as: $body }
             system.update_security_settings: {
                 waf_enabled: $body.waf_enabled
+                waf_dry_run: $body.waf_dry_run
+                waf_max_body_size: $body.waf_max_body_size
                 rate_limit_enabled: $body.rate_limit_enabled
                 rate_limit_max: $body.rate_limit_max
                 rate_limit_window: $body.rate_limit_window

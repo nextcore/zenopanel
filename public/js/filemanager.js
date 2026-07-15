@@ -125,7 +125,7 @@ export function updateBulkBar() {
     if (bar && count) {
         if (checked.length > 0) {
             bar.style.display = 'flex';
-            count.textContent = checked.length + ' dipilih';
+            count.textContent = checked.length + ' selected';
         } else {
             bar.style.display = 'none';
         }
@@ -159,7 +159,7 @@ export function getSelectedPaths() {
 export function bulkDelete() {
     const paths = getSelectedPaths();
     if (paths.length === 0) return;
-    if (!confirm(`Hapus ${paths.length} item yang dipilih? Tindakan ini tidak dapat dibatalkan.`)) return;
+    if (!confirm(`Delete the ${paths.length} selected item(s)? This action cannot be undone.`)) return;
     Promise.all(paths.map(path =>
         fetch('/api/files/delete', {
             method: 'POST',
@@ -169,19 +169,19 @@ export function bulkDelete() {
     )).then(results => {
         const failed = results.filter(r => !r.success).length;
         if (failed > 0) {
-            showToast('error', `${failed} item gagal dihapus`);
+            showToast('error', `Failed to delete ${failed} item(s)`);
         } else {
-            showToast('success', `${paths.length} item berhasil dihapus`);
+            showToast('success', `${paths.length} item(s) deleted successfully`);
         }
         loadFilesList(currentFilePath);
-    }).catch(err => showToast('error', 'Gagal menghapus: ' + err.toString()));
+    }).catch(err => showToast('error', 'Failed to delete: ' + err.toString()));
 }
 
 export function bulkArchive() {
     const paths = getSelectedPaths();
     if (paths.length === 0) return;
     let defaultName = paths.length === 1 ? (paths[0].split('/').pop().includes('.') ? paths[0].split('/').pop().split('.').slice(0, -1).join('.') : paths[0].split('/').pop()) + '.zip' : 'archive.zip';
-    let zipName = prompt('Masukkan nama file untuk item yang dipilih (mendukung .zip, .tar.gz):', defaultName);
+    let zipName = prompt('Enter archive name for selected items (supports .zip, .tar.gz):', defaultName);
     if (!zipName) return;
     const dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
     const promises = paths.length === 1
@@ -201,15 +201,16 @@ export function bulkArchive() {
             }).then(r => r.json());
         });
     Promise.all(promises).then(results => {
-        showToast('success', `${results.length} archive berhasil dibuat`);
+        showToast('success', `${results.length} archive(s) created successfully`);
         loadFilesList(currentFilePath);
-    }).catch(err => showToast('error', 'Gagal mengarsipkan: ' + err.toString()));
+    }).catch(err => showToast('error', 'Failed to archive: ' + err.toString()));
 }
 
 export function loadFilesList(path) {
     currentFilePath = path;
     
     clearSelection();
+    updatePasteButton();
 
     // Update path input
     const pathInput = document.getElementById('fm-path-input');
@@ -262,7 +263,7 @@ export function loadFilesList(path) {
                 renderFileRows(fmCurrentData);  // render with current sort
             }
         })
-        .catch(err => showToast('error', 'Gagal memuat file: ' + err.toString()));
+        .catch(err => showToast('error', 'Failed to load files: ' + err.toString()));
 }
 
 export function goUpDirectory() {
@@ -291,7 +292,7 @@ export function goUpDirectory() {
 }
 
 export function createFilePrompt() {
-    const name = prompt('Masukkan nama file baru:');
+    const name = prompt('Enter new file name:');
     if (name) {
         const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
         fetch('/api/files/create-file', {
@@ -311,12 +312,12 @@ export function createFilePrompt() {
                 showToast('error', res.message);
             }
         })
-        .catch(err => showToast('error', 'Gagal membuat file: ' + err.toString()));
+        .catch(err => showToast('error', 'Failed to create file: ' + err.toString()));
     }
 }
 
 export function createFolderPrompt() {
-    const name = prompt('Masukkan nama folder baru:');
+    const name = prompt('Enter new folder name:');
     if (name) {
         const fullPath = currentFilePath === '.' ? name : currentFilePath + '/' + name;
         fetch('/api/files/create-dir', {
@@ -336,12 +337,12 @@ export function createFolderPrompt() {
                 showToast('error', res.message);
             }
         })
-        .catch(err => showToast('error', 'Gagal membuat folder: ' + err.toString()));
+        .catch(err => showToast('error', 'Failed to create folder: ' + err.toString()));
     }
 }
 
 export function deleteFile(path) {
-    if (confirm(`Apakah Anda yakin ingin menghapus '${path}'?`)) {
+    if (confirm(`Are you sure you want to delete '${path}'?`)) {
         fetch('/api/files/delete', {
             method: 'POST',
             headers: {
@@ -378,7 +379,7 @@ export function downloadFile(path) {
 export function archiveFile(path) {
     let baseName = path.split('/').pop();
     let defaultZipName = (baseName.includes('.') ? baseName.split('.').slice(0, -1).join('.') : baseName) + '.zip';
-    let zipName = prompt("Masukkan nama file tujuan kompresi (mendukung .zip, .tar.gz):", defaultZipName);
+    let zipName = prompt("Enter target archive name (supports .zip, .tar.gz):", defaultZipName);
     if (zipName) {
         let dest = currentFilePath === '.' ? zipName : currentFilePath + '/' + zipName;
         
@@ -393,20 +394,20 @@ export function archiveFile(path) {
         .then(res => res.json())
         .then(res => {
             if (res.success) {
-                showToast('success', res.message || 'Archive berhasil dibuat');
+                showToast('success', res.message || 'Archive created successfully');
                 loadFilesList(currentFilePath);
             } else {
-                showToast('error', res.message || 'Gagal membuat archive');
+                showToast('error', res.message || 'Failed to create archive');
             }
         })
-        .catch(err => showToast('error', 'Gagal memanggil API: ' + err.toString()));
+        .catch(err => showToast('error', 'Failed to call API: ' + err.toString()));
     }
 }
 
 // Extract ZIP
 export function extractFile(path) {
     let defaultDest = currentFilePath;
-    let dest = prompt("Masukkan folder tujuan ekstraksi:", defaultDest);
+    let dest = prompt("Enter destination folder for extraction:", defaultDest);
     if (dest) {
         fetch('/api/files/extract', {
             method: 'POST',
@@ -419,13 +420,13 @@ export function extractFile(path) {
         .then(res => res.json())
         .then(res => {
             if (res.success) {
-                showToast('success', res.message || 'Archive berhasil diekstrak');
+                showToast('success', res.message || 'Archive extracted successfully');
                 loadFilesList(currentFilePath);
             } else {
-                showToast('error', res.message || 'Gagal mengekstrak archive');
+                showToast('error', res.message || 'Failed to extract archive');
             }
         })
-        .catch(err => showToast('error', 'Gagal memanggil API: ' + err.toString()));
+        .catch(err => showToast('error', 'Failed to call API: ' + err.toString()));
     }
 }
 
@@ -448,11 +449,11 @@ export function editFile(path) {
                 const modal = document.getElementById('editor-modal');
                 if (modal) modal.classList.add('active');
             } else {
-                showToast('error', 'Gagal membaca isi file');
+                showToast('error', 'Failed to read file content');
             }
         })
         .catch(err => {
-            showToast('warning', 'File tidak ditemukan. Membuat berkas skrip baru...');
+            showToast('warning', 'File not found. Creating a new script file...');
             
             // Auto-create directory and file with template content
             fetch('/api/files/write', {
@@ -463,22 +464,22 @@ export function editFile(path) {
                 },
                 body: JSON.stringify({
                     path: path,
-                    content: '#!/bin/bash\n\n# Tulis perintah skrip Anda di bawah ini\n'
+                    content: '#!/bin/bash\n\n# Write your script commands below\n'
                 })
             })
             .then(wRes => wRes.json())
             .then(wRes => {
                 if (wRes.success) {
                     const taEl = document.getElementById('editor-textarea-field');
-                    if (taEl) taEl.value = '#!/bin/bash\n\n# Tulis perintah skrip Anda di bawah ini\n';
+                    if (taEl) taEl.value = '#!/bin/bash\n\n# Write your script commands below\n';
                     const modal = document.getElementById('editor-modal');
                     if (modal) modal.classList.add('active');
                 } else {
-                    showToast('error', 'Gagal membuat file skrip baru');
+                    showToast('error', 'Failed to create new script file');
                 }
             })
             .catch(wErr => {
-                showToast('error', 'Gagal membuat file: ' + wErr.message);
+                showToast('error', 'Failed to create file: ' + wErr.message);
             });
         });
 }
@@ -542,7 +543,7 @@ export function handleFileUpload(event) {
     }
 
     // Tampilkan notifikasi
-    showToast('info', `Mengunggah ${files.length} file...`);
+    showToast('info', `Uploading ${files.length} file(s)...`);
 
     // Lakukan pengiriman data ke backend menggunakan Fetch API
     fetch('/api/files/upload', {
@@ -555,21 +556,21 @@ export function handleFileUpload(event) {
     })
     .then(res => {
         if (!res.ok) {
-            return res.text().then(text => { throw new Error(text || 'Gagal mengunggah file') });
+            return res.text().then(text => { throw new Error(text || 'Failed to upload files') });
         }
         return res.json();
     })
     .then(res => {
         if (res.success) {
-            showToast('success', res.message || 'File berhasil diunggah!');
+            showToast('success', res.message || 'File(s) uploaded successfully!');
             loadFilesList(currentFilePath);
         } else {
-            showToast('error', res.message || 'Gagal mengunggah file.');
+            showToast('error', res.message || 'Failed to upload files.');
         }
     })
     .catch(err => {
         console.error("Upload error:", err);
-        showToast('error', 'Terjadi kesalahan: ' + err.message);
+        showToast('error', 'An error occurred: ' + err.message);
     });
 }
 
@@ -723,7 +724,7 @@ export function submitChangePermissions() {
     const recursive = recursiveCb ? recursiveCb.checked : false;
 
     if (!mode || mode.length < 3) {
-        showToast('error', 'Masukkan notasi oktal yang valid (contoh: 755)');
+        showToast('error', 'Enter a valid octal notation (e.g., 755)');
         return;
     }
 
@@ -738,12 +739,88 @@ export function submitChangePermissions() {
     .then(res => res.json())
     .then(res => {
         if (res.success) {
-            showToast('success', res.message || 'Permission berhasil diperbarui');
+            showToast('success', res.message || 'Permissions updated successfully');
             closePermissionsModal();
             loadFilesList(currentFilePath);
         } else {
-            showToast('error', res.message || 'Gagal mengubah permission');
+            showToast('error', res.message || 'Failed to update permissions');
         }
     })
-    .catch(err => showToast('error', 'Terjadi kesalahan: ' + err.toString()));
+    .catch(err => showToast('error', 'An error occurred: ' + err.toString()));
+}
+
+// Clipboard state for Copy/Cut/Paste
+export let fmClipboard = null;
+
+export function updatePasteButton() {
+    const btn = document.getElementById('fm-btn-paste');
+    const countSpan = document.getElementById('fm-paste-count');
+    if (btn && countSpan) {
+        if (fmClipboard && fmClipboard.items && fmClipboard.items.length > 0) {
+            btn.style.display = 'inline-flex';
+            countSpan.textContent = fmClipboard.items.length;
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+}
+
+export function bulkCopy() {
+    const paths = getSelectedPaths();
+    if (paths.length === 0) {
+        showToast('warning', 'Please select items to copy first');
+        return;
+    }
+    fmClipboard = { type: 'copy', items: paths };
+    showToast('success', `${paths.length} item(s) copied to clipboard`);
+    clearSelection();
+    updatePasteButton();
+}
+
+export function bulkCut() {
+    const paths = getSelectedPaths();
+    if (paths.length === 0) {
+        showToast('warning', 'Please select items to cut first');
+        return;
+    }
+    fmClipboard = { type: 'cut', items: paths };
+    showToast('success', `${paths.length} item(s) cut to clipboard`);
+    clearSelection();
+    updatePasteButton();
+}
+
+export function pasteClipboard() {
+    if (!fmClipboard || !fmClipboard.items || fmClipboard.items.length === 0) {
+        showToast('warning', 'Clipboard is empty');
+        return;
+    }
+    const { type, items } = fmClipboard;
+    const promises = items.map(src => {
+        const name = src.split('/').pop();
+        const dest = currentFilePath === '.' ? name : currentFilePath + '/' + name;
+        const url = type === 'copy' ? '/api/files/copy' : '/api/files/move';
+        return fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
+            body: JSON.stringify({ src, dest })
+        }).then(r => r.json());
+    });
+
+    showToast('info', `Processing ${items.length} item(s)...`);
+
+    Promise.all(promises).then(results => {
+        const failed = results.filter(r => !r.success).length;
+        if (failed > 0) {
+            showToast('error', `Failed to process ${failed} of ${items.length} item(s)`);
+        } else {
+            showToast('success', `Successfully ${type === 'copy' ? 'copied' : 'moved'} ${items.length} item(s)`);
+        }
+        if (type === 'cut') {
+            fmClipboard = null; // Clear clipboard for cut items
+        }
+        updatePasteButton();
+        loadFilesList(currentFilePath);
+    }).catch(err => {
+        showToast('error', 'Failed to paste: ' + err.toString());
+    });
 }

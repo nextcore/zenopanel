@@ -34,6 +34,33 @@ fn zip_file(
     Ok(())
 }
 
+fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    if src.is_dir() {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let path = entry.path();
+            let dest_path = dst.join(entry.file_name());
+            copy_recursive(&path, &dest_path)?;
+        }
+    } else {
+        std::fs::copy(src, dst)?;
+    }
+    Ok(())
+}
+
+fn move_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    if std::fs::rename(src, dst).is_err() {
+        copy_recursive(src, dst)?;
+        if src.is_dir() {
+            std::fs::remove_dir_all(src)?;
+        } else {
+            std::fs::remove_file(src)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn register(engine: &mut Engine) {
     engine.register(
         "io.file.archive",
@@ -787,6 +814,78 @@ pub fn register(engine: &mut Engine) {
 
             let is_dir = std::path::Path::new(&path).is_dir();
             scope.set(&target, Value::Bool(is_dir));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "io.file.copy",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut src = String::new();
+            let mut dest = String::new();
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "src" || child.name == "path" {
+                    src = val.to_string_coerce();
+                } else if child.name == "dest" || child.name == "dst" {
+                    dest = val.to_string_coerce();
+                }
+            }
+            if src.is_empty() || dest.is_empty() {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "io.file.copy: both src and dest paths are required".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.copy".to_string()),
+                });
+            }
+            copy_recursive(std::path::Path::new(&src), std::path::Path::new(&dest)).map_err(|e| Diagnostic {
+                r#type: "error".to_string(),
+                message: format!("io.file.copy failed: {}", e),
+                filename: node.filename.clone(),
+                line: node.line,
+                col: node.col,
+                slot: Some("io.file.copy".to_string()),
+            })?;
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "io.file.move",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut src = String::new();
+            let mut dest = String::new();
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "src" || child.name == "path" {
+                    src = val.to_string_coerce();
+                } else if child.name == "dest" || child.name == "dst" {
+                    dest = val.to_string_coerce();
+                }
+            }
+            if src.is_empty() || dest.is_empty() {
+                return Err(Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "io.file.move: both src and dest paths are required".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("io.file.move".to_string()),
+                });
+            }
+            move_recursive(std::path::Path::new(&src), std::path::Path::new(&dest)).map_err(|e| Diagnostic {
+                r#type: "error".to_string(),
+                message: format!("io.file.move failed: {}", e),
+                filename: node.filename.clone(),
+                line: node.line,
+                col: node.col,
+                slot: Some("io.file.move".to_string()),
+            })?;
             Ok(())
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }

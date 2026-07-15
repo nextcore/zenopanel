@@ -40,6 +40,14 @@ http.post: '/api/proxy/add' {
         default: 'proxy'
         as: $clean_rule_type
     }
+    coalesce: $body.waf_enabled {
+        default: true
+        as: $clean_waf_enabled
+    }
+    coalesce: $body.max_body_size {
+        default: 0
+        as: $clean_max_body_size
+    }
 
     proxy.add: $body.name {
         domain: $clean_domain
@@ -51,6 +59,8 @@ http.post: '/api/proxy/add' {
         ssl_enabled: $clean_ssl_enabled
         managed_process_id: $clean_process_id
         rule_type: $clean_rule_type
+        waf_enabled: $clean_waf_enabled
+        max_body_size: $clean_max_body_size
         as: $id
     }
     http.ok: {
@@ -94,6 +104,14 @@ http.post: '/api/proxy/update' {
         default: 'proxy'
         as: $clean_rule_type
     }
+    coalesce: $body.waf_enabled {
+        default: true
+        as: $clean_waf_enabled
+    }
+    coalesce: $body.max_body_size {
+        default: 0
+        as: $clean_max_body_size
+    }
 
     proxy.update: $body.id {
         name: $body.name
@@ -106,6 +124,8 @@ http.post: '/api/proxy/update' {
         ssl_enabled: $clean_ssl_enabled
         managed_process_id: $clean_process_id
         rule_type: $clean_rule_type
+        waf_enabled: $clean_waf_enabled
+        max_body_size: $clean_max_body_size
         as: $success
     }
     if: $success {

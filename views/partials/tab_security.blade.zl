@@ -1,7 +1,7 @@
-<!-- SYSTEM SECURITY TAB -->
+<!-- SYSTEM WAF TAB -->
 <div class="viewport" id="tab-security">
     <!-- SECURITY SETTINGS CARD -->
-    <div class="card" style="margin-top:0; max-width:600px;">
+    <div class="card" id="card-waf-settings" style="margin-top:0; max-width:600px;">
         <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px;">
             <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
                 <i class="fa-solid fa-shield-halved" style="color:var(--accent-primary);"></i> Security Settings (WAF & Rate Limiting)
@@ -22,6 +22,35 @@
                     <input type="checkbox" id="settings-waf-enabled">
                     <span class="slider"></span>
                 </label>
+            </div>
+
+            <!-- WAF DRY RUN (LOG ONLY) -->
+            <div class="form-group" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--card-border); padding-top:15px;">
+                <div>
+                    <label style="display:block; font-weight:600; font-size:0.95rem; color:var(--text-main);">
+                        Mode Deteksi Saja (Log Only)
+                    </label>
+                    <small style="display:block; color:var(--text-muted); font-size:0.8rem; line-height:1.4;">
+                        Mencatat ancaman keamanan ke dalam audit trail tanpa memblokir request (uji coba).
+                    </small>
+                </div>
+                <label class="switch" style="position:relative; display:inline-block; width:36px; height:20px;">
+                    <input type="checkbox" id="settings-waf-dry-run">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- WAF MAX BODY SIZE -->
+            <div class="form-group" style="display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--card-border); padding-top:15px;">
+                <div>
+                    <label style="display:block; font-weight:600; font-size:0.95rem; color:var(--text-main);">
+                        Batasan Ukuran Request Body & Proteksi DoS
+                    </label>
+                    <small style="display:block; color:var(--text-muted); font-size:0.8rem; line-height:1.4;">
+                        Membatasi ukuran maksimum data POST yang boleh diproses (dalam Megabytes) untuk mencegah overload memori.
+                    </small>
+                </div>
+                <input type="number" id="settings-waf-max-body-size" placeholder="2" style="width:100px; box-sizing:border-box; padding:8px 10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.9rem; margin-top:5px;">
             </div>
 
             <div style="border-top:1px solid var(--card-border); padding-top:5px;"></div>
@@ -65,7 +94,7 @@
     </div>
 
     <!-- WAF AUDIT TRAIL CARD -->
-    <div class="card" style="margin-top:20px; max-width:800px;">
+    <div class="card" id="card-waf-logs" style="margin-top:20px; max-width:800px;">
         <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
             <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
                 <i class="fa-solid fa-clock-rotate-left" style="color:var(--accent-primary);"></i> WAF Audit Trail (Blocked Requests)
@@ -89,45 +118,6 @@
                 <tbody id="waf-logs-tbody">
                     <tr>
                         <td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading audit logs...</td>
-                    </tr>
-                </tbody>
-            </table>
-    </div>
-
-    <!-- NATIVE FIREWALL RULES MANAGER CARD -->
-    <div class="card" style="margin-top:20px; max-width:800px;">
-        <div class="card-header" style="border-bottom:1px solid var(--card-border); padding-bottom:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
-            <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
-                <i class="fa-solid fa-shield" style="color:var(--accent-primary);"></i> Firewall Rules Manager (iptables)
-            </h3>
-            <div style="display:flex; align-items:center; gap:20px;">
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">Lockdown Mode (Block All)</span>
-                    <label class="switch" style="position:relative; display:inline-block; width:36px; height:20px;">
-                        <input type="checkbox" id="settings-fw-lockdown" onchange="toggleFirewallLockdown()">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                <button class="btn-primary-action" onclick="openAddFirewallRuleModal()" style="font-size:0.8rem; padding:6px 12px;">
-                    <i class="fa-solid fa-plus"></i> Add Rule
-                </button>
-            </div>
-        </div>
-        
-        <div class="table-container" style="max-height:350px; overflow-y:auto;">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Rule Name</th>
-                        <th>Port</th>
-                        <th>Protocol</th>
-                        <th>Action</th>
-                        <th style="width: 100px; text-align: right;">Action</th>
-                    </tr>
-                </thead>
-                <tbody id="firewall-rules-tbody">
-                    <tr>
-                        <td colspan="5" style="text-align:center; color:var(--text-muted); padding:30px;">Loading firewall rules...</td>
                     </tr>
                 </tbody>
             </table>

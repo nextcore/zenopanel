@@ -22,7 +22,7 @@ import {
   stopContainerPolling,
 } from "./containers.js";
 import { loadUsers } from "./users.js";
-import { loadSettings, loadSecuritySettings } from "./settings.js";
+import { loadSettings, loadSecuritySettings, loadFirewallRules } from "./settings.js";
 import { loadCronJobs } from "./cron.js";
 import { initWebsitesTab } from "./websites.js";
 
@@ -124,12 +124,27 @@ export function runTabInit(tab) {
     loadSettings();
   }
 
-  if (tab === "security") {
+  if (tab === "security" || tab === "waf") {
     loadSecuritySettings();
+  }
+
+  if (tab === "firewall") {
+    loadFirewallRules();
   }
 
   if (tab === "websites") {
     initWebsitesTab();
+  }
+
+  // Expand or collapse Security sub-menu based on active tab
+  const submenu = document.getElementById("security-submenu");
+  const arrow = document.getElementById("security-arrow");
+  if (tab === "firewall" || tab === "waf" || tab === "security") {
+    if (submenu) submenu.style.display = "flex";
+    if (arrow) arrow.style.transform = "rotate(-180deg)";
+  } else {
+    if (submenu) submenu.style.display = "none";
+    if (arrow) arrow.style.transform = "rotate(0deg)";
   }
 }
 
@@ -185,4 +200,21 @@ export function initNavigation() {
       runTabInit(currentTab);
     }
   });
+}
+
+export function toggleSecuritySubmenu(event) {
+  if (event) {
+    event.stopPropagation();
+  }
+  const submenu = document.getElementById("security-submenu");
+  const arrow = document.getElementById("security-arrow");
+  if (submenu && arrow) {
+    if (submenu.style.display === "none" || submenu.style.display === "") {
+      submenu.style.display = "flex";
+      arrow.style.transform = "rotate(-180deg)";
+    } else {
+      submenu.style.display = "none";
+      arrow.style.transform = "rotate(0deg)";
+    }
+  }
 }

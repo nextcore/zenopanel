@@ -222,3 +222,51 @@ http.get: '/api/files/download' {
     http.query: 'path' { as: $file_path }
     http.download_file: { path: $file_path }
 }
+
+# 10g. File Manager - Copy File/Folder API
+http.post: '/api/files/copy' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $src_path { val: $body.src }
+    var: $dest_path { val: $body.dest }
+    io.exists: $src_path { as: $exists }
+    if: $exists {
+        then: {
+            io.file.copy: {
+                src: $src_path
+                dest: $dest_path
+            }
+            http.ok: { message: "Item berhasil disalin" }
+        }
+        else: {
+            http.bad_request: {
+                success: false,
+                message: "Berkas atau folder sumber tidak ditemukan"
+            }
+        }
+    }
+}
+
+# 10h. File Manager - Move/Rename File/Folder API
+http.post: '/api/files/move' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $src_path { val: $body.src }
+    var: $dest_path { val: $body.dest }
+    io.exists: $src_path { as: $exists }
+    if: $exists {
+        then: {
+            io.file.move: {
+                src: $src_path
+                dest: $dest_path
+            }
+            http.ok: { message: "Item berhasil dipindahkan" }
+        }
+        else: {
+            http.bad_request: {
+                success: false,
+                message: "Berkas atau folder sumber tidak ditemukan"
+            }
+        }
+    }
+}
