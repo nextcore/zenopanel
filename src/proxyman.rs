@@ -48,6 +48,8 @@ pub struct ProxyRule {
     pub rule_type: String,
     pub waf_enabled: bool,
     pub max_body_size: i32,
+    pub ip_whitelist: String,
+    pub ip_blacklist: String,
 }
 
 #[derive(Clone)]
@@ -91,6 +93,10 @@ impl ProxyManager {
         let _ = sqlx::query(alter_waf_enabled).execute(&pool).await;
         let alter_max_body_size = "ALTER TABLE proxy_rules ADD COLUMN max_body_size INTEGER NOT NULL DEFAULT 0;";
         let _ = sqlx::query(alter_max_body_size).execute(&pool).await;
+        let alter_ip_whitelist = "ALTER TABLE proxy_rules ADD COLUMN ip_whitelist TEXT NOT NULL DEFAULT '';";
+        let _ = sqlx::query(alter_ip_whitelist).execute(&pool).await;
+        let alter_ip_blacklist = "ALTER TABLE proxy_rules ADD COLUMN ip_blacklist TEXT NOT NULL DEFAULT '';";
+        let _ = sqlx::query(alter_ip_blacklist).execute(&pool).await;
 
         let active_conns = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let unhealthy_targets = Arc::new(RwLock::new(HashSet::new()));
@@ -164,7 +170,7 @@ impl ProxyManager {
     }
 
     pub async fn load_from_db(&self) -> Result<(), String> {
-        let rows = sqlx::query("SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type, waf_enabled, max_body_size FROM proxy_rules")
+        let rows = sqlx::query("SELECT id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type, waf_enabled, max_body_size, ip_whitelist, ip_blacklist FROM proxy_rules")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -187,6 +193,8 @@ impl ProxyManager {
             let rule_type: String = row.try_get("rule_type").unwrap_or_else(|_| "proxy".to_string());
             let waf_enabled_int: i32 = row.try_get("waf_enabled").unwrap_or(1);
             let max_body_size: i32 = row.try_get("max_body_size").unwrap_or(0);
+            let ip_whitelist: String = row.try_get("ip_whitelist").unwrap_or_default();
+            let ip_blacklist: String = row.try_get("ip_blacklist").unwrap_or_default();
 
             rules.insert(
                 id.clone(),
@@ -205,6 +213,8 @@ impl ProxyManager {
                     rule_type,
                     waf_enabled: waf_enabled_int != 0,
                     max_body_size,
+                    ip_whitelist,
+                    ip_blacklist,
                 },
             );
         }
@@ -246,7 +256,7 @@ impl ProxyManager {
             clean_path = format!("/{}", clean_path);
         }
 
-        sqlx::query("INSERT INTO proxy_rules (id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type, waf_enabled, max_body_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO proxy_rules (id, name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, ssl_status, managed_process_id, rule_type, waf_enabled, max_body_size, ip_whitelist, ip_blacklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '')")
             .bind(&id)
             .bind(&name)
             .bind(&clean_domain)
@@ -280,6 +290,8 @@ impl ProxyManager {
             rule_type,
             waf_enabled,
             max_body_size,
+            ip_whitelist: "".to_string(),
+            ip_blacklist: "".to_string(),
         };
 
         self.rules.write().await.insert(id.clone(), rule);
@@ -302,6 +314,8 @@ impl ProxyManager {
         rule_type: String,
         waf_enabled: bool,
         max_body_size: i32,
+        ip_whitelist: String,
+        ip_blacklist: String,
     ) -> Result<(), String> {
         let strip_path_int = if strip_path { 1 } else { 0 };
         let enabled_int = if enabled { 1 } else { 0 };
@@ -334,7 +348,7 @@ impl ProxyManager {
             None => if ssl_enabled { "pending".to_string() } else { "none".to_string() }
         };
 
-        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, alternative_domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ?, rule_type = ?, waf_enabled = ?, max_body_size = ? WHERE id = ?")
+        sqlx::query("UPDATE proxy_rules SET name = ?, domain = ?, alternative_domain = ?, path = ?, target = ?, strip_path = ?, enabled = ?, ssl_enabled = ?, ssl_status = ?, managed_process_id = ?, rule_type = ?, waf_enabled = ?, max_body_size = ?, ip_whitelist = ?, ip_blacklist = ? WHERE id = ?")
             .bind(&name)
             .bind(&clean_domain)
             .bind(&clean_alt_domain)
@@ -348,6 +362,8 @@ impl ProxyManager {
             .bind(&rule_type)
             .bind(waf_enabled_int)
             .bind(max_body_size)
+            .bind(&ip_whitelist)
+            .bind(&ip_blacklist)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -367,6 +383,8 @@ impl ProxyManager {
             rule.rule_type = rule_type;
             rule.waf_enabled = waf_enabled;
             rule.max_body_size = max_body_size;
+            rule.ip_whitelist = ip_whitelist;
+            rule.ip_blacklist = ip_blacklist;
         }
         crate::slots::system::sync_firewall_rules(&self.pool);
         Ok(())

@@ -112,6 +112,14 @@ http.post: '/api/proxy/update' {
         default: 0
         as: $clean_max_body_size
     }
+    coalesce: $body.ip_whitelist {
+        default: ''
+        as: $clean_ip_whitelist
+    }
+    coalesce: $body.ip_blacklist {
+        default: ''
+        as: $clean_ip_blacklist
+    }
 
     proxy.update: $body.id {
         name: $body.name
@@ -126,6 +134,8 @@ http.post: '/api/proxy/update' {
         rule_type: $clean_rule_type
         waf_enabled: $clean_waf_enabled
         max_body_size: $clean_max_body_size
+        ip_whitelist: $clean_ip_whitelist
+        ip_blacklist: $clean_ip_blacklist
         as: $success
     }
     if: $success {

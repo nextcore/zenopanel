@@ -681,6 +681,12 @@ pub fn register(engine: &mut Engine) {
             map.insert("waf_enabled".to_string(), Value::Bool(app_state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed)));
             map.insert("waf_dry_run".to_string(), Value::Bool(app_state.waf_dry_run.load(std::sync::atomic::Ordering::Relaxed)));
             map.insert("waf_max_body_size".to_string(), Value::Int(app_state.waf_max_body_size.load(std::sync::atomic::Ordering::Relaxed) as i64));
+            map.insert("waf_allow_good_bots".to_string(), Value::Bool(app_state.waf_allow_good_bots.load(std::sync::atomic::Ordering::Relaxed)));
+            let custom_bad_bots = {
+                let guard = app_state.waf_custom_bad_bots.lock().unwrap();
+                guard.clone()
+            };
+            map.insert("waf_custom_bad_bots".to_string(), Value::String(custom_bad_bots));
             map.insert("rate_limit_enabled".to_string(), Value::Bool(app_state.rate_limiter.is_enabled()));
             map.insert("rate_limit_max".to_string(), Value::Int(app_state.rate_limiter.max_requests() as i64));
             map.insert("rate_limit_window".to_string(), Value::Int(app_state.rate_limiter.window_secs() as i64));
@@ -698,6 +704,8 @@ pub fn register(engine: &mut Engine) {
             let mut waf_enabled = true;
             let mut waf_dry_run = false;
             let mut waf_max_body_size = 2;
+            let mut waf_allow_good_bots = true;
+            let mut waf_custom_bad_bots = "".to_string();
             let mut rate_limit_enabled = true;
             let mut rate_limit_max = 1000;
             let mut rate_limit_window = 60;
@@ -710,6 +718,10 @@ pub fn register(engine: &mut Engine) {
                     waf_dry_run = val.to_bool();
                 } else if child.name == "waf_max_body_size" {
                     waf_max_body_size = val.to_int() as usize;
+                } else if child.name == "waf_allow_good_bots" {
+                    waf_allow_good_bots = val.to_bool();
+                } else if child.name == "waf_custom_bad_bots" {
+                    waf_custom_bad_bots = val.to_string_coerce();
                 } else if child.name == "rate_limit_enabled" {
                     rate_limit_enabled = val.to_bool();
                 } else if child.name == "rate_limit_max" {
@@ -728,6 +740,16 @@ pub fn register(engine: &mut Engine) {
             app_state.waf_enabled.store(waf_enabled, std::sync::atomic::Ordering::Relaxed);
             app_state.waf_dry_run.store(waf_dry_run, std::sync::atomic::Ordering::Relaxed);
             app_state.waf_max_body_size.store(waf_max_body_size, std::sync::atomic::Ordering::Relaxed);
+            app_state.waf_allow_good_bots.store(waf_allow_good_bots, std::sync::atomic::Ordering::Relaxed);
+            {
+                let mut guard = app_state.waf_custom_bad_bots.lock().unwrap();
+                *guard = waf_custom_bad_bots.clone();
+            }
+            let compiled = crate::waf::compile_custom_bad_bots_regex(&waf_custom_bad_bots);
+            {
+                let mut guard = app_state.waf_custom_bad_bots_regex.lock().unwrap();
+                *guard = compiled;
+            }
             app_state.rate_limiter.update(rate_limit_enabled, rate_limit_max, rate_limit_window);
 
             let db_manager = app_state.db_manager.clone();
@@ -743,6 +765,14 @@ pub fn register(engine: &mut Engine) {
                         .await;
                     let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_max_body_size', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
                         .bind(waf_max_body_size.to_string())
+                        .execute(&pool)
+                        .await;
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_allow_good_bots', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(if waf_allow_good_bots { "true" } else { "false" })
+                        .execute(&pool)
+                        .await;
+                    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_custom_bad_bots', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                        .bind(waf_custom_bad_bots)
                         .execute(&pool)
                         .await;
                     let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('rate_limit_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")

@@ -103,6 +103,9 @@ pub(crate) struct AppState {
     pub(crate) waf_enabled: std::sync::atomic::AtomicBool,
     pub(crate) waf_dry_run: std::sync::atomic::AtomicBool,
     pub(crate) waf_max_body_size: std::sync::atomic::AtomicUsize,
+    pub(crate) waf_allow_good_bots: std::sync::atomic::AtomicBool,
+    pub(crate) waf_custom_bad_bots: Arc<std::sync::Mutex<String>>,
+    pub(crate) waf_custom_bad_bots_regex: Arc<std::sync::Mutex<Option<regex::Regex>>>,
     pub(crate) ip_block_list: Arc<crate::waf::IpBlockList>,
     pub(crate) traffic_stats: Arc<crate::waf::TrafficStatsManager>,
     pub(crate) backup_manager: Arc<crate::backupman::BackupManager>,
@@ -722,6 +725,32 @@ fn main() {
             .await;
     }
 
+    let mut db_waf_allow_good_bots = true;
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'waf_allow_good_bots'")
+        .fetch_optional(pool)
+        .await
+    {
+        db_waf_allow_good_bots = db_val == "true";
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_allow_good_bots', 'true')")
+            .execute(pool)
+            .await;
+    }
+
+    let mut db_waf_custom_bad_bots = "".to_string();
+    if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'waf_custom_bad_bots'")
+        .fetch_optional(pool)
+        .await
+    {
+        db_waf_custom_bad_bots = db_val;
+    } else {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_custom_bad_bots', '')")
+            .execute(pool)
+            .await;
+    }
+
+    let compiled_bad_bots = crate::waf::compile_custom_bad_bots_regex(&db_waf_custom_bad_bots);
+
     let mut db_rate_limit_enabled = std::env::var("RATE_LIMIT_ENABLED").map(|v| v == "true").unwrap_or(true);
     if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'rate_limit_enabled'")
         .fetch_optional(pool)
@@ -1057,6 +1086,9 @@ fn main() {
         waf_enabled: std::sync::atomic::AtomicBool::new(db_waf_enabled),
         waf_dry_run: std::sync::atomic::AtomicBool::new(db_waf_dry_run),
         waf_max_body_size: std::sync::atomic::AtomicUsize::new(db_waf_max_body_size),
+        waf_allow_good_bots: std::sync::atomic::AtomicBool::new(db_waf_allow_good_bots),
+        waf_custom_bad_bots: Arc::new(std::sync::Mutex::new(db_waf_custom_bad_bots)),
+        waf_custom_bad_bots_regex: Arc::new(std::sync::Mutex::new(compiled_bad_bots)),
         ip_block_list,
         traffic_stats,
         backup_manager: backup_mgr,

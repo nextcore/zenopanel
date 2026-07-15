@@ -185,6 +185,20 @@
                 <input type="number" id="proxy-max-body-size" placeholder="0" min="0" style="width:100%; box-sizing:border-box; padding:8px 10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.9rem;">
                 <small style="color:var(--text-muted); font-size:0.78rem;">Set ke 0 untuk menggunakan batasan global WAF.</small>
             </div>
+            <div class="form-group" style="display:flex; flex-direction:column; gap:6px; margin-top:10px; margin-bottom:5px;">
+                <label style="font-weight:600; font-size:0.85rem; color:var(--text-main); display:flex; align-items:center; gap:4px;">
+                    <i class="fa-solid fa-circle-check" style="color:var(--success); font-size:0.85rem;"></i> IP Whitelist (CIDR, comma-separated)
+                </label>
+                <textarea id="proxy-ip-whitelist" rows="2" placeholder="e.g. 192.168.1.0/24, 10.0.0.1" style="width:100%; box-sizing:border-box; padding:8px 10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem; resize:vertical; font-family:var(--font-code);"></textarea>
+                <small style="color:var(--text-muted); font-size:0.78rem;">Only IPs in this list can access the app. Leave empty to allow all (use blacklist for blocking). Supports CIDR notation.</small>
+            </div>
+            <div class="form-group" style="display:flex; flex-direction:column; gap:6px; margin-top:10px; margin-bottom:5px;">
+                <label style="font-weight:600; font-size:0.85rem; color:var(--text-main); display:flex; align-items:center; gap:4px;">
+                    <i class="fa-solid fa-circle-xmark" style="color:var(--danger); font-size:0.85rem;"></i> IP Blacklist (CIDR, comma-separated)
+                </label>
+                <textarea id="proxy-ip-blacklist" rows="2" placeholder="e.g. 1.2.3.4, 10.0.0.0/8" style="width:100%; box-sizing:border-box; padding:8px 10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none; font-size:0.85rem; resize:vertical; font-family:var(--font-code);"></textarea>
+                <small style="color:var(--text-muted); font-size:0.78rem;">Block specific IPs from accessing this application. Ignored if whitelist is set. Supports CIDR notation.</small>
+            </div>
         </div>
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
             <button class="btn-action" onclick="closeAddProxyModal()">Cancel</button>

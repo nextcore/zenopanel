@@ -157,6 +157,8 @@ http.post: '/api/settings/security' {
                 waf_enabled: $body.waf_enabled
                 waf_dry_run: $body.waf_dry_run
                 waf_max_body_size: $body.waf_max_body_size
+                waf_allow_good_bots: $body.waf_allow_good_bots
+                waf_custom_bad_bots: $body.waf_custom_bad_bots
                 rate_limit_enabled: $body.rate_limit_enabled
                 rate_limit_max: $body.rate_limit_max
                 rate_limit_window: $body.rate_limit_window

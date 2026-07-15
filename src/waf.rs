@@ -338,10 +338,10 @@ static SQLI_REGEX: Lazy<Regex> = Lazy::new(|| {
     ).unwrap()
 });
 
-/// XSS — covers reflected, DOM, attribute injection, data URIs
+/// XSS — covers reflected, DOM, attribute injection, data URIs.
 static XSS_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?i)(<script[\s\S]*?>|<\/script>|<iframe|<object|<embed|<svg|<img|<body|<link|<form|<meta|<style|<html|<details|<audio|<video|<math|javascript\s*:|vbscript\s*:|data\s*:\s*text/(?:html|xml)|on[a-z]+[\s\x0b]*=[\s\S]*?['\"`\s]|alert\s*\(|confirm\s*\(|prompt\s*\(|eval\s*\(|setTimeout\s*\(|setInterval\s*\(|new\s+Function\s*\(|document\.(?:cookie|write|location)|window\.location|atob\s*\(|btoa\s*\(|String\.fromCharCode)"#
+        r#"(?i)(<script[\s\S]*?>|<\/script>|<iframe|<object|<embed|javascript\s*:|vbscript\s*:|data\s*:\s*text/(?:html|xml)|on[a-z]+[\s\x0b]*=[\s\S]*?['\"`\s]|alert\s*\(|confirm\s*\(|prompt\s*\(|eval\s*\(|setTimeout\s*\(|setInterval\s*\(|new\s+Function\s*\(|document\.(?:cookie|write|location)|window\.location|atob\s*\(|btoa\s*\(|String\.fromCharCode)"#
     ).unwrap()
 });
 
@@ -359,10 +359,13 @@ static RCE_REGEX: Lazy<Regex> = Lazy::new(|| {
     ).unwrap()
 });
 
-/// SSRF — attempts to reach internal/cloud metadata endpoints
+/// SSRF — attempts to reach internal/cloud metadata endpoints.
+/// Private IP ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x) only trigger
+/// when prefixed with a URL scheme to avoid false positives on bare IP inputs
+/// in legitimate configuration or form fields.
 static SSRF_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(127\.0\.0\.1|localhost|0\.0\.0\.0|::1|169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|file://|gopher://|dict://|ftp://internal|sftp://)"
+        r"(?i)(?:169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200|file://|gopher://|dict://|(?:https?|ftp|sftp|ldap|ldaps)://(?:127\.0\.0\.1|localhost|0\.0\.0\.0|::1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+))"
     ).unwrap()
 });
 
@@ -396,24 +399,22 @@ static SCANNER_UA_REGEX: Lazy<Regex> = Lazy::new(|| {
 
 static WAF_KEYWORDS: Lazy<AhoCorasick> = Lazy::new(|| {
     let patterns = vec![
-        // SQLi
-        "union", "select", "insert", "delete", "drop", "update", "xp_cmdshell",
-        "information_schema", "sleep(", "benchmark(", "waitfor", "load_file", "into outfile",
-        "--", "/*", "*/", "#", "=",
-        // XSS
+        // SQLi — specific multi-token indicators only (bare single words removed to avoid false positives)
+        "xp_cmdshell", "information_schema", "sleep(", "benchmark(", "waitfor", "load_file", "into outfile",
+        // XSS — only tags/patterns that are unambiguously dangerous without extra context
         "<script", "</script>", "javascript:", "vbscript:", "alert(", "confirm(", "prompt(",
         "document.cookie", "document.write", "window.location", "<iframe", "<object",
-        "<svg", "<embed", "<link", "data:", "eval(", "<form",
-        // Path Traversal
-        "..", "/etc/", "/proc/", "/var/log/", "win.ini", "system.ini", "boot.ini", "windows/",
+        "<svg", "<embed",
+        // Path Traversal — specific system paths only ("../" alone removed, too common)
+        "/etc/passwd", "/etc/shadow", "/etc/hosts", "/proc/self", "/proc/version",
+        "/var/log/", "win.ini", "system.ini", "boot.ini", "windows/system32",
         // RCE
-        "/bin/", "cmd.exe", "powershell.exe", "pwsh.exe", "curl", "wget", "nc", "netcat",
-        "exec(", "system(", "passthru(", "shell_exec(", "popen(", "proc_open(", "eval(", "assert(",
-        "base64_decode", "phpinfo(", "{{", "${", "$(", "`", "() {", "whoami", "uname", "ifconfig",
-        // SSRF
-        "127.0.0.1", "localhost", "0.0.0.0", "::1", "169.254.169.254", "metadata.google",
-        "100.100.100.200", "192.168.", "10.", "172.", "file://", "gopher://", "dict://",
-        "ftp://", "sftp://",
+        "/bin/bash", "/bin/sh", "cmd.exe", "powershell.exe", "pwsh.exe",
+        "exec(", "passthru(", "shell_exec(", "popen(", "proc_open(",
+        "base64_decode", "phpinfo(", "{{", "${", "() {", "whoami",
+        // SSRF — only highly specific targets; bare private IPs handled by regex with scheme context
+        "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254", "metadata.google",
+        "100.100.100.200", "file://", "gopher://", "dict://",
         // Log4Shell
         "jndi:",
         // PHP wrappers / LFI
@@ -642,6 +643,72 @@ pub fn is_malicious(input: &str, check_ssrf: bool) -> Option<WafMatch> {
 
 pub fn is_scanner_bot(user_agent: &str) -> bool {
     SCANNER_UA_REGEX.is_match(user_agent)
+}
+
+pub fn compile_custom_bad_bots_regex(raw: &str) -> Option<regex::Regex> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let patterns: Vec<String> = raw
+        .split(',')
+        .map(|s| regex::escape(s.trim()))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if patterns.is_empty() {
+        return None;
+    }
+    let regex_str = format!("(?i)({})", patterns.join("|"));
+    regex::Regex::new(&regex_str).ok()
+}
+
+pub fn is_good_bot(user_agent: &str) -> bool {
+    let ua = user_agent.to_lowercase();
+    ua.contains("googlebot") || ua.contains("bingbot") || ua.contains("yandex") || ua.contains("baidu") || ua.contains("duckduckbot") || ua.contains("yahoo! slurp")
+}
+
+pub fn check_bad_bot(user_agent: &str, allow_good_bots: bool, custom_regex: &Option<regex::Regex>) -> bool {
+    if allow_good_bots && is_good_bot(user_agent) {
+        return false;
+    }
+    if let Some(r) = custom_regex {
+        if r.is_match(user_agent) {
+            return true;
+        }
+    }
+    is_scanner_bot(user_agent)
+}
+
+pub fn check_custom_ip_rules(client_ip: &IpAddr, whitelist_str: &str, blacklist_str: &str) -> Result<(), &'static str> {
+    let clean_white = whitelist_str.trim();
+    if !clean_white.is_empty() {
+        let mut matched = false;
+        for segment in clean_white.split(',') {
+            if let Some(rule) = IpRule::parse(segment.trim()) {
+                if rule.matches(client_ip) {
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if !matched {
+            return Err("IP not in Whitelist");
+        }
+        return Ok(());
+    }
+
+    let clean_black = blacklist_str.trim();
+    if !clean_black.is_empty() {
+        for segment in clean_black.split(',') {
+            if let Some(rule) = IpRule::parse(segment.trim()) {
+                if rule.matches(client_ip) {
+                    return Err("IP is Blacklisted");
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // ── Block page rendering ──────────────────────────────────────────────────────
@@ -1085,7 +1152,12 @@ pub(crate) async fn waf_middleware(
 
     if state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed) && !is_zenopanel_internal && is_waf_enabled_for_proxy {
         // 2a. Scanner bot detection via User-Agent
-        if is_scanner_bot(&user_agent) {
+        let custom_regex = {
+            let guard = state.waf_custom_bad_bots_regex.lock().unwrap();
+            guard.clone()
+        };
+        let is_scanner = check_bad_bot(&user_agent, state.waf_allow_good_bots.load(std::sync::atomic::Ordering::Relaxed), &custom_regex);
+        if is_scanner {
             block_reason = Some("Known Attack Tool / Scanner Bot");
             block_severity = "high";
         }

@@ -185,6 +185,38 @@ impl ProxyHttp for ZenoGateway {
         let waf_check_port = waf_check_port.unwrap_or(80);
         let matched_rule = self.state.proxy_manager.match_rule(&waf_check_host, waf_check_port, path).await;
 
+        if let Some(ref rule) = matched_rule {
+            let ip_whitelist = rule.ip_whitelist.clone();
+            let ip_blacklist = rule.ip_blacklist.clone();
+            if !ip_whitelist.is_empty() || !ip_blacklist.is_empty() {
+                if let Err(reason) = crate::waf::check_custom_ip_rules(&ctx.client_ip, &ip_whitelist, &ip_blacklist) {
+                    let html = crate::waf::render_blocked_ip_page(ctx.client_ip);
+                    let ip_str = ctx.client_ip.to_string();
+                    let log_path = path_str.clone();
+                    let log_method = method_str.clone();
+                    let db_manager = self.state.db_manager.clone();
+                    tokio::spawn(async move {
+                        if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                            let _ = sqlx::query("INSERT INTO waf_logs (ip, method, reason, severity, target) VALUES (?, ?, ?, ?, ?)")
+                                .bind(ip_str)
+                                .bind(log_method)
+                                .bind(reason)
+                                .bind("high")
+                                .bind(log_path)
+                                .execute(&pool)
+                                .await;
+                        }
+                    });
+
+                    let mut resp = ResponseHeader::build(StatusCode::FORBIDDEN, Some(1))?;
+                    resp.insert_header("Content-Type", "text/html; charset=utf-8")?;
+                    session.write_response_header(Box::new(resp), false).await?;
+                    session.write_response_body(Some(html.into()), true).await?;
+                    return Ok(true);
+                }
+            }
+        }
+
         // Determine effective WAF setting: per-app overrides global. Exempt ZenoPanel's own admin panel.
         let global_waf = self.state.waf_enabled.load(std::sync::atomic::Ordering::Relaxed);
         let effective_waf = if matched_rule.is_some() {
@@ -222,7 +254,11 @@ impl ProxyHttp for ZenoGateway {
             let ua = req_header.headers.get("user-agent")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            if crate::waf::is_scanner_bot(ua) {
+            let custom_regex = {
+                let guard = self.state.waf_custom_bad_bots_regex.lock().unwrap();
+                guard.clone()
+            };
+            if crate::waf::check_bad_bot(ua, self.state.waf_allow_good_bots.load(std::sync::atomic::Ordering::Relaxed), &custom_regex) {
                 block_reason = Some(crate::waf::WafMatch { reason: "Known Attack Tool / Scanner Bot", severity: "high" });
             }
 

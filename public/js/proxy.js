@@ -390,6 +390,10 @@ export function openEditProxyModal(id) {
     if (wafCheck) wafCheck.checked = rule.waf_enabled !== false;
     const maxBodySizeInput = document.getElementById('proxy-max-body-size');
     if (maxBodySizeInput) maxBodySizeInput.value = rule.max_body_size || 0;
+    const ipWhitelistInput = document.getElementById('proxy-ip-whitelist');
+    if (ipWhitelistInput) ipWhitelistInput.value = rule.ip_whitelist || '';
+    const ipBlacklistInput = document.getElementById('proxy-ip-blacklist');
+    if (ipBlacklistInput) ipBlacklistInput.value = rule.ip_blacklist || '';
 
     populateManagedProcessesDropdown(rule.managed_process_id || '');
 
@@ -437,6 +441,8 @@ export function submitAddProxy() {
     const waf_enabled = wafCheck ? wafCheck.checked : true;
     const maxBodySizeInput = document.getElementById('proxy-max-body-size');
     const max_body_size = maxBodySizeInput ? (parseInt(maxBodySizeInput.value.trim(), 10) || 0) : 0;
+    const ip_whitelist = (document.getElementById('proxy-ip-whitelist')?.value || '').trim();
+    const ip_blacklist = (document.getElementById('proxy-ip-blacklist')?.value || '').trim();
 
     if (!name || !path || !target) {
         showToast('warning', 'Name, Path, and Target Destination are required');
@@ -444,7 +450,7 @@ export function submitAddProxy() {
     }
 
     const url = id ? '/api/proxy/update' : '/api/proxy/add';
-    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled, max_body_size };
+    const body = { name, domain, alternative_domain, path, target, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled, max_body_size, ip_whitelist, ip_blacklist };
     if (id) {
         body.id = id;
     }

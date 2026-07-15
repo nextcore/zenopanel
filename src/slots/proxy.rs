@@ -211,6 +211,8 @@ pub fn register(engine: &mut Engine) {
             let mut rule_type = "proxy".to_string();
             let mut waf_enabled = true;
             let mut max_body_size = 0;
+            let mut ip_whitelist = "".to_string();
+            let mut ip_blacklist = "".to_string();
             let mut target = "success".to_string();
 
             if node.value.is_some() {
@@ -248,12 +250,16 @@ pub fn register(engine: &mut Engine) {
                     waf_enabled = val.to_bool();
                 } else if child.name == "max_body_size" {
                     max_body_size = val.to_int() as i32;
+                } else if child.name == "ip_whitelist" {
+                    ip_whitelist = val.to_string_coerce();
+                } else if child.name == "ip_blacklist" {
+                    ip_blacklist = val.to_string_coerce();
                 } else if child.name == "as" {
                     target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
                 }
             }
 
-            let update_fut = pm.update_rule(&id, name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled, max_body_size);
+            let update_fut = pm.update_rule(&id, name, domain, alternative_domain, path, target_url, strip_path, enabled, ssl_enabled, managed_process_id, rule_type, waf_enabled, max_body_size, ip_whitelist, ip_blacklist);
             let res = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(update_fut)
             });

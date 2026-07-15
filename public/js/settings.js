@@ -267,6 +267,14 @@ export async function loadSecuritySettings() {
             if (maxBodySizeInput) {
                 maxBodySizeInput.value = data.settings.waf_max_body_size;
             }
+            const allowGoodBotsCheckbox = document.getElementById('settings-waf-allow-good-bots');
+            if (allowGoodBotsCheckbox) {
+                allowGoodBotsCheckbox.checked = data.settings.waf_allow_good_bots;
+            }
+            const customBadBotsTextarea = document.getElementById('settings-waf-custom-bad-bots');
+            if (customBadBotsTextarea) {
+                customBadBotsTextarea.value = data.settings.waf_custom_bad_bots || '';
+            }
             const rlCheckbox = document.getElementById('settings-rl-enabled');
             if (rlCheckbox) {
                 rlCheckbox.checked = data.settings.rate_limit_enabled;
@@ -310,6 +318,8 @@ export async function submitSaveSecurity() {
     const wafEnabled = document.getElementById('settings-waf-enabled').checked;
     const wafDryRun = document.getElementById('settings-waf-dry-run').checked;
     const wafMaxBodySize = parseInt(document.getElementById('settings-waf-max-body-size').value.trim(), 10) || 2;
+    const wafAllowGoodBots = document.getElementById('settings-waf-allow-good-bots')?.checked ?? true;
+    const wafCustomBadBots = (document.getElementById('settings-waf-custom-bad-bots')?.value || '').trim();
     const rateLimitEnabled = document.getElementById('settings-rl-enabled').checked;
     const rateLimitMax = parseInt(document.getElementById('settings-rl-max').value.trim(), 10) || 1000;
     const rateLimitWindow = parseInt(document.getElementById('settings-rl-window').value.trim(), 10) || 60;
@@ -332,6 +342,8 @@ export async function submitSaveSecurity() {
                 waf_enabled: wafEnabled,
                 waf_dry_run: wafDryRun,
                 waf_max_body_size: wafMaxBodySize,
+                waf_allow_good_bots: wafAllowGoodBots,
+                waf_custom_bad_bots: wafCustomBadBots,
                 rate_limit_enabled: rateLimitEnabled,
                 rate_limit_max: rateLimitMax,
                 rate_limit_window: rateLimitWindow
