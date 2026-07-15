@@ -699,14 +699,15 @@ fn main() {
             .await;
     }
 
-    let mut db_waf_dry_run = true; // Default: Log Only — admin must explicitly enable blocking
+    let mut db_waf_dry_run = std::env::var("WAF_DRY_RUN").map(|v| v == "true").unwrap_or(true); // Default: Log Only — admin must explicitly enable blocking
     if let Ok(Some((db_val,))) = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'waf_dry_run'")
         .fetch_optional(pool)
         .await
     {
         db_waf_dry_run = db_val == "true";
     } else {
-        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_dry_run', 'true')")
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('waf_dry_run', ?)")
+            .bind(if db_waf_dry_run { "true" } else { "false" })
             .execute(pool)
             .await;
     }
