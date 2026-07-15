@@ -3,7 +3,7 @@
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust&style=flat-square)](https://www.rust-lang.org)
 [![ZenoLang](https://img.shields.io/badge/engine-ZenoLang-purple?style=flat-square)](https://github.com/nextcore/zeno-rs)
 [![License](https://img.shields.io/badge/license-Apache-blue?style=flat-square)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.5.0-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.5.0)
+[![Version](https://img.shields.io/badge/version-v1.5.19-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.5.19)
 [![RAM Usage](https://img.shields.io/badge/RAM-~15MB-brightgreen?style=flat-square)](#)
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
@@ -95,10 +95,13 @@ WAF ZenoPanel beroperasi di dua lapisan sekaligus: **Axum middleware** (panel) d
   - **Server-Side Request Forgery / SSRF** — deteksi akses ke metadata cloud & network internal
   - **Log4Shell / JNDI Injection** — termasuk variant yang di-obfuscate
   - **Scanner & Attack Tool** — blokir otomatis User-Agent dari sqlmap, nikto, nmap, nuclei, acunetix, burpsuite, dll.
+- **Dynamic Bot Detection & Whitelisting**: Izinkan perayap mesin pencari (Googlebot, Bingbot, Yandex, dll.) agar tidak terblokir oleh WAF, dan tambahkan regex kustom untuk memblokir bot/crawler tertentu secara dinamis.
+- **Per-Website IP Access Control**: Atur whitelist atau blacklist IP (mendukung format CIDR) pada masing-masing website/reverse proxy untuk membatasi akses secara granular.
+- **Mode Log-Only (Dry Run) Default**: Meminimalkan false positive dengan mengaktifkan mode uji coba (dry run) secara default saat instalasi awal. WAF dapat dinonaktifkan atau diatur kebijakannya langsung via file `.env` atau menu Pengaturan Keamanan.
 - **IP Block & Whitelist**: Block atau izinkan IP tertentu secara manual dari panel. Aturan bersifat **persistent** di database dan aktif instan tanpa restart.
 - **Rate Limiting Granular**: Batasi request per IP dalam jendela waktu — konfigurasi dari UI tanpa restart.
 - **Brute-Force Auto-Block**: IP yang gagal login sebanyak 5 kali secara otomatis diblokir dan masuk ke WAF blocklist secara permanen.
-- **Security Response Headers**: Setiap response menyertakan `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, dan `Referrer-Policy`.
+- **Security Response Headers**: Setiap response menyertakan `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, dan Referrer-Policy.
 - **Audit Log Real-Time**: Setiap serangan dicatat lengkap dengan IP, metode HTTP, kategori ancaman, severity, dan timestamp — tersedia di Security Tab.
 
 ### 🧱 Firewall Rules Manager (iptables)
@@ -118,7 +121,7 @@ WAF ZenoPanel beroperasi di dua lapisan sekaligus: **Axum middleware** (panel) d
 - Perlindungan **CSRF** bawaan pada semua request modifikasi data.
 
 ### 🗃️ File Manager, Database Console, & Web Terminal
-- **File Manager**: Navigasi direktori, unggah file via multipart, buat, edit, dan hapus berkas langsung dari browser.
+- **File Manager**: Navigasi direktori, unggah file via multipart, buat, edit, dan hapus berkas langsung dari browser. Mendukung operasi massal (bulk copy, bulk cut, bulk paste) dengan antarmuka penuh berbahasa Inggris.
 - **Interactive Terminal**: Akses shell server secara aman di browser (khusus Administrator).
 
 ### 🔄 Self-Update Satu-Klik
