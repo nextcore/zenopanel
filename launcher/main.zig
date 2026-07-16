@@ -217,10 +217,27 @@ fn runNormal(allocator: Allocator, silent: bool) !void {
     list_child.stdout_behavior = .Pipe;
     list_child.stderr_behavior = .Ignore;
 
-    try list_child.spawn();
+    list_child.spawn() catch |err| {
+        const err_msg = try std.fmt.allocPrint(allocator,
+            "WSL 2 (Windows Subsystem for Linux) tidak ditemukan atau gagal dijalankan.\n" ++
+            "Pastikan fitur WSL 2 dan Virtual Machine Platform telah diaktifkan.\n\nDetail Error: {}",
+            .{err}
+        );
+        defer allocator.free(err_msg);
+        _ = try showMessageBox(err_msg, "WSL 2 Tidak Ditemukan/Gagal", 0x00000000 | 0x00000010);
+        return;
+    };
     const stdout_list = try list_child.stdout.?.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(stdout_list);
-    _ = try list_child.wait();
+    const list_exit = try list_child.wait();
+    if (list_exit != .Exited or list_exit.Exited != 0) {
+        _ = try showMessageBox(
+            "WSL 2 gagal mengembalikan daftar distro. Silakan jalankan 'wsl --status' di PowerShell untuk memeriksa status WSL Anda.",
+            "Error WSL 2",
+            0x00000000 | 0x00000010
+        );
+        return;
+    }
 
     var cleaned_list = std.ArrayList(u8).empty;
     defer cleaned_list.deinit(allocator);
@@ -322,14 +339,48 @@ fn runNormal(allocator: Allocator, silent: bool) !void {
     var run_child = std.process.Child.init(&[_][]const u8{
         "wsl.exe", "-d", DISTRO_NAME, "-u", "root", "--cd", "/opt/zenopanel", "/usr/local/bin/zenopanel"
     }, allocator);
-    
+
     _ = try run_child.spawn();
 
-    std.Thread.sleep(1200 * std.time.ns_per_ms);
-
-    if (!silent) {
-        try openBrowser(allocator, PANEL_URL);
+    var success = false;
+    var attempts: usize = 0;
+    while (attempts < 50) : (attempts += 1) {
+        if (isPortActive(PORT)) {
+            success = true;
+            break;
+        }
+        std.Thread.sleep(200 * std.time.ns_per_ms);
     }
+
+    if (success) {
+        if (silent) {
+            const powershell_cmd =
+                \\[void] [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); $objNotifyIcon = New-Object System.Windows.Forms.NotifyIcon; $objNotifyIcon.Icon = [System.Drawing.SystemIcons]::Information; $objNotifyIcon.BalloonTipText = 'Layanan ZenoPanel background service telah berhasil dijalankan.'; $objNotifyIcon.BalloonTipTitle = 'ZenoPanel'; $objNotifyIcon.Visible = $true; $objNotifyIcon.ShowBalloonTip(5000);
+            ;
+            var toast_child = std.process.Child.init(&[_][]const u8{ "powershell.exe", "-Command", powershell_cmd }, allocator);
+            _ = toast_child.spawn() catch {};
+        } else {
+            try openBrowser(allocator, PANEL_URL);
+        }
+    } else {
+        _ = try showMessageBox(
+            "ZenoPanel telah dijalankan tetapi port 3001 tidak merespons dalam 10 detik.\nDistro WSL mungkin butuh waktu lebih lama untuk booting, atau ada kendala pada layanan.",
+            "Peringatan ZenoPanel",
+            0x00000000 | 0x00000030
+        );
+    }
+}
+
+fn runStop(allocator: Allocator) !void {
+    var stop_child = std.process.Child.init(&[_][]const u8{ "wsl.exe", "--terminate", DISTRO_NAME }, allocator);
+    _ = stop_child.spawn() catch |err| {
+        const err_msg = try std.fmt.allocPrint(allocator, "Gagal menjalankan perintah WSL untuk menonaktifkan distro.\nError: {}", .{err});
+        defer allocator.free(err_msg);
+        _ = try showMessageBox(err_msg, "Error Stop ZenoOS", 0x00000000 | 0x00000010);
+        return;
+    };
+    _ = try stop_child.wait();
+    _ = try showMessageBox("Layanan ZenoPanel (distro ZenoOS) telah dimatikan.", "ZenoPanel Dihentikan", 0x00000000 | 0x00000040);
 }
 
 fn runUninstall(allocator: Allocator) !void {
@@ -429,6 +480,9 @@ pub fn main() !void {
             return;
         } else if (std.mem.eql(u8, arg, "--silent")) {
             try runNormal(allocator, true);
+            return;
+        } else if (std.mem.eql(u8, arg, "--stop")) {
+            try runStop(allocator);
             return;
         }
     }
