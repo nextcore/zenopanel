@@ -218,11 +218,14 @@ if command -v sha256sum >/dev/null 2>&1; then
     log_success "Berkas checksum SHA-256 dibuat."
 fi
 
-# 10. Kompilasi Windows Launcher (.exe) berbasis Go
+# 10. Kompilasi Windows Launcher (.exe) berbasis Zig
 LAUNCHER_FILE="dist/zenopanel-launcher.exe"
-log_info "Mengompilasi Windows Launcher (.exe) berbasis Go..."
+log_info "Mengompilasi Windows Launcher (.exe) berbasis Zig..."
 
-GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=${VERSION} -H=windowsgui" -o "$LAUNCHER_FILE" launcher/main.go
+# Update version in main.zig
+sed -i 's|const VERSION = .*|const VERSION = "'"${VERSION}"'";|' launcher/main.zig
+
+zig build-exe -target x86_64-windows-gnu -O ReleaseSmall -femit-bin="$LAUNCHER_FILE" launcher/main.zig
 if [ $? -ne 0 ]; then
     log_error "Kompilasi Windows Launcher .exe gagal!"
     exit 1
