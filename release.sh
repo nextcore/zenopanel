@@ -122,6 +122,88 @@ if [ "$ALL_FILES_PRESENT" = false ]; then
     exit 1
 fi
 
+# Fungsi untuk memanggil AI Gemini gratisan
+generate_ai_release_notes() {
+    if [ -z "$GEMINI_API_KEY" ]; then
+        log_warn "GEMINI_API_KEY tidak ditemukan di environment."
+        echo -e "Untuk menggunakan AI gratisan, Anda memerlukan API Key gratis dari Google AI Studio."
+        echo -e "  1. Buka https://aistudio.google.com/"
+        echo -e "  2. Buat API Key gratis."
+        echo -e "  3. Masukkan kunci API Key Anda di bawah ini."
+        echo -n "Masukkan API Key Anda sekarang (atau tekan Enter untuk batal): "
+        read -r key_input
+        if [ -n "$key_input" ]; then
+            export GEMINI_API_KEY="$key_input"
+        else
+            log_warn "Batal menggunakan AI."
+            return 1
+        fi
+    fi
+
+    log_info "Mengambil riwayat commit Git..."
+    PREV_TAG=$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null)
+    if [ -z "$PREV_TAG" ]; then
+        COMMITS=$(git log --oneline -n 30)
+    else
+        COMMITS=$(git log "${PREV_TAG}..HEAD" --oneline)
+    fi
+
+    if [ -z "$COMMITS" ]; then
+        log_warn "Tidak ada commit baru terdeteksi sejak tag sebelumnya."
+        return 1
+    fi
+
+    log_info "Meminta AI Gemini untuk menghasilkan catatan rilis..."
+
+    JSON_PAYLOAD=$(python3 -c '
+import json, sys
+commits = sys.stdin.read()
+prompt = f"Tulis catatan rilis (release notes) yang profesional, menarik, dan informatif berdasarkan riwayat commit berikut. Tulis dalam bahasa Indonesia dan format Markdown yang rapi. Kelompokkan berdasarkan kategori pembaruan, perbaikan bug, dan optimisasi performa:\n\n{commits}"
+print(json.dumps({"contents": [{"parts": [{"text": prompt}]}]}))
+' << EOF
+$COMMITS
+EOF
+)
+
+    AI_RESPONSE=$(curl -s -X POST \
+        -H "Content-Type: application/json" \
+        -d "$JSON_PAYLOAD" \
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}")
+
+    # Ekstrak teks respons
+    release_notes=$(echo "$AI_RESPONSE" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if "candidates" in data and len(data["candidates"]) > 0:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        print(text)
+    else:
+        print("ERROR")
+except:
+    print("ERROR")
+')
+
+    if [ "$release_notes" = "ERROR" ] || [ -z "$release_notes" ]; then
+        log_error "Gagal memproses respon dari AI Gemini."
+        return 1
+    fi
+
+    # Gabungkan petunjuk instalasi di bagian atas
+    release_notes="### ZenoPanel ${VERSION} Release
+
+#### Cara Pemasangan di Windows
+1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
+2. Ekstrak berkas tersebut.
+3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis.
+
+---
+${release_notes}"
+
+    log_success "Catatan rilis berhasil dibuat oleh AI Gemini!"
+    return 0
+}
+
 # 5. Konfirmasi Tipe Rilis
 echo -e "\nPilih tipe rilis GitHub:"
 echo "1) Rilis Publik Langsung (Public Release)"
@@ -146,12 +228,38 @@ case $release_type_opt in
         ;;
 esac
 
-# 6. Minta catatan rilis dari pengguna
-echo -e "\nTulis deskripsi singkat untuk rilis ini (atau tekan Enter untuk menggunakan template default):"
-read -p "> " release_notes
+# 6. Catatan Rilis (Release Notes)
+echo -e "\nPilih metode pembuatan catatan rilis (Release Notes):"
+echo "1) Hasilkan otomatis dari riwayat commit Git + Petunjuk Pemasangan (Rekomendasi)"
+echo "2) Hanya hasilkan otomatis dari riwayat commit Git"
+echo "3) Hanya gunakan templat standar ZenoPanel"
+echo "4) Tulis kustom secara manual"
+echo "5) Tulis pintar menggunakan AI Google Gemini (Gratis dengan API Key)"
+read -p "Masukkan pilihan (1-5, default 1): " notes_opt
+notes_opt=${notes_opt:-1}
 
-if [ -z "$release_notes" ]; then
-    release_notes="### ZenoPanel ${VERSION} Release
+GENERATE_NOTES_FLAG=""
+release_notes=""
+
+case $notes_opt in
+    1)
+        GENERATE_NOTES_FLAG="--generate-notes"
+        release_notes="### ZenoPanel ${VERSION} Release
+
+#### Cara Pemasangan di Windows
+1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
+2. Ekstrak berkas tersebut.
+3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis.
+
+---
+#### Changelog
+"
+        ;;
+    2)
+        GENERATE_NOTES_FLAG="--generate-notes"
+        ;;
+    3)
+        release_notes="### ZenoPanel ${VERSION} Release
 
 #### Apa yang Baru
 - Optimisasi performa WSL 2 menggunakan VirtIO-FS dan Mirrored Network.
@@ -163,7 +271,30 @@ if [ -z "$release_notes" ]; then
 1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
 2. Ekstrak berkas tersebut.
 3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis."
-fi
+        ;;
+    4)
+        echo -e "\nTulis deskripsi singkat untuk rilis ini:"
+        read -p "> " release_notes
+        ;;
+    5)
+        generate_ai_release_notes
+        if [ $? -ne 0 ]; then
+            log_warn "Gagal memproses dengan AI. Menggunakan templat standar sebagai cadangan..."
+            release_notes="### ZenoPanel ${VERSION} Release
+
+#### Apa yang Baru
+- Optimisasi performa WSL 2 menggunakan VirtIO-FS dan Mirrored Network.
+- Peralihan dari Go Launcher ke Native Zig Launcher (~200KB).
+- Penambahan penanganan error WSL 2 dan notifikasi background saat startup.
+- Menambahkan parameter \`--stop\` untuk mematikan layanan distro ZenoOS secara bersih.
+
+#### Cara Pemasangan di Windows
+1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
+2. Ekstrak berkas tersebut.
+3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis."
+        fi
+        ;;
+esac
 
 # 7. Konfirmasi akhir sebelum mempublikasikan
 echo -e "\n=================================================="
@@ -196,7 +327,8 @@ gh release create "$VERSION" \
     "$LINUX_SHA_FILE" \
     --title "ZenoPanel $VERSION" \
     --notes "$release_notes" \
-    $RELEASE_FLAGS
+    $RELEASE_FLAGS \
+    $GENERATE_NOTES_FLAG
 
 if [ $? -eq 0 ]; then
     echo ""
