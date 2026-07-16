@@ -40,21 +40,16 @@ echo "      ZenoPanel WSL2 Distro Packaging Tool        "
 echo "=================================================="
 echo -e "${NC}"
 
-# 1. Deteksi Berkas Rilis ZenoPanel di /dist
-log_info "Mencari paket distribusi ZenoPanel di folder dist/..."
-TAR_FILE=$(find dist -maxdepth 1 -name "zenopanel-*.tar.gz" ! -name "*windows*" ! -name "*wsl*" | head -n 1)
-
-if [ -z "$TAR_FILE" ]; then
-    log_error "Tidak menemukan paket ZenoPanel (dist/zenopanel-*.tar.gz)."
-    log_error "Harap jalankan './compile.sh' terlebih dahulu untuk membuat paket kompilasi."
-    exit 1
+# 1. Deteksi Versi ZenoPanel dari Git / Cargo.toml
+log_info "Mendeteksi versi ZenoPanel..."
+GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
+if [ -n "$GIT_TAG" ]; then
+    VERSION="$GIT_TAG"
+else
+    CARGO_VERSION=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2 2>/dev/null)
+    VERSION="v${CARGO_VERSION:-1.5.19}"
 fi
-
-log_success "Ditemukan paket ZenoPanel: ${BOLD}$TAR_FILE${NC}"
-
-# Ekstrak versi dari nama file
-VERSION=$(basename "$TAR_FILE" | sed -E 's/zenopanel-(v?[0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz/\1/')
-log_info "Mendeteksi versi ZenoPanel: ${BOLD}$VERSION${NC}"
+log_success "Versi target ZenoPanel: ${BOLD}$VERSION${NC}"
 
 # 2. Cari & Unduh Alpine Minrootfs Terbaru
 log_info "Mencari versi Alpine Linux stabil terbaru..."
@@ -66,8 +61,9 @@ if [ -z "$ALPINE_FILE" ]; then
     ALPINE_FILE="alpine-minirootfs-3.24.1-x86_64.tar.gz"
 fi
 
-ALPINE_URL="https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/$ALPINE_FILE"
+ALPIN_URL="https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/$ALPINE_FILE"
 log_success "Menggunakan Alpine minrootfs: ${BOLD}$ALPINE_FILE${NC}"
+ALPINE_VERSION=$(echo "$ALPINE_FILE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
 
 # Unduh Alpine Minrootfs dengan Caching
 CACHE_DIR="dist/cache"
@@ -75,7 +71,7 @@ mkdir -p "$CACHE_DIR"
 
 if [ ! -f "$CACHE_DIR/$ALPINE_FILE" ]; then
     log_info "Mengunduh Alpine minrootfs dari CDN..."
-    curl -L -# -o "$CACHE_DIR/$ALPINE_FILE" "$ALPINE_URL"
+    curl -L -# -o "$CACHE_DIR/$ALPINE_FILE" "$ALPIN_URL"
     if [ $? -ne 0 ]; then
         log_error "Gagal mengunduh Alpine minrootfs."
         exit 1
@@ -87,11 +83,10 @@ fi
 
 # 3. Persiapkan Lingkungan Pembuatan Rootfs
 BUILD_DIR="dist/wsl_build"
-TEMP_EXTRACT="dist/zeno_temp"
 
 log_info "Membersihkan sisa-sisa build lama..."
-rm -rf "$BUILD_DIR" "$TEMP_EXTRACT"
-mkdir -p "$BUILD_DIR" "$TEMP_EXTRACT"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
 
 # 4. Ekstrak Alpine Minrootfs
 log_info "Mengekstrak Alpine minrootfs..."
@@ -102,33 +97,94 @@ if [ $? -ne 0 ]; then
 fi
 log_success "Ekstraksi Alpine berhasil."
 
-# 5. Ekstrak ZenoPanel dan Tempatkan ke /opt/zenopanel
-log_info "Mengekstrak paket ZenoPanel..."
-tar -xzf "$TAR_FILE" -C "$TEMP_EXTRACT"
-EXTRACT_SUBFOLDER=$(ls "$TEMP_EXTRACT" | head -n 1)
-
-log_info "Memindahkan berkas ZenoPanel ke /opt/zenopanel..."
+# 5. Buat direktori ZenoPanel kosong
 mkdir -p "$BUILD_DIR/opt/zenopanel"
-cp -r "$TEMP_EXTRACT/$EXTRACT_SUBFOLDER"/* "$BUILD_DIR/opt/zenopanel/"
 
-# Copy .env.example jika ada sebagai dasar .env
-if [ -f "$TEMP_EXTRACT/$EXTRACT_SUBFOLDER/.env.example" ]; then
-    cp "$TEMP_EXTRACT/$EXTRACT_SUBFOLDER/.env.example" "$BUILD_DIR/opt/zenopanel/.env"
-fi
-
-# Pastikan izin eksekusi untuk binary
-chmod +x "$BUILD_DIR/opt/zenopanel/zeno"
-
-# 6. Buat Direktori Data Tambahan
-log_info "Mempersiapkan direktori container runtime (Zeno Box)..."
+# 6. Buat Direktori Data Tambahan & Rebranding ZenoOS
+log_info "Mempersiapkan direktori tambahan & melakukan rebranding ke ZenoOS..."
 mkdir -p "$BUILD_DIR/var/lib/zeno-container"
-mkdir -p "$BUILD_DIR/run/openrc" # Untuk bypass deteksi OpenRC awal jika diperlukan
+mkdir -p "$BUILD_DIR/run/openrc"
+
+# Rebranding /etc/os-release
+cat << EOF > "$BUILD_DIR/etc/os-release"
+NAME="ZenoOS"
+VERSION="${VERSION} (Based on Alpine v${ALPINE_VERSION})"
+ID=zenoos
+ID_LIKE=alpine
+PRETTY_NAME="ZenoOS ${VERSION}"
+LOGO=zenopanel-logo
+HOME_URL="https://github.com/nextcore/zenopanel"
+SUPPORT_URL="https://github.com/nextcore/zenopanel/issues"
+BUG_REPORT_URL="https://github.com/nextcore/zenopanel/issues"
+EOF
+
+# Rebranding /etc/issue & /etc/motd
+cat << EOF > "$BUILD_DIR/etc/issue"
+Welcome to ZenoOS ${VERSION} (Based on Alpine Linux v${ALPINE_VERSION})
+EOF
+
+cat << EOF > "$BUILD_DIR/etc/motd"
+  ⚡ ZenoOS ${VERSION} (WSL2 Distro)
+  ===========================================
+  ZenoPanel Server Control Center is running!
+  
+  🌐 Access Dashboard: http://localhost:3001/login
+  📂 Data Directory: /var/lib/zeno-container
+  🔧 Mode: WSL2 Optimized (Alpine v${ALPINE_VERSION} Base)
+  ===========================================
+EOF
+
+# Tulis file /etc/wsl.conf bawaan untuk tuning WSL2
+cat << EOF > "$BUILD_DIR/etc/wsl.conf"
+[boot]
+systemd=false
+
+[network]
+generateResolvConf=true
+
+[automount]
+enabled=true
+options="metadata,uid=1000,gid=1000,umask=022"
+EOF
 
 # 7. Tambahkan Helper/Launcher script di /usr/local/bin
 log_info "Membuat skrip pembantu (launcher) di /usr/local/bin/zenopanel..."
-cat << 'EOF' > "$BUILD_DIR/usr/local/bin/zenopanel"
+cat << EOF > "$BUILD_DIR/usr/local/bin/zenopanel"
 #!/bin/sh
 # Launcher ZenoPanel untuk WSL2
+
+# Sinkronisasi jam sistem dengan hardware host Windows untuk mencegah SSL error akibat clock drift
+echo "[ZenoOS] Sinkronisasi waktu sistem..."
+hwclock -s >/dev/null 2>&1
+
+# Uji koneksi DNS ke github. Jika gagal, gunakan DNS Fallback publik (Cloudflare/Google)
+# agar install.sh tidak gagal akibat isu DNS di WSL2/VPN
+if ! ping -c 1 -W 2 raw.githubusercontent.com >/dev/null 2>&1; then
+    echo "[ZenoOS] Koneksi internet/DNS terhambat. Mengaktifkan DNS Fallback (1.1.1.1)..."
+    rm -f /etc/resolv.conf
+    echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" > /etc/resolv.conf
+fi
+
+# Cek & pasang dependensi dasar (curl, ca-certificates, tar, gzip, iptables, iproute2) jika belum ada
+if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1 || ! command -v iptables >/dev/null 2>&1 || ! command -v ip >/dev/null 2>&1; then
+    echo "[ZenoOS] Menyiapkan paket-paket dasar (curl, ca-certificates, tar, gzip, iptables, iproute2)..."
+    apk update >/dev/null 2>&1
+    apk add --no-cache curl ca-certificates tar gzip iptables iproute2 >/dev/null 2>&1
+fi
+
+# Cek apakah ZenoPanel sudah terpasang
+if [ ! -f /opt/zenopanel/zeno ]; then
+    echo "[ZenoOS] Mengunduh dan memasang ZenoPanel ${VERSION} otomatis..."
+    # Jalankan install.sh secara senyap (tanpa terminal interactive) untuk memasang versi yang ditargetkan
+    curl -sL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | sh -s -- --version "${VERSION}" --dir /opt/zenopanel < /dev/null
+    
+    # Sesuaikan port setelah terpasang untuk lingkungan Windows/WSL2
+    if [ -f /opt/zenopanel/.env ]; then
+        sed -i 's/^APP_PORT=.*/APP_PORT=:3001/' /opt/zenopanel/.env
+        sed -i 's/^APP_TLS_PORT=.*/APP_TLS_PORT=:8443/' /opt/zenopanel/.env
+        sed -i 's/^MGMT_PORT=.*/MGMT_PORT=:3002/' /opt/zenopanel/.env
+    fi
+fi
 
 cd /opt/zenopanel || exit 1
 
@@ -138,22 +194,22 @@ if [ -f .env ] && ! grep -q "^JWT_SECRET=" .env; then
     ./zeno key:generate >/dev/null 2>&1
 fi
 
-exec ./zeno "$@"
+exec ./zeno "\$@"
 EOF
 
 chmod +x "$BUILD_DIR/usr/local/bin/zenopanel"
 ln -sf /opt/zenopanel/zeno "$BUILD_DIR/usr/local/bin/zeno"
 
-# 8. Kemas Ulang sebagai Distro WSL2 Windows
-OUTPUT_NAME="zenopanel-windows-${VERSION}"
-OUTPUT_FILE="dist/${OUTPUT_NAME}.tar.gz"
+# 8. Kemas Ulang sebagai Distro ZenoOS WSL2
+TAR_NAME="zenoos-${VERSION}"
+OUTPUT_FILE="dist/${TAR_NAME}.tar.gz"
 
 log_info "Mengompresi distro WSL2 kustom..."
 rm -f "$OUTPUT_FILE" "${OUTPUT_FILE}.sha256"
 
 # Buat tar.gz
 cd "$BUILD_DIR" || exit 1
-tar -czf "../${OUTPUT_NAME}.tar.gz" .
+tar -czf "../${TAR_NAME}.tar.gz" .
 cd - > /dev/null || exit 1
 
 # 9. Buat SHA-256 Checksum
@@ -162,88 +218,26 @@ if command -v sha256sum >/dev/null 2>&1; then
     log_success "Berkas checksum SHA-256 dibuat."
 fi
 
-# 10. Buat Windows Launcher Batch Script
-LAUNCHER_FILE="dist/zenopanel-launcher.bat"
-log_info "Membuat Windows Launcher (.bat)..."
+# 10. Kompilasi Windows Launcher (.exe) berbasis Go
+LAUNCHER_FILE="dist/zenopanel-launcher.exe"
+log_info "Mengompilasi Windows Launcher (.exe) berbasis Go..."
 
-# Buat berkas batch launcher dengan carriage return (\r\n) agar kompatibel dengan Windows CMD
-cat << EOF | sed 's/$/\r/' > "$LAUNCHER_FILE"
-@echo off
-set DISTRO_NAME=zenopanel
-set TAR_FILE=zenopanel-windows-${VERSION}.tar.gz
-set INSTALL_DIR=%%LOCALAPPDATA%%\zenopanel-wsl
-
-:: 1. Cek apakah distro 'zenopanel' sudah terdaftar di WSL
-wsl -l | findstr /I /C:"%%DISTRO_NAME%%" >nul
-if %%errorlevel%% neq 0 (
-    echo ==================================================
-    echo       ZenoPanel Windows Automated Installer
-    echo ==================================================
-    echo Distro '%%DISTRO_NAME%%' belum terdaftar di WSL 2.
-    echo Memulai proses instalasi otomatis...
-    echo.
-    
-    :: Cek apakah file tarball ada di folder yang sama
-    if not exist "%%~dp0%%TAR_FILE%%" (
-        echo [ERROR] Berkas %%TAR_FILE%% tidak ditemukan di folder ini!
-        echo Pastikan berkas %%TAR_FILE%% berada di folder yang sama dengan launcher ini.
-        echo.
-        pause
-        exit /b 1
-    )
-    
-    :: Buat direktori tujuan di AppData Local
-    mkdir "%%INSTALL_DIR%%" 2>nul
-    
-    echo Mengimpor distro ke WSL 2 (ini memerlukan waktu beberapa detik)...
-    wsl --import %%DISTRO_NAME%% "%%INSTALL_DIR%%" "%%~dp0%%TAR_FILE%%" --version 2
-    if %%errorlevel%% neq 0 (
-        echo [ERROR] Gagal mengimpor distro ke WSL 2. Pastikan WSL 2 sudah aktif.
-        echo.
-        pause
-        exit /b 1
-    )
-    echo Distro berhasil diimpor!
-    echo ==================================================
-    echo.
-)
-
-:: 2. Siapkan direktori dan file launcher permanent di AppData
-mkdir "%%INSTALL_DIR%%" 2>nul
-set VBS_FILE=%%INSTALL_DIR%%\zenopanel-run.vbs
-
-:: Tulis file VBScript permanent
-echo Set WshShell = CreateObject("WScript.Shell") > "%%VBS_FILE%%"
-echo WshShell.Run "wsl -d %%DISTRO_NAME%% -u root --cd /opt/zenopanel /usr/local/bin/zenopanel", 0, False >> "%%VBS_FILE%%"
-echo Wscript.Sleep 1000 >> "%%VBS_FILE%%"
-echo WshShell.Run "cmd.exe /c start http://localhost:3001/zpanel", 0, False >> "%%VBS_FILE%%"
-
-:: 3. Buat Shortcut Cantik di Desktop jika belum ada
-set SHORTCUT_PATH=%%USERPROFILE%%\Desktop\ZenoPanel.lnk
-if not exist "%%SHORTCUT_PATH%%" (
-    echo Membuat shortcut ZenoPanel di Desktop Anda...
-    powershell -Command "\$WshShell = New-Object -ComObject WScript.Shell; \$Shortcut = \$WshShell.CreateShortcut('%%SHORTCUT_PATH%%'); \$Shortcut.TargetPath = 'wscript.exe'; \$Shortcut.Arguments = '\"%%VBS_FILE%%\"'; \$Shortcut.IconLocation = 'imageres.dll,-1005'; \$Shortcut.Description = 'ZenoPanel Server Control Center'; \$Shortcut.Save()"
-    echo Shortcut berhasil dibuat di Desktop!
-    echo.
-)
-
-:: 4. Jalankan ZenoPanel
-echo Menjalankan server ZenoPanel di background WSL 2...
-wscript.exe "%%VBS_FILE%%"
-
-echo Berhasil! Halaman dashboard akan terbuka di browser Anda.
-timeout /t 3 >nul
-EOF
-
-log_success "Windows Launcher .bat berhasil dibuat."
+GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=${VERSION} -H=windowsgui" -o "$LAUNCHER_FILE" launcher/main.go
+if [ $? -ne 0 ]; then
+    log_error "Kompilasi Windows Launcher .exe gagal!"
+    exit 1
+fi
+log_success "Windows Launcher .exe berhasil dikompilasi."
 
 # 11. Mengemas ke berkas ZIP rilis (jika utility zip tersedia)
-ZIP_FILE="dist/${OUTPUT_NAME}.zip"
+# ZIP rilis sekarang hanya berisi launcher.exe karena distro tarball akan diunduh dari GitHub
+ZIP_NAME="zenopanel-windows-${VERSION}"
+ZIP_FILE="dist/${ZIP_NAME}.zip"
 HAS_ZIP=false
 if command -v zip >/dev/null 2>&1; then
-    log_info "Mengompresi paket distribusi menjadi berkas ZIP siap pakai..."
+    log_info "Mengompresi launcher menjadi berkas ZIP siap pakai..."
     rm -f "$ZIP_FILE"
-    zip -j "$ZIP_FILE" "$OUTPUT_FILE" "$LAUNCHER_FILE" > /dev/null
+    zip -j "$ZIP_FILE" "$LAUNCHER_FILE" > /dev/null
     if [ $? -eq 0 ]; then
         HAS_ZIP=true
         log_success "Arsip ZIP rilis siap-pakai berhasil dibuat."
@@ -258,25 +252,20 @@ rm -rf "$BUILD_DIR" "$TEMP_EXTRACT"
 log_success "Selamat! Pengemasan distro WSL2 berhasil diselesaikan!"
 echo -e "\n${BOLD}Detail Hasil Akhir:${NC}"
 if [ "$HAS_ZIP" = true ]; then
-    echo -e "  - Berkas Rilis ZIP: ${GREEN}${PWD}/${ZIP_FILE}${NC}"
+    echo -e "  - Berkas Rilis ZIP (Client): ${GREEN}${PWD}/${ZIP_FILE}${NC} (Hanya berisi launcher.exe)"
 fi
-echo -e "  - Berkas Tarball  : ${GREEN}${PWD}/${OUTPUT_FILE}${NC}"
-echo -e "  - Berkas Launcher : ${GREEN}${PWD}/${LAUNCHER_FILE}${NC}"
-echo -e "  - Berkas Checksum : ${GREEN}${PWD}/${OUTPUT_FILE}.sha256${NC}"
+echo -e "  - Berkas Tarball (GitHub)  : ${GREEN}${PWD}/${OUTPUT_FILE}${NC} (Unggah ke GitHub Releases)"
+echo -e "  - Berkas Launcher (.exe)   : ${GREEN}${PWD}/${LAUNCHER_FILE}${NC}"
+echo -e "  - Berkas Checksum          : ${GREEN}${PWD}/${OUTPUT_FILE}.sha256${NC}"
 if [ "$HAS_ZIP" = true ]; then
-    echo -e "  - Ukuran Paket ZIP: ${GREEN}$(du -sh "${ZIP_FILE}" | cut -f1)${NC}"
-else
-    echo -e "  - Ukuran Tarball  : ${GREEN}$(du -sh "${OUTPUT_FILE}" | cut -f1)${NC}"
+    echo -e "  - Ukuran Paket ZIP         : ${GREEN}$(du -sh "${ZIP_FILE}" | cut -f1)${NC}"
 fi
 echo -e "=================================================="
-echo -e "\n${BOLD}Cara Menjalankan Sekali Klik di Windows:${NC}"
-if [ "$HAS_ZIP" = true ]; then
-    echo -e "  1. Ekstrak berkas ${GREEN}$(basename "$ZIP_FILE")${NC} di Windows."
-    echo -e "  2. Double-click file ${GREEN}zenopanel-launcher.bat${NC}."
-else
-    echo -e "  1. Salin berkas ${GREEN}$(basename "$OUTPUT_FILE")${NC} dan ${GREEN}zenopanel-launcher.bat${NC} ke satu folder yang sama di Windows."
-    echo -e "  2. Double-click file ${GREEN}zenopanel-launcher.bat${NC}."
-fi
-echo -e "  * Script akan menginstal distro secara otomatis pada klik pertama, lalu langsung membuka dashboard."
+echo -e "\n${BOLD}Langkah Rilis & Pengujian:${NC}"
+echo -e "  1. Unggah berkas ${GREEN}$(basename "$OUTPUT_FILE")${NC} ke rilis GitHub Anda dengan tag ${YELLOW}${VERSION}${NC}."
+echo -e "  2. Bagikan berkas ${GREEN}$(basename "$ZIP_FILE")${NC} ke pengguna Windows."
+echo -e "  3. Saat pengguna mengekstrak dan menjalankan ${GREEN}zenopanel-launcher.exe${NC}, ia akan mengunduh distro secara otomatis dari GitHub."
 echo -e "=================================================="
+
+
 

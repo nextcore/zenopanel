@@ -124,6 +124,29 @@ http.post: '/api/settings/service-uninstall' {
     }
 }
 
+# 5b. POST /api/settings/launcher
+http.post: '/api/settings/launcher' {
+    auth.guard
+    auth.is_admin: { as: $is_admin }
+    if: $is_admin {
+        then: {
+            http.json_body: { as: $body }
+            system.launcher_control: $body.action { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Konfigurasi launcher Windows berhasil dijalankan" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal memproses konfigurasi launcher Windows" }
+                }
+            }
+        }
+        else: {
+            http.forbidden: { message: "Forbidden: Hanya Administrator yang diijinkan" }
+        }
+    }
+}
+
 # 6. GET /api/settings/security
 http.get: '/api/settings/security' {
     auth.guard

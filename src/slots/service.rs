@@ -35,11 +35,20 @@ fn get_init_system() -> String {
     }
 }
 
+fn is_wsl() -> bool {
+    std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|s| s.to_lowercase().contains("microsoft") || s.to_lowercase().contains("wsl"))
+        .unwrap_or(false)
+}
+
 fn get_service_status(init_sys: &str) -> String {
     if init_sys == "systemd" {
         let path = Path::new("/etc/systemd/system/zenopanel.service");
         if !path.exists() {
             return "not_installed".to_string();
+        }
+        if is_wsl() {
+            return "active".to_string();
         }
         let output = Command::new("systemctl")
             .args(&["is-active", "zenopanel.service"])
@@ -55,6 +64,9 @@ fn get_service_status(init_sys: &str) -> String {
         let path = Path::new("/etc/init.d/zenopanel");
         if !path.exists() {
             return "not_installed".to_string();
+        }
+        if is_wsl() {
+            return "active".to_string();
         }
         let output = Command::new("/etc/init.d/zenopanel")
             .arg("status")
@@ -201,6 +213,7 @@ pub fn register(engine: &mut Engine) {
             info.insert("service_content".to_string(), Value::String(service_content));
             info.insert("install_command".to_string(), Value::String(install_cmd.to_string()));
             info.insert("uninstall_command".to_string(), Value::String(uninstall_cmd.to_string()));
+            info.insert("is_wsl".to_string(), Value::Bool(is_wsl()));
 
             scope.set(&target, Value::Map(info));
             Ok(())
@@ -253,8 +266,12 @@ pub fn register(engine: &mut Engine) {
                 if std::fs::write(path, &service_content).is_ok() {
                     let reload = Command::new("systemctl").arg("daemon-reload").status();
                     let enable = Command::new("systemctl").args(&["enable", "zenopanel.service"]).status();
-                    let start = Command::new("systemctl").args(&["start", "zenopanel.service"]).status();
-                    reload.is_ok() && enable.is_ok() && start.is_ok()
+                    if is_wsl() {
+                        reload.is_ok() && enable.is_ok()
+                    } else {
+                        let start = Command::new("systemctl").args(&["start", "zenopanel.service"]).status();
+                        reload.is_ok() && enable.is_ok() && start.is_ok()
+                    }
                 } else {
                     false
                 }
@@ -263,8 +280,12 @@ pub fn register(engine: &mut Engine) {
                 if std::fs::write(path, &service_content).is_ok() {
                     let chmod = Command::new("chmod").args(&["+x", path]).status();
                     let update = Command::new("rc-update").args(&["add", "zenopanel", "default"]).status();
-                    let start = Command::new("rc-service").args(&["zenopanel", "start"]).status();
-                    chmod.is_ok() && update.is_ok() && start.is_ok()
+                    if is_wsl() {
+                        chmod.is_ok() && update.is_ok()
+                    } else {
+                        let start = Command::new("rc-service").args(&["zenopanel", "start"]).status();
+                        chmod.is_ok() && update.is_ok() && start.is_ok()
+                    }
                 } else {
                     false
                 }
@@ -273,8 +294,12 @@ pub fn register(engine: &mut Engine) {
                 if std::fs::write(path, &service_content).is_ok() {
                     let chmod = Command::new("chmod").args(&["+x", path]).status();
                     let update = Command::new("update-rc.d").args(&["zenopanel", "defaults"]).status();
-                    let start = Command::new("service").args(&["zenopanel", "start"]).status();
-                    chmod.is_ok() && update.is_ok() && start.is_ok()
+                    if is_wsl() {
+                        chmod.is_ok() && update.is_ok()
+                    } else {
+                        let start = Command::new("service").args(&["zenopanel", "start"]).status();
+                        chmod.is_ok() && update.is_ok() && start.is_ok()
+                    }
                 } else {
                     false
                 }
@@ -322,6 +347,54 @@ pub fn register(engine: &mut Engine) {
                 let remove = Command::new("update-rc.d").args(&["-f", "zenopanel", "remove"]).status();
                 let rm = std::fs::remove_file("/etc/init.d/zenopanel");
                 stop.is_ok() && remove.is_ok() && rm.is_ok()
+            } else {
+                false
+            };
+
+            scope.set(&target, Value::Bool(success));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
+    engine.register(
+        "system.launcher_control",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut action = "".to_string();
+            let mut target = "success".to_string();
+            for child in &node.children {
+                if child.name == "action" {
+                    action = child.value.clone().unwrap_or_default();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+            if action.is_empty() {
+                action = node.value.clone().unwrap_or_default();
+            }
+
+            if !is_wsl() {
+                scope.set(&target, Value::Bool(false));
+                return Ok(());
+            }
+
+            let success = if let Ok(launcher_path) = std::fs::read_to_string("/opt/zenopanel/.launcher_path") {
+                let launcher_path = launcher_path.trim();
+                let flag = match action.as_str() {
+                    "autostart-enable" => "--autostart-enable",
+                    "autostart-disable" => "--autostart-disable",
+                    "uninstall" => "--uninstall",
+                    _ => "",
+                };
+                if !flag.is_empty() {
+                    // Jalankan menggunakan cmd.exe dari host Windows (WSL Interop)
+                    let status = Command::new("cmd.exe")
+                        .args(&["/c", &format!("\"{}\" {}", launcher_path, flag)])
+                        .status();
+                    status.is_ok() && status.unwrap().success()
+                } else {
+                    false
+                }
             } else {
                 false
             };
