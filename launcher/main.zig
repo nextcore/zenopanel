@@ -7,7 +7,7 @@ const PORT = "3001";
 const PANEL_URL = "http://localhost:3001/login";
 
 // Versi default yang diselaraskan dengan tag rilis
-const VERSION = "v1.5.19";
+const VERSION = "v1.5.20";
 
 // Win32 API declarations untuk target Windows
 const win = if (builtin.os.tag == .windows) struct {
@@ -28,6 +28,24 @@ const win = if (builtin.os.tag == .windows) struct {
         lpText: [*:0]const u16,
         lpCaption: [*:0]const u16,
         uType: UINT,
+    ) callconv(.winapi) INT;
+
+    pub const OSVERSIONINFOEXW = extern struct {
+        dwOSVersionInfoSize: u32,
+        dwMajorVersion: u32,
+        dwMinorVersion: u32,
+        dwBuildNumber: u32,
+        dwPlatformId: u32,
+        szCSDVersion: [128]u16,
+        wServicePackMajor: u16,
+        wServicePackMinor: u16,
+        wSuiteMask: u16,
+        wProductType: u8,
+        wReserved: u8,
+    };
+
+    pub extern "ntdll" fn RtlGetVersion(
+        lpVersionInformation: *OSVERSIONINFOEXW,
     ) callconv(.winapi) INT;
 } else struct {};
 
@@ -93,12 +111,26 @@ fn downloadFile(allocator: Allocator, url_str: []const u8, dest_path: []const u8
     }
 }
 
+fn supportsWslExperimental() bool {
+    if (builtin.os.tag != .windows) return false;
+    var info: win.OSVERSIONINFOEXW = undefined;
+    info.dwOSVersionInfoSize = @sizeOf(win.OSVERSIONINFOEXW);
+    const status = win.RtlGetVersion(&info);
+    if (status == 0) {
+        // Build 22621 adalah Windows 11 22H2 yang mendukung fitur eksperimental WSL
+        return info.dwBuildNumber >= 22621;
+    }
+    return false;
+}
+
 fn configureWslConfigs(allocator: Allocator) !void {
     const user_profile = std.process.getEnvVarOwned(allocator, "USERPROFILE") catch return;
     defer allocator.free(user_profile);
 
     const wslconfig_path = try std.fs.path.join(allocator, &[_][]const u8{ user_profile, ".wslconfig" });
     defer allocator.free(wslconfig_path);
+
+    if (!supportsWslExperimental()) return;
 
     var content: []u8 = &.{};
     defer allocator.free(content);

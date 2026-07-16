@@ -63,7 +63,7 @@ DEFAULT_INSTALL_DIR="/opt/zenopanel"
 VERSION="$DEFAULT_VERSION"
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
 
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
     case "$1" in
         --version)
             VERSION="$2"

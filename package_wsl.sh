@@ -157,9 +157,21 @@ cat << EOF > "$BUILD_DIR/usr/local/bin/zenopanel"
 echo "[ZenoOS] Sinkronisasi waktu sistem..."
 hwclock -s >/dev/null 2>&1
 
-# Uji koneksi DNS ke github. Jika gagal, gunakan DNS Fallback publik (Cloudflare/Google)
-# agar install.sh tidak gagal akibat isu DNS di WSL2/VPN
-if ! ping -c 1 -W 2 raw.githubusercontent.com >/dev/null 2>&1; then
+# Uji koneksi DNS ke github (maksimal 5 kali percobaan) untuk menunggu jaringan WSL siap
+echo "[ZenoOS] Memeriksa koneksi internet..."
+attempts=0
+connected=false
+while [ \$attempts -lt 5 ]; do
+    if nslookup raw.githubusercontent.com >/dev/null 2>&1 || ping -c 1 -W 2 raw.githubusercontent.com >/dev/null 2>&1; then
+        connected=true
+        break
+    fi
+    echo "[ZenoOS] Koneksi belum siap, mencoba lagi... (\$((attempts+1))/5)"
+    sleep 2
+    attempts=\$((attempts+1))
+done
+
+if [ "\$connected" = false ]; then
     echo "[ZenoOS] Koneksi internet/DNS terhambat. Mengaktifkan DNS Fallback (1.1.1.1)..."
     rm -f /etc/resolv.conf
     echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" > /etc/resolv.conf
@@ -168,15 +180,22 @@ fi
 # Cek & pasang dependensi dasar (curl, ca-certificates, tar, gzip, iptables, iproute2) jika belum ada
 if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1 || ! command -v iptables >/dev/null 2>&1 || ! command -v ip >/dev/null 2>&1; then
     echo "[ZenoOS] Menyiapkan paket-paket dasar (curl, ca-certificates, tar, gzip, iptables, iproute2)..."
-    apk update >/dev/null 2>&1
-    apk add --no-cache curl ca-certificates tar gzip iptables iproute2 >/dev/null 2>&1
+    mkdir -p /var/log
+    echo "=== Installing dependencies ===" > /var/log/zenopanel-install.log
+    apk update >> /var/log/zenopanel-install.log 2>&1
+    apk add --no-cache curl ca-certificates tar gzip iptables iproute2 >> /var/log/zenopanel-install.log 2>&1
 fi
 
 # Cek apakah ZenoPanel sudah terpasang
 if [ ! -f /opt/zenopanel/zeno ]; then
     echo "[ZenoOS] Mengunduh dan memasang ZenoPanel ${VERSION} otomatis..."
     # Jalankan install.sh secara senyap (tanpa terminal interactive) untuk memasang versi yang ditargetkan
-    curl -sL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | sh -s -- --version "${VERSION}" --dir /opt/zenopanel < /dev/null
+    mkdir -p /var/log
+    echo "=== Running install.sh ===" >> /var/log/zenopanel-install.log
+    if ! curl -sL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | sh -s -- --version "${VERSION}" --dir /opt/zenopanel < /dev/null >> /var/log/zenopanel-install.log 2>&1; then
+        echo "[ZenoOS] Error: Gagal memasang ZenoPanel. Silakan periksa berkas log di /var/log/zenopanel-install.log"
+        exit 1
+    fi
     
     # Sesuaikan port setelah terpasang untuk lingkungan Windows/WSL2
     if [ -f /opt/zenopanel/.env ]; then
