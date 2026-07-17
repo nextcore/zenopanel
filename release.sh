@@ -235,8 +235,9 @@ echo "2) Hanya hasilkan otomatis dari riwayat commit Git"
 echo "3) Hanya gunakan templat standar ZenoPanel"
 echo "4) Tulis kustom secara manual"
 echo "5) Tulis pintar menggunakan AI Google Gemini (Gratis dengan API Key)"
-read -p "Masukkan pilihan (1-5, default 1): " notes_opt
-notes_opt=${notes_opt:-1}
+echo "6) Gunakan isi dari berkas RELEASE_NOTES.md lokal (Default)"
+read -p "Masukkan pilihan (1-6, default 6): " notes_opt
+notes_opt=${notes_opt:-6}
 
 GENERATE_NOTES_FLAG=""
 release_notes=""
@@ -292,6 +293,15 @@ case $notes_opt in
 1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
 2. Ekstrak berkas tersebut.
 3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis."
+        fi
+        ;;
+    6)
+        if [ -f "RELEASE_NOTES.md" ]; then
+            release_notes=$(cat RELEASE_NOTES.md)
+            log_success "Berhasil memuat berkas RELEASE_NOTES.md lokal."
+        else
+            log_error "Berkas RELEASE_NOTES.md tidak ditemukan!"
+            exit 1
         fi
         ;;
 esac

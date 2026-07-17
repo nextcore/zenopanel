@@ -2245,8 +2245,19 @@ async fn handle_terminal_socket(
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Failed to spawn command in PTY: {}", e);
-            return;
+            if container_id.is_none() && e.kind() == std::io::ErrorKind::NotFound {
+                let cmd_fallback = CommandBuilder::new("sh");
+                match pair.slave.spawn_command(cmd_fallback) {
+                    Ok(c) => c,
+                    Err(err) => {
+                        eprintln!("Failed to spawn command in PTY (tried bash and fallback sh): {}", err);
+                        return;
+                    }
+                }
+            } else {
+                eprintln!("Failed to spawn command in PTY: {}", e);
+                return;
+            }
         }
     };
     

@@ -636,9 +636,17 @@ pub fn register(engine: &mut Engine) {
                 }
             }
 
-            let output = std::process::Command::new("bash")
+            let mut output = std::process::Command::new("bash")
                 .args(&["-c", &command])
                 .output();
+
+            if let Err(ref e) = output {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    output = std::process::Command::new("sh")
+                        .args(&["-c", &command])
+                        .output();
+                }
+            }
 
             let mut res = HashMap::new();
             match output {

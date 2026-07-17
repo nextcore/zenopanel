@@ -300,20 +300,13 @@ impl ProcessManager {
                 }
 
                 // Build Command
-                let mut cmd = if cfg!(target_os = "windows") {
-                    let mut c = Command::new("cmd");
-                    c.args(&["/C", &command]);
-                    c
-                } else {
-                    let mut c = Command::new("sh");
-                    c.args(&["-c", &command]);
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::process::CommandExt;
-                        c.as_std_mut().process_group(0);
-                    }
-                    c
-                };
+                let mut cmd = Command::new("sh");
+                cmd.args(&["-c", &command]);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::CommandExt;
+                    cmd.as_std_mut().process_group(0);
+                }
 
                 cmd.current_dir(&cwd);
 
