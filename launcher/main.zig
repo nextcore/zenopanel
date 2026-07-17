@@ -240,7 +240,20 @@ fn runNormal(allocator: Allocator, silent: bool) !void {
 
     if (isPortActive(PORT)) {
         if (!silent) {
-            try openBrowser(allocator, PANEL_URL);
+            const ans = try showMessageBox(
+                "Layanan ZenoPanel (distro ZenoOS) sudah berjalan.\n\n" ++
+                "Apakah Anda ingin membuka ZenoPanel di browser?\n\n" ++
+                "Pilih 'Yes' untuk membuka browser,\n" ++
+                "Pilih 'No' untuk menghentikan layanan (Stop WSL),\n" ++
+                "Pilih 'Cancel' untuk batal.",
+                "ZenoPanel",
+                0x00000003 | 0x00000020 // MB_YESNOCANCEL | MB_ICONQUESTION
+            );
+            if (ans == 6) { // IDYES
+                try openBrowser(allocator, PANEL_URL);
+            } else if (ans == 7) { // IDNO
+                try runStop(allocator);
+            }
         }
         return;
     }
@@ -491,6 +504,434 @@ fn runAutostart(allocator: Allocator, enable: bool) !void {
     _ = try showMessageBox("ZenoPanel berhasil dikonfigurasi untuk berjalan otomatis saat Windows menyala (secara background).", "Sukses", 0x00000000 | 0x00000040);
 }
 
+const win32 = if (builtin.os.tag == .windows) struct {
+    pub const HWND = *anyopaque;
+    pub const HINSTANCE = *anyopaque;
+    pub const HMENU = *anyopaque;
+    pub const HBRUSH = *anyopaque;
+    pub const HFONT = *anyopaque;
+    pub const HDC = *anyopaque;
+    pub const HICON = *anyopaque;
+    pub const HCURSOR = *anyopaque;
+    pub const COLORREF = u32;
+
+    pub const WNDPROC = *const fn (HWND, u32, usize, isize) callconv(.winapi) isize;
+
+    pub const WNDCLASSEXW = extern struct {
+        cbSize: u32 = @sizeOf(WNDCLASSEXW),
+        style: u32,
+        lpfnWndProc: WNDPROC,
+        cbClsExtra: i32 = 0,
+        cbWndExtra: i32 = 0,
+        hInstance: HINSTANCE,
+        hIcon: ?HICON = null,
+        hCursor: ?HCURSOR = null,
+        hbrBackground: ?HBRUSH = null,
+        lpszMenuName: ?[*:0]const u16 = null,
+        lpszClassName: [*:0]const u16,
+        hIconSm: ?HICON = null,
+    };
+
+    pub const POINT = extern struct {
+        x: i32,
+        y: i32,
+    };
+
+    pub const MSG = extern struct {
+        hwnd: ?HWND,
+        message: u32,
+        wParam: usize,
+        lParam: isize,
+        time: u32,
+        pt: POINT,
+        lPrivate: u32 = 0,
+    };
+
+    pub const RECT = extern struct {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    };
+
+    pub const PAINTSTRUCT = extern struct {
+        hdc: HDC,
+        fErase: i32,
+        rcPaint: RECT,
+        fRestore: i32,
+        fIncUpdate: i32,
+        rgbReserved: [32]u8,
+    };
+
+    pub const CS_HREDRAW: u32 = 0x0002;
+    pub const CS_VREDRAW: u32 = 0x0001;
+    pub const WS_CHILD: u32 = 0x40000000;
+    pub const WS_VISIBLE: u32 = 0x10000000;
+    pub const BS_PUSHBUTTON: u32 = 0x00000000;
+    pub const SS_CENTER: u32 = 0x00000001;
+    pub const SS_LEFT: u32 = 0x00000000;
+    pub const CW_USEDEFAULT: i32 = @as(i32, @bitCast(@as(u32, 0x80000000)));
+
+    pub const WM_CREATE: u32 = 0x0001;
+    pub const WM_DESTROY: u32 = 0x0002;
+    pub const WM_COMMAND: u32 = 0x0111;
+    pub const WM_CTLCOLORSTATIC: u32 = 0x0138;
+    pub const WM_SETFONT: u32 = 0x0030;
+
+    pub extern "user32" fn RegisterClassExW(lpwcx: *const WNDCLASSEXW) callconv(.winapi) u16;
+    pub extern "user32" fn CreateWindowExW(
+        dwExStyle: u32,
+        lpClassName: [*:0]const u16,
+        lpWindowName: ?[*:0]const u16,
+        dwStyle: u32,
+        X: i32,
+        Y: i32,
+        nWidth: i32,
+        nHeight: i32,
+        hWndParent: ?HWND,
+        hMenu: ?HMENU,
+        hInstance: HINSTANCE,
+        lpParam: ?*anyopaque,
+    ) callconv(.winapi) ?HWND;
+    pub extern "user32" fn ShowWindow(hWnd: HWND, nCmdShow: i32) callconv(.winapi) i32;
+    pub extern "user32" fn UpdateWindow(hWnd: HWND) callconv(.winapi) i32;
+    pub extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: u32) callconv(.winapi) i32;
+    pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.winapi) i32;
+    pub extern "user32" fn DispatchMessageW(lpMsg: *const MSG) callconv(.winapi) isize;
+    pub extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(.winapi) void;
+    pub extern "user32" fn DefWindowProcW(hWnd: HWND, Msg: u32, wParam: usize, lParam: isize) callconv(.winapi) isize;
+    pub extern "user32" fn SendMessageW(hWnd: HWND, Msg: u32, wParam: usize, lParam: isize) callconv(.winapi) isize;
+    pub extern "user32" fn LoadCursorW(hInstance: ?HINSTANCE, lpCursorName: [*:0]const u16) callconv(.winapi) ?HCURSOR;
+    pub extern "user32" fn SetWindowTextW(hWnd: HWND, lpString: [*:0]const u16) callconv(.winapi) i32;
+    pub extern "user32" fn InvalidateRect(hWnd: HWND, lpRect: ?*const RECT, bErase: i32) callconv(.winapi) i32;
+    pub extern "user32" fn GetModuleHandleW(lpModuleName: ?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
+    
+    pub extern "gdi32" fn CreateSolidBrush(color: COLORREF) callconv(.winapi) ?HBRUSH;
+    pub extern "gdi32" fn DeleteObject(ho: ?*anyopaque) callconv(.winapi) i32;
+    pub extern "gdi32" fn SetTextColor(hdc: HDC, color: COLORREF) callconv(.winapi) COLORREF;
+    pub extern "gdi32" fn SetBkColor(hdc: HDC, color: COLORREF) callconv(.winapi) COLORREF;
+    pub extern "gdi32" fn SetBkMode(hdc: HDC, mode: i32) callconv(.winapi) i32;
+    pub extern "gdi32" fn CreateFontW(
+        cHeight: i32,
+        cWidth: i32,
+        cEscapement: i32,
+        cOrientation: i32,
+        cWeight: i32,
+        bItalic: u32,
+        bUnderline: u32,
+        bStrikeOut: u32,
+        iCharSet: u32,
+        iOutPrecision: u32,
+        iClipPrecision: u32,
+        iQuality: u32,
+        iPitchAndFamily: u32,
+        pszFaceName: [*:0]const u16,
+    ) callconv(.winapi) ?HFONT;
+} else struct {};
+
+const win32_gui = if (builtin.os.tag == .windows) struct {
+    var hwnd_main: win32.HWND = undefined;
+    var hwnd_status_val: win32.HWND = undefined;
+    var hwnd_btn_start: win32.HWND = undefined;
+    var hwnd_btn_stop: win32.HWND = undefined;
+    var hwnd_btn_autostart: win32.HWND = undefined;
+    var bg_brush: win32.HBRUSH = undefined;
+    var global_allocator: Allocator = undefined;
+
+    var is_zeno_active = false;
+    var is_processing = false;
+
+    fn toWString(comptime str: []const u8) *const [str.len:0]u16 {
+        const S = struct {
+            const out = blk: {
+                var res: [str.len:0]u16 = undefined;
+                for (str, 0..) |c, i| {
+                    res[i] = c;
+                }
+                break :blk res;
+            };
+        };
+        return &S.out;
+    }
+
+    fn statusMonitorLoop(hwnd: win32.HWND) void {
+        _ = hwnd;
+        while (true) {
+            const active = isPortActive(PORT);
+            if (active != is_zeno_active) {
+                is_zeno_active = active;
+                if (!is_processing) {
+                    if (active) {
+                        _ = win32.SetWindowTextW(hwnd_status_val, toWString("Aktif").ptr);
+                    } else {
+                        _ = win32.SetWindowTextW(hwnd_status_val, toWString("Tidak Aktif").ptr);
+                    }
+                }
+                _ = win32.InvalidateRect(hwnd_status_val, null, 1);
+            }
+            std.Thread.sleep(1 * std.time.ns_per_s);
+        }
+    }
+
+    fn startZenoTask(hwnd: win32.HWND) void {
+        _ = hwnd;
+        is_processing = true;
+        _ = win32.SetWindowTextW(hwnd_status_val, toWString("Memulai...").ptr);
+        _ = win32.InvalidateRect(hwnd_status_val, null, 1);
+        
+        runNormal(global_allocator, false) catch |err| {
+            is_processing = false;
+            const msg = std.fmt.allocPrint(global_allocator, "Gagal menjalankan ZenoPanel: {}", .{err}) catch return;
+            defer global_allocator.free(msg);
+            _ = showMessageBox(msg, "Error", 0x10) catch {};
+            return;
+        };
+        
+        is_processing = false;
+        _ = win32.InvalidateRect(hwnd_status_val, null, 1);
+    }
+
+    fn stopZenoTask(hwnd: win32.HWND) void {
+        _ = hwnd;
+        is_processing = true;
+        _ = win32.SetWindowTextW(hwnd_status_val, toWString("Menghentikan...").ptr);
+        _ = win32.InvalidateRect(hwnd_status_val, null, 1);
+        
+        runStop(global_allocator) catch |err| {
+            is_processing = false;
+            const msg = std.fmt.allocPrint(global_allocator, "Gagal menghentikan ZenoPanel: {}", .{err}) catch return;
+            defer global_allocator.free(msg);
+            _ = showMessageBox(msg, "Error", 0x10) catch {};
+            return;
+        };
+        
+        is_processing = false;
+        _ = win32.InvalidateRect(hwnd_status_val, null, 1);
+    }
+
+    fn isAutostartEnabled(allocator: Allocator) bool {
+        const app_data = std.process.getEnvVarOwned(allocator, "APPDATA") catch return false;
+        defer allocator.free(app_data);
+        
+        const startup_lnk = std.fs.path.join(allocator, &[_][]const u8{ app_data, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "ZenoPanel.lnk" }) catch return false;
+        defer allocator.free(startup_lnk);
+        
+        const f = std.fs.openFileAbsolute(startup_lnk, .{}) catch return false;
+        f.close();
+        return true;
+    }
+
+    fn updateAutostartButtonText() void {
+        const enabled = isAutostartEnabled(global_allocator);
+        if (enabled) {
+            _ = win32.SetWindowTextW(hwnd_btn_autostart, toWString("Autostart: AKTIF (Klik untuk Nonaktif)").ptr);
+        } else {
+            _ = win32.SetWindowTextW(hwnd_btn_autostart, toWString("Autostart: NONAKTIF (Klik untuk Aktif)").ptr);
+        }
+    }
+
+    fn toggleAutostartTask(hwnd: win32.HWND) void {
+        _ = hwnd;
+        const enabled = isAutostartEnabled(global_allocator);
+        runAutostart(global_allocator, !enabled) catch |err| {
+            const msg = std.fmt.allocPrint(global_allocator, "Gagal mengubah autostart: {}", .{err}) catch return;
+            defer global_allocator.free(msg);
+            _ = showMessageBox(msg, "Error", 0x10) catch {};
+            return;
+        };
+        updateAutostartButtonText();
+    }
+
+    fn uninstallTask(hwnd: win32.HWND) void {
+        _ = hwnd;
+        runUninstall(global_allocator) catch |err| {
+            const msg = std.fmt.allocPrint(global_allocator, "Gagal mencopot ZenoPanel: {}", .{err}) catch return;
+            defer global_allocator.free(msg);
+            _ = showMessageBox(msg, "Error", 0x10) catch {};
+            return;
+        };
+        win32.PostQuitMessage(0);
+    }
+
+    fn wndProc(hwnd: win32.HWND, message: u32, wParam: usize, lParam: isize) callconv(.winapi) isize {
+        switch (message) {
+            win32.WM_CREATE => {
+                const hInstance = win32.GetModuleHandleW(null).?;
+                
+                const hTitleFont = win32.CreateFontW(
+                    22, 0, 0, 0, 700, 0, 0, 0, 1, 0, 0, 2, 0,
+                    toWString("Segoe UI")
+                );
+                const hFont = win32.CreateFontW(
+                    16, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 2, 0,
+                    toWString("Segoe UI")
+                );
+                
+                const hwnd_title = win32.CreateWindowExW(
+                    0, toWString("STATIC"), toWString("ZenoPanel Control Center"),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.SS_CENTER,
+                    10, 15, 340, 25, hwnd, null, hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_title, win32.WM_SETFONT, @intFromPtr(hTitleFont), 1);
+                
+                const hwnd_status_lbl = win32.CreateWindowExW(
+                    0, toWString("STATIC"), toWString("Status:"),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.SS_LEFT,
+                    20, 55, 60, 20, hwnd, null, hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_status_lbl, win32.WM_SETFONT, @intFromPtr(hFont), 1);
+                
+                hwnd_status_val = win32.CreateWindowExW(
+                    0, toWString("STATIC"), toWString("Mencari..."),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.SS_LEFT,
+                    80, 55, 200, 20, hwnd, null, hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_status_val, win32.WM_SETFONT, @intFromPtr(hFont), 1);
+                
+                hwnd_btn_start = win32.CreateWindowExW(
+                    0, toWString("BUTTON"), toWString("Buka Dashboard"),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.BS_PUSHBUTTON,
+                    20, 90, 320, 35, hwnd, @ptrFromInt(1001), hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_btn_start, win32.WM_SETFONT, @intFromPtr(hFont), 1);
+                
+                hwnd_btn_stop = win32.CreateWindowExW(
+                    0, toWString("BUTTON"), toWString("Matikan Layanan (Stop WSL)"),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.BS_PUSHBUTTON,
+                    20, 135, 320, 35, hwnd, @ptrFromInt(1002), hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_btn_stop, win32.WM_SETFONT, @intFromPtr(hFont), 1);
+                
+                hwnd_btn_autostart = win32.CreateWindowExW(
+                    0, toWString("BUTTON"), toWString("Autostart"),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.BS_PUSHBUTTON,
+                    20, 180, 320, 35, hwnd, @ptrFromInt(1003), hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_btn_autostart, win32.WM_SETFONT, @intFromPtr(hFont), 1);
+                updateAutostartButtonText();
+                
+                const hwnd_btn_uninstall = win32.CreateWindowExW(
+                    0, toWString("BUTTON"), toWString("Copot ZenoPanel"),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.BS_PUSHBUTTON,
+                    20, 225, 320, 35, hwnd, @ptrFromInt(1004), hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_btn_uninstall, win32.WM_SETFONT, @intFromPtr(hFont), 1);
+                
+                const hwnd_btn_exit = win32.CreateWindowExW(
+                    0, toWString("BUTTON"), toWString("Keluar"),
+                    win32.WS_CHILD | win32.WS_VISIBLE | win32.BS_PUSHBUTTON,
+                    20, 270, 320, 35, hwnd, @ptrFromInt(1005), hInstance, null
+                ).?;
+                _ = win32.SendMessageW(hwnd_btn_exit, win32.WM_SETFONT, @intFromPtr(hFont), 1);
+                
+                _ = std.Thread.spawn(.{}, statusMonitorLoop, .{hwnd}) catch {};
+            },
+            win32.WM_CTLCOLORSTATIC => {
+                const control_hwnd = @as(win32.HWND, @ptrFromInt(@as(usize, @bitCast(lParam))));
+                const hdc = @as(win32.HDC, @ptrFromInt(wParam));
+                _ = win32.SetBkColor(hdc, 0x002A170F);
+                _ = win32.SetBkMode(hdc, 1);
+                if (control_hwnd == hwnd_status_val) {
+                    if (is_processing) {
+                        _ = win32.SetTextColor(hdc, 0x0038bdf8);
+                    } else if (is_zeno_active) {
+                        _ = win32.SetTextColor(hdc, 0x004ade80);
+                    } else {
+                        _ = win32.SetTextColor(hdc, 0x009ca3af);
+                    }
+                } else {
+                    _ = win32.SetTextColor(hdc, 0x00FFFFFF);
+                }
+                return @as(isize, @bitCast(@intFromPtr(bg_brush)));
+            },
+            win32.WM_COMMAND => {
+                const control_id = wParam & 0xFFFF;
+                switch (control_id) {
+                    1001 => {
+                        if (!is_processing) {
+                            _ = std.Thread.spawn(.{}, startZenoTask, .{hwnd}) catch {};
+                        }
+                    },
+                    1002 => {
+                        if (!is_processing) {
+                            _ = std.Thread.spawn(.{}, stopZenoTask, .{hwnd}) catch {};
+                        }
+                    },
+                    1003 => {
+                        _ = std.Thread.spawn(.{}, toggleAutostartTask, .{hwnd}) catch {};
+                    },
+                    1004 => {
+                        _ = std.Thread.spawn(.{}, uninstallTask, .{hwnd}) catch {};
+                    },
+                    1005 => {
+                        win32.PostQuitMessage(0);
+                    },
+                    else => {}
+                }
+            },
+            win32.WM_DESTROY => {
+                win32.PostQuitMessage(0);
+            },
+            else => {
+                return win32.DefWindowProcW(hwnd, message, wParam, lParam);
+            }
+        }
+        return 0;
+    }
+
+    pub fn runGui(allocator: Allocator) !void {
+        global_allocator = allocator;
+        bg_brush = win32.CreateSolidBrush(0x002A170F).?;
+        defer _ = win32.DeleteObject(bg_brush);
+        
+        const hInstance = win32.GetModuleHandleW(null).?;
+        const CLASS_NAME = toWString("ZenoPanelControlCenter");
+        
+        const wcex = win32.WNDCLASSEXW{
+            .style = win32.CS_HREDRAW | win32.CS_VREDRAW,
+            .lpfnWndProc = wndProc,
+            .hInstance = hInstance,
+            .hCursor = win32.LoadCursorW(null, @ptrFromInt(32512)),
+            .hbrBackground = bg_brush,
+            .lpszClassName = CLASS_NAME,
+        };
+        
+        _ = win32.RegisterClassExW(&wcex);
+        
+        const hwnd = win32.CreateWindowExW(
+            0, CLASS_NAME, toWString("ZenoPanel Control Center"),
+            0x00CA0000 | win32.WS_VISIBLE,
+            win32.CW_USEDEFAULT, win32.CW_USEDEFAULT, 376, 365,
+            null, null, hInstance, null
+        ) orelse return error.WindowCreationFailed;
+        
+        hwnd_main = hwnd;
+        
+        const dwmapi = std.os.windows.kernel32.GetModuleHandleW(
+            &[_:0]u16{ 'd', 'w', 'm', 'a', 'p', 'i', '.', 'd', 'l', 'l' }
+        ) orelse std.os.windows.kernel32.LoadLibraryW(
+            &[_:0]u16{ 'd', 'w', 'm', 'a', 'p', 'i', '.', 'd', 'l', 'l' }
+        );
+        if (dwmapi) |dll| {
+            const DwmSetWindowAttribute = @as(
+                *const fn (win32.HWND, u32, *const anyopaque, u32) callconv(.winapi) i32,
+                @ptrCast(std.os.windows.kernel32.GetProcAddress(dll, "DwmSetWindowAttribute") orelse return)
+            );
+            const use_dark: u32 = 1;
+            _ = DwmSetWindowAttribute(hwnd, 20, &use_dark, @sizeOf(u32));
+        }
+        
+        _ = win32.ShowWindow(hwnd, 5);
+        _ = win32.UpdateWindow(hwnd);
+        
+        var msg: win32.MSG = undefined;
+        while (win32.GetMessageW(&msg, null, 0, 0) > 0) {
+            _ = win32.TranslateMessage(&msg);
+            _ = win32.DispatchMessageW(&msg);
+        }
+    }
+} else struct {};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -519,5 +960,9 @@ pub fn main() !void {
         }
     }
 
-    try runNormal(allocator, false);
+    if (builtin.os.tag == .windows) {
+        try win32_gui.runGui(allocator);
+    } else {
+        try runNormal(allocator, false);
+    }
 }
