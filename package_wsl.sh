@@ -231,7 +231,7 @@ HAS_ZIP=false
 if command -v zip >/dev/null 2>&1; then
     log_info "Mengompresi launcher menjadi berkas ZIP siap pakai..."
     rm -f "$ZIP_FILE"
-    zip -j "$ZIP_FILE" "$LAUNCHER_FILE" > /dev/null
+    zip -j "$ZIP_FILE" "$LAUNCHER_FILE" "launcher/zenopanel.ps1" > /dev/null
     if [ $? -eq 0 ]; then
         HAS_ZIP=true
         log_success "Arsip ZIP rilis siap-pakai berhasil dibuat."
@@ -246,7 +246,7 @@ rm -rf "$BUILD_DIR" "$TEMP_EXTRACT"
 log_success "Selamat! Pengemasan distro WSL2 berhasil diselesaikan!"
 echo -e "\n${BOLD}Detail Hasil Akhir:${NC}"
 if [ "$HAS_ZIP" = true ]; then
-    echo -e "  - Berkas Rilis ZIP (Client): ${GREEN}${PWD}/${ZIP_FILE}${NC} (Hanya berisi launcher.exe)"
+    echo -e "  - Berkas Rilis ZIP (Client): ${GREEN}${PWD}/${ZIP_FILE}${NC} (Berisi launcher.exe dan zenopanel.ps1)"
 fi
 echo -e "  - Berkas Tarball (GitHub)  : ${GREEN}${PWD}/${OUTPUT_FILE}${NC} (Unggah ke GitHub Releases)"
 echo -e "  - Berkas Launcher (.exe)   : ${GREEN}${PWD}/${LAUNCHER_FILE}${NC}"
@@ -258,7 +258,7 @@ echo -e "=================================================="
 echo -e "\n${BOLD}Langkah Rilis & Pengujian:${NC}"
 echo -e "  1. Unggah berkas ${GREEN}$(basename "$OUTPUT_FILE")${NC} ke rilis GitHub Anda dengan tag ${YELLOW}${VERSION}${NC}."
 echo -e "  2. Bagikan berkas ${GREEN}$(basename "$ZIP_FILE")${NC} ke pengguna Windows."
-echo -e "  3. Saat pengguna mengekstrak dan menjalankan ${GREEN}zenopanel-launcher.exe${NC}, ia akan mengunduh distro secara otomatis dari GitHub."
+echo -e "  3. Pengguna mengekstrak dan dapat menjalankan ${GREEN}zenopanel-launcher.exe${NC} atau skrip ${GREEN}zenopanel.ps1${NC} (jika diblokir antivirus)."
 echo -e "=================================================="
 
 
