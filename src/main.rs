@@ -2245,10 +2245,7 @@ async fn handle_terminal_socket(
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
-            let is_not_found = e.downcast_ref::<std::io::Error>()
-                .map(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
-                .unwrap_or(false);
-            if container_id.is_none() && is_not_found {
+            if container_id.is_none() {
                 let cmd_fallback = CommandBuilder::new("sh");
                 match pair.slave.spawn_command(cmd_fallback) {
                     Ok(c) => c,

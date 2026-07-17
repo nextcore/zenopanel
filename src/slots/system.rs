@@ -640,12 +640,10 @@ pub fn register(engine: &mut Engine) {
                 .args(&["-c", &command])
                 .output();
 
-            if let Err(ref e) = output {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    output = std::process::Command::new("sh")
-                        .args(&["-c", &command])
-                        .output();
-                }
+            if output.is_err() {
+                output = std::process::Command::new("sh")
+                    .args(&["-c", &command])
+                    .output();
             }
 
             let mut res = HashMap::new();
@@ -1573,9 +1571,18 @@ pub fn register(engine: &mut Engine) {
             // Spawn updater detached in background
             // We use rm -f zeno to avoid "Text file busy", pass current dir, and fallback restart
             let script = "nohup bash -c 'sleep 1 && rm -f zeno && curl -fsSL https://raw.githubusercontent.com/nextcore/zenopanel/main/install.sh | bash -s -- --dir \"$PWD\" && (systemctl restart zenopanel || nohup ./zeno >/dev/null 2>&1 &)' > /dev/null 2>&1 &";
-            let child = std::process::Command::new("bash")
+            let mut child = std::process::Command::new("bash")
                 .args(&["-c", script])
                 .spawn();
+
+            if let Err(ref e) = child {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    let script_sh = script.replace("bash -c", "sh -c").replace("| bash", "| sh");
+                    child = std::process::Command::new("sh")
+                        .args(&["-c", &script_sh])
+                        .spawn();
+                }
+            }
 
             let success = child.is_ok();
             scope.set(&target, Value::Bool(success));
