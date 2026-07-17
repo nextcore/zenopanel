@@ -184,16 +184,44 @@ function Run-Normal {
         )
 
         try {
-            $webClient = New-Object System.Net.WebClient
-            $webClient.DownloadFile($downloadUrl, $tempTarPath)
+            $oldProgress = $ProgressPreference
+            $ProgressPreference = 'SilentlyContinue'
+
+            # Pastikan TLS 1.2 / 1.3 diaktifkan untuk koneksi GitHub
+            try {
+                [System.Net.ServicePointManager]::SecurityProtocol = 3072 -bor 12288
+            } catch {
+                [System.Net.ServicePointManager]::SecurityProtocol = 3072
+            }
+
+            if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+                & curl.exe -L -s -o "$tempTarPath" "$downloadUrl"
+                if ($LASTEXITCODE -ne 0) {
+                    throw "curl.exe gagal mengunduh dengan exit code: $LASTEXITCODE"
+                }
+            } else {
+                # Fallback pertama: Invoke-WebRequest dengan User-Agent
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $tempTarPath -UseBasicParsing -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
         } catch {
-            [System.Windows.Forms.MessageBox]::Show(
-                "Gagal mengunduh ZenoPanel dari GitHub.`nPastikan Anda terhubung ke Internet.`n`nDetail Error: $_",
-                "Error Download",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Error
-            )
-            return
+            # Fallback kedua: WebClient dengan User-Agent
+            try {
+                $webClient = New-Object System.Net.WebClient
+                $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                $webClient.DownloadFile($downloadUrl, $tempTarPath)
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Gagal mengunduh ZenoPanel dari GitHub.`nPastikan Anda terhubung ke Internet.`n`nDetail Error: $_",
+                    "Error Download",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Error
+                )
+                return
+            }
+        } finally {
+            if ($null -ne $oldProgress) {
+                $ProgressPreference = $oldProgress
+            }
         }
 
         # Import Distro WSL
