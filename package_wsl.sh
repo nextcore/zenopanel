@@ -213,8 +213,10 @@ fi
 LAUNCHER_FILE="dist/zenopanel-launcher.exe"
 log_info "Mengompilasi Windows Launcher (.exe) berbasis Zig..."
 
-# Update version in main.zig
+# Update version in main.zig and zenopanel.ps1
 sed -i 's|const VERSION = .*|const VERSION = "'"${VERSION}"'";|' launcher/main.zig
+sed -i 's|^\$VERSION = .*|\$VERSION = "'"${VERSION}"'"|' launcher/zenopanel.ps1
+sed -i 's|PowerShell GUI Edition (v[0-9a-zA-Z.-]*)|PowerShell GUI Edition ('"${VERSION}"')|' launcher/zenopanel.ps1
 
 zig build-exe -target x86_64-windows-gnu -O ReleaseSmall -femit-bin="$LAUNCHER_FILE" launcher/main.zig
 if [ $? -ne 0 ]; then
