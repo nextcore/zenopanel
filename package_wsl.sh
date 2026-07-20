@@ -229,14 +229,8 @@ cd "$BUILD_DIR" || exit 1
 tar -czf "../${TAR_NAME}.tar.gz" .
 cd - > /dev/null || exit 1
 
-# 9. Buat SHA-256 Checksum
-if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$OUTPUT_FILE" > "${OUTPUT_FILE}.sha256"
-    log_success "Berkas checksum SHA-256 dibuat."
-fi
-
 # 10. Kompilasi Windows Launcher (.exe) berbasis Zig
-LAUNCHER_FILE="dist/zenopanel-launcher.exe"
+LAUNCHER_TEMP="dist/zenopanel-launcher.exe"
 log_info "Mengompilasi Windows Launcher (.exe) berbasis Zig..."
 
 # Update version in main.zig and zenopanel.ps1
@@ -244,50 +238,58 @@ sed -i 's|const VERSION = .*|const VERSION = "'"${VERSION}"'";|' launcher/main.z
 sed -i 's|^\$VERSION = .*|\$VERSION = "'"${VERSION}"'"|' launcher/zenopanel.ps1
 sed -i 's|PowerShell GUI Edition (v[0-9a-zA-Z.-]*)|PowerShell GUI Edition ('"${VERSION}"')|' launcher/zenopanel.ps1
 
-zig build-exe -target x86_64-windows-gnu -O ReleaseSmall -femit-bin="$LAUNCHER_FILE" launcher/main.zig
+zig build-exe -target x86_64-windows-gnu -O ReleaseSmall -femit-bin="$LAUNCHER_TEMP" launcher/main.zig
 if [ $? -ne 0 ]; then
     log_error "Kompilasi Windows Launcher .exe gagal!"
     exit 1
 fi
 log_success "Windows Launcher .exe berhasil dikompilasi."
 
-# 11. Mengemas ke berkas ZIP rilis (jika utility zip tersedia)
-# ZIP rilis berisi launcher, ps1 script, dan zenoos tarball untuk instalasi offline
+# 11. Kemas SATU berkas ZIP rilis final (launcher + ps1 + zenoos distro)
 ZIP_NAME="zenopanel-windows-${VERSION}"
 ZIP_FILE="dist/${ZIP_NAME}.zip"
-HAS_ZIP=false
-if command -v zip >/dev/null 2>&1; then
-    log_info "Mengompresi launcher dan distro ZenoOS menjadi berkas ZIP siap pakai..."
+
+if command -v zip > /dev/null 2>&1; then
+    log_info "Mengemas ke satu berkas ZIP distribusi final..."
     rm -f "$ZIP_FILE"
-    zip -j "$ZIP_FILE" "$LAUNCHER_FILE" "launcher/zenopanel.ps1" "$OUTPUT_FILE" > /dev/null
+    zip -j "$ZIP_FILE" "$LAUNCHER_TEMP" "launcher/zenopanel.ps1" "$OUTPUT_FILE" > /dev/null
     if [ $? -eq 0 ]; then
-        HAS_ZIP=true
-        log_success "Arsip ZIP rilis siap-pakai berhasil dibuat."
+        log_success "Berkas ZIP final berhasil dibuat: ${ZIP_FILE}"
+    else
+        log_error "Gagal membuat berkas ZIP."
+        exit 1
     fi
+else
+    log_error "Utilitas 'zip' tidak ditemukan. Pasang zip lalu jalankan ulang."
+    exit 1
 fi
 
-# 12. Pembersihan Folder Temporer
+# Buat checksum untuk ZIP (bukan tarball terpisah)
+if command -v sha256sum > /dev/null 2>&1; then
+    sha256sum "$ZIP_FILE" > "${ZIP_FILE}.sha256"
+    log_success "Checksum SHA-256 ZIP dibuat."
+fi
+
+# 12. Bersihkan berkas sementara (tarball zenoos & launcher standalone)
+log_info "Membersihkan berkas sementara..."
+rm -f "$OUTPUT_FILE" "$LAUNCHER_TEMP"
+# Hapus juga artefak build tambahan Zig
+rm -f dist/zenopanel-launcher.exe.obj 2>/dev/null
+
+# 13. Pembersihan Folder Temporer
 log_info "Membersihkan direktori kerja..."
-rm -rf "$BUILD_DIR" "$TEMP_EXTRACT"
+rm -rf "$BUILD_DIR"
 
 # Selesai
 log_success "Selamat! Pengemasan distro WSL2 berhasil diselesaikan!"
 echo -e "\n${BOLD}Detail Hasil Akhir:${NC}"
-if [ "$HAS_ZIP" = true ]; then
-    echo -e "  - Berkas Rilis ZIP (Client): ${GREEN}${PWD}/${ZIP_FILE}${NC} (Berisi launcher.exe, zenopanel.ps1, dan distro ZenoOS)"
-fi
-echo -e "  - Berkas Tarball (GitHub)  : ${GREEN}${PWD}/${OUTPUT_FILE}${NC} (Unggah ke GitHub Releases)"
-echo -e "  - Berkas Launcher (.exe)   : ${GREEN}${PWD}/${LAUNCHER_FILE}${NC}"
-echo -e "  - Berkas Checksum          : ${GREEN}${PWD}/${OUTPUT_FILE}.sha256${NC}"
-if [ "$HAS_ZIP" = true ]; then
-    echo -e "  - Ukuran Paket ZIP         : ${GREEN}$(du -sh "${ZIP_FILE}" | cut -f1)${NC}"
-fi
+echo -e "  - Berkas Rilis : ${GREEN}${PWD}/${ZIP_FILE}${NC}"
+echo -e "                   ${CYAN}(launcher.exe + zenopanel.ps1 + ZenoOS distro — siap unggah ke GitHub Releases & bagikan ke pengguna)${NC}"
+echo -e "  - Checksum     : ${GREEN}${PWD}/${ZIP_FILE}.sha256${NC}"
+echo -e "  - Ukuran       : ${GREEN}$(du -sh "${ZIP_FILE}" | cut -f1)${NC}"
 echo -e "=================================================="
-echo -e "\n${BOLD}Langkah Rilis & Pengujian:${NC}"
-echo -e "  1. Unggah berkas ${GREEN}$(basename "$OUTPUT_FILE")${NC} ke rilis GitHub Anda dengan tag ${YELLOW}${VERSION}${NC}."
-echo -e "  2. Bagikan berkas ${GREEN}$(basename "$ZIP_FILE")${NC} ke pengguna Windows."
-echo -e "  3. Pengguna mengekstrak dan dapat menjalankan ${GREEN}zenopanel-launcher.exe${NC} atau skrip ${GREEN}zenopanel.ps1${NC} (jika diblokir antivirus)."
+echo -e "\n${BOLD}Langkah Rilis:${NC}"
+echo -e "  1. Unggah ${GREEN}$(basename "$ZIP_FILE")${NC} ke GitHub Releases dengan tag ${YELLOW}${VERSION}${NC}."
+echo -e "  2. Bagikan tautan download kepada pengguna Windows."
+echo -e "  3. Pengguna ekstrak ZIP, jalankan ${GREEN}zenopanel-launcher.exe${NC} atau ${GREEN}zenopanel.ps1${NC}."
 echo -e "=================================================="
-
-
-
