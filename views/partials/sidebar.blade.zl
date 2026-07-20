@@ -38,6 +38,11 @@
             <i class="fa-solid fa-cube"></i>
             <span>Containers</span>
         </div>
+        <div class="nav-item" data-tab="machines" hx-get="/tab/machines" hx-target="#viewport-container" hx-trigger="click">
+            <i class="fa-solid fa-server"></i>
+            <span>Zeno Machine</span>
+        </div>
+
         <div class="nav-item" data-tab="cron" hx-get="/tab/cron" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-clock"></i>
             <span>Cron Jobs</span>

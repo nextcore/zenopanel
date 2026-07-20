@@ -25,6 +25,9 @@ include: 'zsrc/routes/firewall.zl'
 include: 'zsrc/routes/users.zl'
 include: 'zsrc/routes/views.zl'
 include: 'zsrc/routes/websites.zl'
+include: 'zsrc/routes/machine.zl'
+include: 'zsrc/routes/migrate.zl'
+
 
 # Auth routes — login/logout dengan dynamic entrance path support
 # HARUS di-include terakhir karena mendaftarkan wildcard GET /* dan POST /*

@@ -69,3 +69,9 @@ http.get: '/tab/websites' {
     auth.guard
     view.blade: 'partials/tab_websites'
 }
+
+http.get: '/tab/machines' {
+    auth.guard
+    view.blade: 'partials/tab_machines'
+}
+

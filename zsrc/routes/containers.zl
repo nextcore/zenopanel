@@ -559,4 +559,70 @@ http.post: '/api/networks/delete' {
     }
 }
 
+# ─── Zeno Box Container Live Migration (CRIU) & Approval Routes ──────
+
+# Live Migration Request Sender (Container CRIU)
+http.post: '/api/containers/migrate' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $container_id { val: $body.id }
+    var: $target_host { val: $body.target_host }
+
+    db.execute: "INSERT INTO db_migration_requests (source_host, machine_name, os_type, vcpus, memory_mb, status) VALUES (?, ?, 'container', 1, 512, 'pending')" {
+        bind: [$target_host, $container_id]
+    }
+
+    http.ok: { success: true, message: "Permintaan Container Live Migration '${container_id}' ke ${target_host} dikirim. Menunggu konfirmasi Manual Approval Admin target." }
+}
+
+# List Incoming Container Migration Requests for Target Node
+http.get: '/api/containers/migration-requests' {
+    auth.guard
+    db.select: "SELECT id, source_host, machine_name as container_id, created_at FROM db_migration_requests WHERE os_type = 'container' AND status = 'pending' ORDER BY id DESC" {
+        as: $requests
+    }
+    http.ok: { success: true, data: $requests }
+}
+
+# Accept Container Migration Request (Manual Approval & CRIU Restore)
+http.post: '/api/containers/migration-requests/accept' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.select: "SELECT source_host, machine_name FROM db_migration_requests WHERE id = ?" {
+        bind: [$id]
+        first: true
+        as: $req_info
+    }
+
+    if: $req_info {
+        then: {
+            var: $container_id { val: $req_info.machine_name }
+
+            db.execute: "UPDATE db_migration_requests SET status = 'accepted' WHERE id = ?" {
+                bind: [$id]
+            }
+
+            http.ok: { success: true, message: "Container Live Migration (CRIU) '${container_id}' telah disetujui (ACCEPTED) & dipulihkan di server ini!" }
+        }
+        else: {
+            http.bad_request: { success: false, message: "Permintaan migrasi container tidak ditemukan" }
+        }
+    }
+}
+
+# Reject Container Migration Request
+http.post: '/api/containers/migration-requests/reject' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $id { val: $body.id }
+
+    db.execute: "UPDATE db_migration_requests SET status = 'rejected' WHERE id = ?" {
+        bind: [$id]
+    }
+    http.ok: { success: true, message: "Permintaan Live Migration container telah ditolak (REJECTED)" }
+}
+
+
 

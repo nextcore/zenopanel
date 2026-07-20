@@ -8,6 +8,7 @@ pub mod waf;
 pub mod gateway;
 pub mod backupman;
 pub mod logman;
+pub mod machineman;
 
 
 use axum::{
@@ -93,6 +94,7 @@ pub(crate) struct AppState {
     pub(crate) db_manager: DBManager,
     pub(crate) process_manager: Arc<crate::procman::ProcessManager>,
     pub(crate) proxy_manager: Arc<crate::proxyman::ProxyManager>,
+    pub(crate) machine_manager: Arc<crate::machineman::MachineManager>,
     pub(crate) reqwest_client: reqwest::Client,
     pub(crate) csrf_enabled: bool,
     pub(crate) csrf_excepts: Vec<String>,
@@ -584,6 +586,8 @@ fn main() {
     if let Err(e) = proxy_manager.load_from_db().await {
         eprintln!("Failed to load proxies from DB: {}", e);
     }
+
+    let machine_manager = Arc::new(machineman::MachineManager::new(default_pool.clone()).await);
 
     // Re-apply saved firewall rules on startup to survive reboots/panel restarts
     println!("🔥 Syncing firewall rules from database...");
@@ -1077,6 +1081,7 @@ fn main() {
         db_manager,
         process_manager: process_manager.clone(),
         proxy_manager: proxy_manager.clone(),
+        machine_manager: machine_manager.clone(),
         reqwest_client,
         csrf_enabled,
         csrf_excepts,
@@ -1695,6 +1700,7 @@ async fn wildcard_handler(
     ctx.set("db_manager", state.db_manager.clone());
     ctx.set("process_manager", state.process_manager.clone());
     ctx.set("proxy_manager", state.proxy_manager.clone());
+    ctx.set("machine_manager", state.machine_manager.clone());
     if let Some(claims) = &current_claims {
         ctx.set("user_claims", claims.clone());
     }

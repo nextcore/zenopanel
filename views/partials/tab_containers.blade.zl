@@ -19,7 +19,11 @@
 
         <!-- Containers Sub-tab -->
         <div id="subtab-containers">
+            <!-- Incoming Zeno Box Container Live Migration Handshake Approval Banner -->
+            <div id="pending-container-migration-container" style="margin-bottom: 15px;"></div>
+
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+
                 <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
                     <i class="fa-solid fa-cube" style="color:var(--accent-primary);"></i> Containers
                     <span style="font-size:0.75rem; font-weight:normal; color:var(--text-muted); background:rgba(255,255,255,0.04); padding:2px 8px; border-radius:12px; border:1px solid var(--card-border);">Powered by Zeno Box</span>
@@ -473,3 +477,124 @@ services:
         </div>
     </div>
 </div>
+
+<!-- Modal Live Migration Zeno Box Container (CRIU) dengan Pre-flight Check & Progress -->
+<div id="migrate-container-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 560px; width: 100%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 28px; color: var(--text-main);">
+
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px;">
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-arrows-rotate" style="color: #8b5cf6;"></i>
+                Live Migration CRIU: <span id="migrate-container-target-name" style="color: #8b5cf6;">Container</span>
+            </h3>
+            <button onclick="closeMigrateContainerModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <input type="hidden" id="migrate-container-id">
+
+        <!-- STEP 1: Input & Preflight -->
+        <div id="migrate-container-step-input">
+            <div class="form-group" style="margin-bottom: 14px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Target Node / Host IP</label>
+                <input type="text" id="migrate-container-host-input" placeholder="e.g. 192.168.1.150" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: rgba(30,41,59,0.7); color: var(--text-main); font-size: 0.88rem; box-sizing: border-box;">
+            </div>
+
+            <!-- Preflight Result Panel -->
+            <div id="migrate-container-preflight-result" style="display: none; margin-bottom: 18px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08);">
+                <div style="background: rgba(15,23,42,0.8); padding: 12px 16px; font-size: 0.82rem; display: flex; flex-direction: column; gap: 8px;">
+                    <div id="pf-ctr-reach" style="display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-spinner fa-spin" style="color:#8b5cf6; width:14px;"></i> Memeriksa konektivitas ke target...</div>
+                    <div id="pf-ctr-latency" style="display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-spinner fa-spin" style="color:#8b5cf6; width:14px;"></i> Mengukur latensi jaringan...</div>
+                    <div id="pf-ctr-kernel" style="display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-spinner fa-spin" style="color:#8b5cf6; width:14px;"></i> Verifikasi kompatibilitas Kernel (CRIU)...</div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; gap: 10px;">
+                <button type="button" onclick="runContainerPreflight()" id="btn-ctr-preflight" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid rgba(139,92,246,0.4); background: rgba(139,92,246,0.1); color: #8b5cf6; cursor: pointer; font-weight: 600; font-size: 0.88rem;">
+                    <i class="fa-solid fa-stethoscope"></i> Run Pre-flight Check
+                </button>
+                <button type="button" onclick="submitMigrateContainer()" id="btn-ctr-migrate-start" disabled style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid rgba(139,92,246,0.4); background: rgba(139,92,246,0.15); color: rgba(139,92,246,0.4); cursor: not-allowed; font-weight: 600; font-size: 0.88rem;">
+                    <i class="fa-solid fa-play"></i> Start CRIU Migration
+                </button>
+            </div>
+        </div>
+
+        <!-- STEP 2: Live Progress Panel Dual-Host -->
+        <div id="migrate-container-step-progress" style="display: none;">
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px; text-align: center;">
+                <i class="fa-solid fa-arrows-rotate fa-spin" style="color: #8b5cf6;"></i>
+                CRIU Checkpoint/Restore sedang berlangsung...
+            </div>
+
+            <!-- Source Host Progress -->
+            <div style="background: rgba(30,41,59,0.6); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                        <i class="fa-solid fa-cube" style="color: #f59e0b;"></i> HOST A (Server Ini) — CRIU Dump
+                    </span>
+                    <span id="ctr-src-percent" style="font-size: 0.85rem; font-weight: 700; color: #f59e0b;">0%</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.06); border-radius: 20px; height: 8px; overflow: hidden;">
+                    <div id="ctr-src-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #f59e0b, #fbbf24); border-radius: 20px; transition: width 0.4s ease;"></div>
+                </div>
+                <div id="ctr-src-phase" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">Freezing proses container...</div>
+            </div>
+
+            <!-- Target Host Progress -->
+            <div style="background: rgba(30,41,59,0.6); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                        <i class="fa-solid fa-cube" style="color: #10b981;"></i> HOST B (<span id="ctr-dst-host-label">Target</span>) — CRIU Restore
+                    </span>
+                    <span id="ctr-dst-percent" style="font-size: 0.85rem; font-weight: 700; color: #10b981;">0%</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.06); border-radius: 20px; height: 8px; overflow: hidden;">
+                    <div id="ctr-dst-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 20px; transition: width 0.4s ease;"></div>
+                </div>
+                <div id="ctr-dst-phase" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">Menunggu image CRIU dari sumber...</div>
+            </div>
+
+            <!-- Status akhir -->
+            <div id="ctr-migration-done" style="display: none; text-align: center; padding: 12px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; color: #10b981; font-weight: 600; margin-bottom: 14px;">
+                <i class="fa-solid fa-circle-check"></i> CRIU Migration Berhasil! Container aktif di HOST B.
+            </div>
+            <div id="ctr-migration-fail" style="display: none; text-align: center; padding: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; color: #ef4444; font-weight: 600; margin-bottom: 14px;">
+                <i class="fa-solid fa-triangle-exclamation"></i> Migration Gagal — Container tetap berjalan di HOST A (Rollback Otomatis).
+            </div>
+
+            <div style="text-align: right;">
+                <button onclick="closeMigrateContainerModal()" style="padding: 8px 20px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: transparent; color: var(--text-muted); cursor: pointer;">Tutup</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+    <div class="modal-content" style="max-width: 480px; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 24px; color: var(--text-main);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-arrows-rotate" style="color: #8b5cf6;"></i> Live Migration (CRIU): <span id="migrate-container-target-name">Container</span>
+            </h3>
+            <button onclick="closeMigrateContainerModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <form onsubmit="event.preventDefault(); submitMigrateContainer();">
+            <input type="hidden" id="migrate-container-id">
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Target Node / Host IP</label>
+                <input type="text" id="migrate-container-host-input" placeholder="e.g. 192.168.1.150" required style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+            </div>
+            <div style="font-size: 0.78rem; color: #8b5cf6; background: rgba(139, 92, 246, 0.1); padding: 10px; border-radius: 6px; margin-bottom: 20px;">
+                <i class="fa-solid fa-bolt"></i> <strong>CRIU Fast Checkpoint:</strong> Memori proses & socket container Zeno Box akan di-dump dan dipindahkan secara ultra-fast (&lt; 200ms) ke server tujuan.
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn-action" onclick="closeMigrateContainerModal()">Cancel</button>
+                <button type="submit" class="btn-primary-action" style="background: #8b5cf6; border-color: #8b5cf6;">Start Container Live Migration</button>
+            </div>
+        </form>
+    </div>
+</div>
+

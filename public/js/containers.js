@@ -8,6 +8,7 @@ export const containerState = {
 };
 
 export function loadContainers() {
+  loadPendingContainerMigrationRequests();
   fetch("/api/containers/list")
     .then((res) => res.json())
     .then((res) => {
@@ -133,6 +134,9 @@ export function renderContainers(containers) {
                          </button>
                          <button class="action-dropdown-item" onclick="openEditContainerResources('${container.id}')">
                              <i class="fa-solid fa-sliders" style="color:var(--accent-primary);"></i> Edit Resources
+                         </button>
+                         <button class="action-dropdown-item" onclick="openMigrateContainerModal('${container.id}')">
+                             <i class="fa-solid fa-arrows-rotate" style="color:#8b5cf6;"></i> Live Migration (CRIU)
                          </button>
                          <hr style="border:none; border-top:1px solid var(--card-border); margin:4px 0;">
                          <button class="action-dropdown-item danger" onclick="deleteContainer('${container.id}')">
@@ -1103,4 +1107,146 @@ export function pruneUnusedImages() {
     showToast("error", "Network error occurred during cleanup");
   });
 }
+
+// ─── Container Live Migration (CRIU) Handlers ──────────────────────
+
+export function loadPendingContainerMigrationRequests() {
+  const container = document.getElementById("pending-container-migration-container");
+  if (!container) return;
+
+  fetch("/api/containers/migration-requests")
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success && res.data && res.data.length > 0) {
+        let html = "";
+        res.data.forEach((req) => {
+          html += `
+            <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 12px; padding: 16px; margin-bottom: 12px; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 0 15px rgba(245, 158, 11, 0.15);">
+                <div>
+                    <div style="color: #f59e0b; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-bell fa-bounce"></i> Permintaan Container Live Migration (CRIU) Masuk!
+                    </div>
+                    <div style="font-size: 0.85rem; margin-top: 4px;">
+                        Server <strong>${req.source_host}</strong> ingin memindahkan Container <strong>${req.container_id}</strong> ke server ini.
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-sm" onclick="acceptContainerMigrationRequest(${req.id})" style="background: #10b981; color: white; border: none; padding: 8px 16px; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                        <i class="fa-solid fa-check"></i> Accept & Restore
+                    </button>
+                    <button class="btn-sm" onclick="rejectContainerMigrationRequest(${req.id})" style="background: rgba(239, 68, 68, 0.8); color: white; border: none; padding: 8px 14px; cursor: pointer; border-radius: 6px;">
+                        <i class="fa-solid fa-xmark"></i> Reject
+                    </button>
+                </div>
+            </div>
+          `;
+        });
+        container.innerHTML = html;
+      } else {
+        container.innerHTML = "";
+      }
+    })
+    .catch(() => {
+      if (container) container.innerHTML = "";
+    });
+}
+
+export function acceptContainerMigrationRequest(id) {
+  const csrf = getCSRFToken();
+  fetch("/api/containers/migration-requests/accept", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({ id }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success) {
+        showToast("success", res.message);
+        loadPendingContainerMigrationRequests();
+        loadContainers();
+      } else {
+        showToast("error", res.message);
+      }
+    });
+}
+
+export function rejectContainerMigrationRequest(id) {
+  const csrf = getCSRFToken();
+  fetch("/api/containers/migration-requests/reject", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({ id }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success) {
+        showToast("success", res.message);
+        loadPendingContainerMigrationRequests();
+      } else {
+        showToast("error", res.message);
+      }
+    });
+}
+
+export function openMigrateContainerModal(id) {
+  const modal = document.getElementById("migrate-container-modal");
+  if (modal) {
+    document.getElementById("migrate-container-id").value = id;
+    document.getElementById("migrate-container-target-name").textContent = id;
+    document.getElementById("migrate-container-host-input").value = "";
+    modal.style.display = "flex";
+  }
+}
+
+export function closeMigrateContainerModal() {
+  const modal = document.getElementById("migrate-container-modal");
+  if (modal) {
+    modal.style.display = "none";
+  }
+}
+
+export function submitMigrateContainer() {
+  const id = document.getElementById("migrate-container-id").value;
+  const target_host = document.getElementById("migrate-container-host-input").value.trim();
+
+  if (!target_host) {
+    showToast("error", "Target Node IP wajib diisi");
+    return;
+  }
+
+  const csrf = getCSRFToken();
+  fetch("/api/containers/migrate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({ id, target_host }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.success) {
+        showToast("success", res.message);
+        closeMigrateContainerModal();
+        loadContainers();
+      } else {
+        showToast("error", res.message || "Failed to initiate migration");
+      }
+    });
+}
+
+// Window Exposures
+window.loadPendingContainerMigrationRequests = loadPendingContainerMigrationRequests;
+window.acceptContainerMigrationRequest = acceptContainerMigrationRequest;
+window.rejectContainerMigrationRequest = rejectContainerMigrationRequest;
+window.openMigrateContainerModal = openMigrateContainerModal;
+window.closeMigrateContainerModal = closeMigrateContainerModal;
+window.submitMigrateContainer = submitMigrateContainer;
+
 

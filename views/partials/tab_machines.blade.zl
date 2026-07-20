@@ -1,0 +1,268 @@
+<!-- Zeno Machine Dashboard Tab (Cloud-Hypervisor MicroVM) -->
+<div class="content-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div>
+        <h2 style="font-size: 1.5rem; font-weight: 600; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-server" style="color: var(--accent-primary);"></i> Zeno Machine
+        </h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 0 0;">
+            Next-Gen Hardware-Isolated MicroVM Engine berbasis Cloud-Hypervisor & Rust (Kecepatan Boot &lt; 100ms)
+        </p>
+    </div>
+    <div style="display: flex; gap: 10px;">
+        <button class="btn btn-primary" onclick="openCreateMachineModal()" style="display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-plus"></i> New Zeno Machine
+        </button>
+        <button class="btn btn-secondary" onclick="loadZenoMachines()" title="Refresh List">
+            <i class="fa-solid fa-rotate-right"></i>
+        </button>
+    </div>
+</div>
+
+<!-- Incoming Live Migration Handshake Approval Banner Container -->
+<div id="pending-migration-container" style="margin-bottom: 20px;"></div>
+
+<!-- Quick Stats Header -->
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 25px;">
+    <div style="background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Total Machines</span>
+            <i class="fa-solid fa-microchip" style="color: var(--accent-primary); font-size: 1.2rem;"></i>
+        </div>
+        <div id="stat-total-machines" style="font-size: 1.6rem; font-weight: 700; color: var(--text-main); margin-top: 8px;">0</div>
+    </div>
+    <div style="background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Running</span>
+            <i class="fa-solid fa-circle-play" style="color: #10b981; font-size: 1.2rem;"></i>
+        </div>
+        <div id="stat-running-machines" style="font-size: 1.6rem; font-weight: 700; color: #10b981; margin-top: 8px;">0</div>
+    </div>
+    <div style="background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Allocated vCPUs</span>
+            <i class="fa-solid fa-cpu" style="color: #f59e0b; font-size: 1.2rem;"></i>
+        </div>
+        <div id="stat-allocated-vcpus" style="font-size: 1.6rem; font-weight: 700; color: #f59e0b; margin-top: 8px;">0 Cores</div>
+    </div>
+    <div style="background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Allocated RAM</span>
+            <i class="fa-solid fa-memory" style="color: #8b5cf6; font-size: 1.2rem;"></i>
+        </div>
+        <div id="stat-allocated-ram" style="font-size: 1.6rem; font-weight: 700; color: #8b5cf6; margin-top: 8px;">0 MB</div>
+    </div>
+</div>
+
+<!-- Zeno Machines Table Container -->
+<div style="background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; overflow: hidden;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 1rem; font-weight: 600; color: var(--text-main);">Registered Zeno Machines</h3>
+        <span style="font-size: 0.78rem; color: var(--text-muted);">Cloud-Hypervisor Socket Manager Active</span>
+    </div>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+            <thead>
+                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.4); color: var(--text-muted);">
+                    <th style="padding: 12px 20px;">Name</th>
+                    <th style="padding: 12px 16px;">OS Presets</th>
+                    <th style="padding: 12px 16px;">Specs (vCPU / RAM)</th>
+                    <th style="padding: 12px 16px;">Storage (Disk)</th>
+                    <th style="padding: 12px 16px;">Status</th>
+                    <th style="padding: 12px 20px; text-align: right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="machines-table-body">
+                <tr>
+                    <td colspan="6" style="padding: 30px; text-align: center; color: var(--text-muted);">
+                        <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 8px;"></i>
+                        <div>Loading Zeno Machines...</div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Create Zeno Machine -->
+<div id="create-machine-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-content" style="max-width: 540px; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 24px; color: var(--text-main);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-server" style="color: var(--accent-primary);"></i> Create New Zeno Machine
+            </h3>
+            <button onclick="closeCreateMachineModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <form onsubmit="event.preventDefault(); submitCreateMachine();">
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Machine Name</label>
+                <input type="text" id="machine-name-input" placeholder="e.g. app-vm-01" required style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+            </div>
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">OS Type / Preset</label>
+                <select id="machine-os-input" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; cursor: pointer;">
+                    <option value="linux">🐧 Linux (Ubuntu / Alpine / Debian MicroVM)</option>
+                    <option value="windows">🪟 Windows (Windows 11 / Server Guest OS)</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                <div class="form-group">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">vCPU Cores</label>
+                    <input type="number" id="machine-vcpu-input" value="2" min="1" max="64" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+                </div>
+                <div class="form-group">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Memory (RAM in MB)</label>
+                    <input type="number" id="machine-ram-input" value="1024" min="128" step="128" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Disk Size (GB)</label>
+                <input type="number" id="machine-disk-input" value="10" min="2" max="2000" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateMachineModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Zeno Machine</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal Live Resize (Dynamic RAM & vCPU) -->
+<div id="resize-machine-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-content" style="max-width: 480px; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 24px; color: var(--text-main);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-sliders" style="color: #f59e0b;"></i> Live Resize: <span id="resize-target-name">Machine</span>
+            </h3>
+            <button onclick="closeResizeMachineModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <form onsubmit="event.preventDefault(); submitResizeMachine();">
+            <input type="hidden" id="resize-machine-name">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+                <div class="form-group">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">vCPU Cores</label>
+                    <input type="number" id="resize-vcpu-input" min="1" max="64" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+                </div>
+                <div class="form-group">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">RAM (MB)</label>
+                    <input type="number" id="resize-ram-input" min="128" step="128" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+                </div>
+            </div>
+            <div style="font-size: 0.78rem; color: #10b981; background: rgba(16, 185, 129, 0.1); padding: 10px; border-radius: 6px; margin-bottom: 20px;">
+                <i class="fa-solid fa-bolt"></i> <strong>Live Hot-Plug Active:</strong> Perubahan RAM & vCPU akan langsung diterapkan secara real-time tanpa me-reboot VM!
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn btn-secondary" onclick="closeResizeMachineModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Apply Live Resize</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal Live Migration Zeno Machine (dengan Pre-flight Check & Progress) -->
+<div id="migrate-machine-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 560px; width: 100%; background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 28px; color: var(--text-main);">
+
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px;">
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-arrows-rotate" style="color: #8b5cf6;"></i>
+                Live Migration: <span id="migrate-target-name" style="color: #8b5cf6;">Machine</span>
+            </h3>
+            <button id="migrate-machine-close-btn" onclick="closeMigrateMachineModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <input type="hidden" id="migrate-machine-name">
+
+        <!-- STEP 1: Input & Preflight -->
+        <div id="migrate-machine-step-input">
+            <div class="form-group" style="margin-bottom: 14px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Target Node / Host IP</label>
+                <input type="text" id="migrate-host-input" placeholder="e.g. 192.168.1.150" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: rgba(30,41,59,0.7); color: var(--text-main); font-size: 0.88rem; box-sizing: border-box;">
+            </div>
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Target Port</label>
+                <input type="number" id="migrate-port-input" value="8080" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: rgba(30,41,59,0.7); color: var(--text-main); font-size: 0.88rem; box-sizing: border-box;">
+            </div>
+
+            <!-- Preflight Result Panel -->
+            <div id="migrate-machine-preflight-result" style="display: none; margin-bottom: 18px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08);">
+                <div style="background: rgba(15,23,42,0.8); padding: 12px 16px; font-size: 0.82rem; display: flex; flex-direction: column; gap: 8px;">
+                    <div id="pf-machine-reach" style="display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-spinner fa-spin" style="color:#8b5cf6; width:14px;"></i> Memeriksa konektivitas ke target...</div>
+                    <div id="pf-machine-latency" style="display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-spinner fa-spin" style="color:#8b5cf6; width:14px;"></i> Mengukur latensi jaringan...</div>
+                    <div id="pf-machine-ram" style="display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-spinner fa-spin" style="color:#8b5cf6; width:14px;"></i> Verifikasi ketersediaan RAM...</div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; gap: 10px;">
+                <button type="button" onclick="runMachinePreflight()" id="btn-machine-preflight" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid rgba(139,92,246,0.4); background: rgba(139,92,246,0.1); color: #8b5cf6; cursor: pointer; font-weight: 600; font-size: 0.88rem;">
+                    <i class="fa-solid fa-stethoscope"></i> Run Pre-flight Check
+                </button>
+                <button type="button" onclick="submitMigrateMachine()" id="btn-machine-migrate-start" disabled style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid rgba(139,92,246,0.4); background: rgba(139,92,246,0.15); color: rgba(139,92,246,0.4); cursor: not-allowed; font-weight: 600; font-size: 0.88rem;">
+                    <i class="fa-solid fa-play"></i> Start Migration
+                </button>
+            </div>
+        </div>
+
+        <!-- STEP 2: Live Progress Panel (Source HOST A) -->
+        <div id="migrate-machine-step-progress" style="display: none;">
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px; text-align: center;">
+                <i class="fa-solid fa-arrows-rotate fa-spin" style="color: #8b5cf6;"></i>
+                Live Migration sedang berlangsung...
+            </div>
+
+            <!-- Source Host Progress -->
+            <div style="background: rgba(30,41,59,0.6); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                        <i class="fa-solid fa-server" style="color: #f59e0b;"></i> HOST A (Server Ini) — SOURCE
+                    </span>
+                    <span id="machine-src-percent" style="font-size: 0.85rem; font-weight: 700; color: #f59e0b;">0%</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.06); border-radius: 20px; height: 8px; overflow: hidden;">
+                    <div id="machine-src-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #f59e0b, #fbbf24); border-radius: 20px; transition: width 0.4s ease;"></div>
+                </div>
+                <div id="machine-src-phase" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">Menginisialisasi checkpoint...</div>
+            </div>
+
+            <!-- Target Host Progress -->
+            <div style="background: rgba(30,41,59,0.6); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                        <i class="fa-solid fa-server" style="color: #10b981;"></i> HOST B (<span id="machine-dst-host-label">Target</span>) — DESTINATION
+                    </span>
+                    <span id="machine-dst-percent" style="font-size: 0.85rem; font-weight: 700; color: #10b981;">0%</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.06); border-radius: 20px; height: 8px; overflow: hidden;">
+                    <div id="machine-dst-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 20px; transition: width 0.4s ease;"></div>
+                </div>
+                <div id="machine-dst-phase" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">Menunggu sinyal dari sumber...</div>
+            </div>
+
+            <!-- Status akhir -->
+            <div id="machine-migration-done" style="display: none; text-align: center; padding: 12px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; color: #10b981; font-weight: 600; margin-bottom: 14px;">
+                <i class="fa-solid fa-circle-check"></i> Live Migration Berhasil! VM aktif di HOST B.
+            </div>
+            <div id="machine-migration-fail" style="display: none; text-align: center; padding: 12px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; color: #ef4444; font-weight: 600; margin-bottom: 14px;">
+                <i class="fa-solid fa-triangle-exclamation"></i> Migration Gagal — VM tetap berjalan di HOST A (Rollback Otomatis).
+            </div>
+
+            <div style="text-align: right;">
+                <button onclick="closeMigrateMachineModal()" style="padding: 8px 20px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: transparent; color: var(--text-muted); cursor: pointer;">Tutup</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script type="module">
+    import { initMachinesTab } from '/js/machines.js';
+    initMachinesTab();
+</script>
+
