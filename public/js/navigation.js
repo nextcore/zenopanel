@@ -25,6 +25,7 @@ import { loadUsers } from "./users.js";
 import { loadSettings, loadSecuritySettings, loadFirewallRules } from "./settings.js";
 import { loadCronJobs } from "./cron.js";
 import { initWebsitesTab } from "./websites.js";
+import { loadZenoMachines } from "./machines.js";
 
 // Tab Navigation state
 export let currentTab = "dashboard";
@@ -134,6 +135,10 @@ export function runTabInit(tab) {
 
   if (tab === "websites") {
     initWebsitesTab();
+  }
+
+  if (tab === "machines") {
+    loadZenoMachines();
   }
 
   // Expand or collapse Security sub-menu based on active tab

@@ -334,7 +334,7 @@ pub fn get_client_ip(headers: &HeaderMap, connect_info: Option<&ConnectInfo<Sock
 /// SQL Injection — covers UNION-based, boolean-based, time-based blind, stacked queries
 static SQLI_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?i)(?:union[\s\S]*?select|select[\s\S]*?from|insert[\s\S]*?into|delete[\s\S]*?from|drop[\s\S]*?(?:table|database|schema)|update[\s\S]*?set|group[\s\S]*?by[\s\S]*?having|dbms_pipe\.receive_message|xp_cmdshell|information_schema\.|sys\.user_tables|sleep\(\s*\d+\s*\)|benchmark\([\s\S]*?,[\s\S]*?\)|waitfor[\s\+]+delay|load_file\s*\(|into[\s\+]+outfile|--|#|/\*[\s\S]*?\*/|['\"]\s*(?:or|and|xor|not|like|regexp)\s*['\"].*?=.*?['\"]|['\"]\s*=\s*['\"]|\b(?:or|and|xor)\b[\s\S]*?\b(?:true|false|null|\d+)\b\s*=\s*\b(?:true|false|null|\d+)\b|\b(?:or|and|xor)\b[\s\S]*?[=<>~])"#
+        r#"(?i)(?:union\s+(?:all\s+)?select|select\s+[\s\S]*?\s+from\b|insert\s+into\b|delete\s+from\b|drop\s+(?:table|database|schema)\b|update\s+[\s\S]*?\s+set\b|group\s+by\s+[\s\S]*?\s+having\b|dbms_pipe\.receive_message|xp_cmdshell|information_schema\.|sys\.user_tables|sleep\(\s*\d+\s*\)|benchmark\([\s\S]*?,[\s\S]*?\)|waitfor[\s\+]+delay|load_file\s*\(|into[\s\+]+outfile|--|#|/\*[\s\S]*?\*/|['\"]\s*(?:or|and|xor|not|like|regexp)\s*['\"].*?=.*?['\"]|['\"]\s*(?:or|and|xor)\s*['\"]?\s*(?:true|false|null|\d+|'[a-z0-9_]+')\s*=\s*['\"]?\s*(?:true|false|null|\d+|'[a-z0-9_]+')|\b(?:or|and|xor)\b\s+['"]?\w+['"]?\s*=\s*['"]?\w+['"]?)"#
     ).unwrap()
 });
 
@@ -348,7 +348,7 @@ static XSS_REGEX: Lazy<Regex> = Lazy::new(|| {
 /// Path Traversal — covers directory traversal and sensitive paths
 static PATH_TRAVERSAL_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(?:\.\./|\.\.\\|/\.\.|\x00|/etc/(?:passwd|shadow|hosts|group|issue)|/proc/(?:self|version|cmdline|environ)|/var/log/|win\.ini|system\.ini|boot\.ini|windows/system32/config/)"
+        r"(?i)(?:\.\./|\.\.\\|/\.\.|\x00|/etc/(?:passwd|shadow|hosts|group|issue)|/proc/(?:self|version|cmdline|environ)|win\.ini|system\.ini|boot\.ini|windows/system32/config/)"
     ).unwrap()
 });
 
@@ -390,10 +390,10 @@ static LFI_WRAPPERS_REGEX: Lazy<Regex> = Lazy::new(|| {
     ).unwrap()
 });
 
-/// Scanner/Attack tool User-Agents
+/// Scanner/Attack tool User-Agents (using strict word boundaries to avoid false positives)
 static SCANNER_UA_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(sqlmap|nikto|nmap|masscan|zgrab|nuclei|acunetix|nessus|openvas|burpsuite|dirbuster|gobuster|wfuzz|hydra|medusa|metasploit|havij|pangolin|havij|appscan|w3af|skipfish|arachni|grabber|vega|zap|whatweb|xsser|commix|beef/|dnsrecon|shodan|censys|zmap)"
+        r"(?i)\b(sqlmap|nikto|nmap|masscan|zgrab|nuclei|acunetix|nessus|openvas|burpsuite|dirbuster|gobuster|wfuzz|hydra|medusa|metasploit|havij|pangolin|appscan|w3af|skipfish|arachni|zaproxy|owasp-zap|whatweb|xsser|commix|beef-xss|dnsrecon|shodan|censys|zmap)\b"
     ).unwrap()
 });
 
@@ -401,17 +401,19 @@ static WAF_KEYWORDS: Lazy<AhoCorasick> = Lazy::new(|| {
     let patterns = vec![
         // SQLi — specific multi-token indicators only (bare single words removed to avoid false positives)
         "xp_cmdshell", "information_schema", "sleep(", "benchmark(", "waitfor", "load_file", "into outfile",
+        "union select", "select ", "insert into", "delete from", "drop table", "drop database", "update ",
+        "or 1=1", "or '1'='1", "or 'a'='a", "xor ", "having ",
         // XSS — only tags/patterns that are unambiguously dangerous without extra context
         "<script", "</script>", "javascript:", "vbscript:", "alert(", "confirm(", "prompt(",
         "document.cookie", "document.write", "window.location", "<iframe", "<object",
-        "<svg", "<embed",
+        "<svg", "<embed", "onload=", "onerror=",
         // Path Traversal — specific system paths only ("../" alone removed, too common)
-        "/etc/passwd", "/etc/shadow", "/etc/hosts", "/proc/self", "/proc/version",
-        "/var/log/", "win.ini", "system.ini", "boot.ini", "windows/system32",
+        "/etc/passwd", "/etc/shadow", "/etc/hosts", "/etc/issue", "/proc/self", "/proc/version",
+        "win.ini", "system.ini", "boot.ini", "windows/system32",
         // RCE
         "/bin/bash", "/bin/sh", "cmd.exe", "powershell.exe", "pwsh.exe",
         "exec(", "passthru(", "shell_exec(", "popen(", "proc_open(",
-        "base64_decode", "phpinfo(", "{{", "${", "() {", "whoami",
+        "base64_decode", "phpinfo(", "{{", "${", "() {", "whoami", "uname -a",
         // SSRF — only highly specific targets; bare private IPs handled by regex with scheme context
         "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254", "metadata.google",
         "100.100.100.200", "file://", "gopher://", "dict://",
