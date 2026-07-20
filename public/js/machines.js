@@ -1,5 +1,6 @@
 import { getCSRFToken } from "./utils.js";
 import { showToast } from "./toast.js";
+import { runMachinePreflight, startMachineMigrationProgress } from "./migration.js";
 
 export function loadPendingMigrationRequests() {
     const container = document.getElementById("pending-migration-container");
@@ -278,6 +279,23 @@ export function openMigrateMachineModal(name) {
         document.getElementById("migrate-machine-name").value = name;
         document.getElementById("migrate-target-name").textContent = name;
         document.getElementById("migrate-host-input").value = "";
+        document.getElementById("migrate-port-input").value = "8080";
+        // Reset steps
+        const stepInput = document.getElementById("migrate-machine-step-input");
+        const stepProgress = document.getElementById("migrate-machine-step-progress");
+        if (stepInput) stepInput.style.display = "block";
+        if (stepProgress) stepProgress.style.display = "none";
+        // Reset preflight panel
+        const pfPanel = document.getElementById("migrate-machine-preflight-result");
+        if (pfPanel) pfPanel.style.display = "none";
+        // Reset done/fail banners
+        const done = document.getElementById("machine-migration-done");
+        const fail = document.getElementById("machine-migration-fail");
+        if (done) done.style.display = "none";
+        if (fail) fail.style.display = "none";
+        // Disable start button
+        const btnStart = document.getElementById("btn-machine-migrate-start");
+        if (btnStart) { btnStart.disabled = true; btnStart.style.cursor = "not-allowed"; }
         modal.style.display = "flex";
     }
 }
@@ -311,9 +329,10 @@ export function submitMigrateMachine() {
     .then(res => res.json())
     .then(res => {
         if (res.success) {
-            showToast("success", res.message || `Permintaan Live Migration '${name}' ke ${target_host} dikirim!`);
-            closeMigrateMachineModal();
-            loadZenoMachines();
+            // Show dual-host progress panel
+            startMachineMigrationProgress(target_host, () => {
+                loadZenoMachines();
+            });
         } else {
             showToast("error", res.message || "Gagal memproses Live Migration");
         }
