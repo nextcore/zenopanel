@@ -1,5 +1,6 @@
 import { getCSRFToken, escapeHtml } from "./utils.js";
 import { showToast } from "./toast.js";
+import { runContainerPreflight, startContainerMigrationProgress } from "./migration.js";
 
 export const containerState = {
   allContainers: [],
@@ -1200,6 +1201,22 @@ export function openMigrateContainerModal(id) {
     document.getElementById("migrate-container-id").value = id;
     document.getElementById("migrate-container-target-name").textContent = id;
     document.getElementById("migrate-container-host-input").value = "";
+    // Reset steps
+    const stepInput = document.getElementById("migrate-container-step-input");
+    const stepProgress = document.getElementById("migrate-container-step-progress");
+    if (stepInput) stepInput.style.display = "block";
+    if (stepProgress) stepProgress.style.display = "none";
+    // Reset preflight panel
+    const pfPanel = document.getElementById("migrate-container-preflight-result");
+    if (pfPanel) pfPanel.style.display = "none";
+    // Reset done/fail
+    const done = document.getElementById("ctr-migration-done");
+    const fail = document.getElementById("ctr-migration-fail");
+    if (done) done.style.display = "none";
+    if (fail) fail.style.display = "none";
+    // Disable start button
+    const btnStart = document.getElementById("btn-ctr-migrate-start");
+    if (btnStart) { btnStart.disabled = true; btnStart.style.cursor = "not-allowed"; }
     modal.style.display = "flex";
   }
 }
@@ -1232,9 +1249,10 @@ export function submitMigrateContainer() {
     .then((res) => res.json())
     .then((res) => {
       if (res.success) {
-        showToast("success", res.message);
-        closeMigrateContainerModal();
-        loadContainers();
+        // Tampilkan dual-host CRIU progress panel
+        startContainerMigrationProgress(target_host, () => {
+          loadContainers();
+        });
       } else {
         showToast("error", res.message || "Failed to initiate migration");
       }
