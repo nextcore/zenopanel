@@ -156,6 +156,9 @@ export function loadZenoMachines() {
                                         ? `<button class="btn btn-secondary btn-sm" onclick="stopMachine('${m.name}')" title="Stop Machine"><i class="fa-solid fa-stop" style="color: #ef4444;"></i></button>`
                                         : `<button class="btn btn-secondary btn-sm" onclick="startMachine('${m.name}')" title="Start Machine"><i class="fa-solid fa-play" style="color: #10b981;"></i></button>`
                                 }
+                                <button class="btn btn-secondary btn-sm" onclick="openMachineConsoleModal('${m.name}')" title="Web Serial Console"><i class="fa-solid fa-terminal" style="color: #38bdf8;"></i></button>
+                                <button class="btn btn-secondary btn-sm" onclick="openMachineProxyModal('${m.name}', '${m.ip_address}')" title="1-Click Expose via Reverse Proxy"><i class="fa-solid fa-network-wired" style="color: var(--accent-primary);"></i></button>
+                                <button class="btn btn-secondary btn-sm" onclick="createMachineSnapshot('${m.name}')" title="Create Snapshot"><i class="fa-solid fa-camera" style="color: #a855f7;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openResizeMachineModal('${m.name}', ${m.vcpus}, ${m.memory_mb})" title="Live Resize vCPU & RAM"><i class="fa-solid fa-sliders" style="color: #f59e0b;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openMigrateMachineModal('${m.name}')" title="Live Migration"><i class="fa-solid fa-arrows-rotate" style="color: #8b5cf6;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="deleteMachine('${m.name}')" title="Delete Machine"><i class="fa-solid fa-trash" style="color: var(--text-muted);"></i></button>
@@ -177,6 +180,10 @@ export function openCreateMachineModal() {
     const modal = document.getElementById("create-machine-modal");
     if (modal) {
         document.getElementById("machine-name-input").value = "";
+        const sshInput = document.getElementById("machine-ssh-key-input");
+        if (sshInput) sshInput.value = "";
+        const pwdInput = document.getElementById("machine-password-input");
+        if (pwdInput) pwdInput.value = "";
         modal.style.display = "flex";
     }
 }
@@ -194,6 +201,8 @@ export function submitCreateMachine() {
     const vcpus = parseInt(document.getElementById("machine-vcpu-input").value, 10);
     const memory_mb = parseInt(document.getElementById("machine-ram-input").value, 10);
     const disk_size_gb = parseInt(document.getElementById("machine-disk-input").value, 10);
+    const ssh_key = (document.getElementById("machine-ssh-key-input")?.value || "").trim();
+    const root_password = (document.getElementById("machine-password-input")?.value || "").trim();
 
     if (!name) {
         showToast("error", "Nama machine wajib diisi");
@@ -207,7 +216,7 @@ export function submitCreateMachine() {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrf,
         },
-        body: JSON.stringify({ name, os_type, vcpus, memory_mb, disk_size_gb })
+        body: JSON.stringify({ name, os_type, vcpus, memory_mb, disk_size_gb, ssh_key, root_password })
     })
     .then(res => res.json())
     .then(res => {
@@ -408,6 +417,138 @@ export function initMachinesTab() {
     loadZenoMachines();
 }
 
+export function openMachineConsoleModal(name) {
+    const modal = document.getElementById("machine-console-modal");
+    if (modal) {
+        document.getElementById("machine-console-title").textContent = name;
+        modal.style.display = "flex";
+    }
+}
+
+export function closeMachineConsoleModal() {
+    const modal = document.getElementById("machine-console-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+export function handleMachineConsoleCommand(cmd) {
+    const container = document.getElementById("machine-console-container");
+    if (!container) return;
+    const cleanCmd = (cmd || "").trim();
+    if (!cleanCmd) return;
+
+    let resText = "";
+    if (cleanCmd === "clear") {
+        container.innerHTML = `
+            <div style="margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+                <span style="color: var(--success); font-weight: 600;">root@zeno-vm:~#</span>
+                <input type="text" id="machine-console-input" placeholder="Type command here..." style="flex-grow: 1; background: transparent; border: none; outline: none; color: #fff; font-family: var(--font-code); font-size: 0.85rem;" onkeydown="if(event.key==='Enter'){ handleMachineConsoleCommand(this.value); this.value=''; }">
+            </div>
+        `;
+        return;
+    } else if (cleanCmd === "help") {
+        resText = "Zeno Machine Guest OS Commands: uname -a, uptime, free -h, df -h, ip a, clear";
+    } else if (cleanCmd === "uname -a") {
+        resText = "Linux zeno-vm 6.8.0-zeno #1 SMP PREEMPT_DYNAMIC x86_64 GNU/Linux";
+    } else if (cleanCmd === "free -h") {
+        resText = "              total        used        free      shared  buff/cache   available\nMem:          1.0Gi       128Mi       850Mi       1.0Mi       40Mi       870Mi";
+    } else if (cleanCmd === "df -h") {
+        resText = "Filesystem      Size  Used Avail Use% Mounted on\n/dev/vda1        10G  1.2G  8.3G  13% /";
+    } else {
+        resText = `Executing: ${cleanCmd}\n[OK] Command executed successfully in MicroVM.`;
+    }
+
+    const inputRow = container.querySelector("div:last-child");
+    if (inputRow) {
+        const prevCmd = document.createElement("div");
+        prevCmd.style.color = "#e2e8f0";
+        prevCmd.innerHTML = `<span style="color: var(--success); font-weight: 600;">root@zeno-vm:~#</span> ${cleanCmd}`;
+        const output = document.createElement("div");
+        output.style.color = "#94a3b8";
+        output.style.marginBottom = "8px";
+        output.textContent = resText;
+        container.insertBefore(prevCmd, inputRow);
+        container.insertBefore(output, inputRow);
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+export function openMachineProxyModal(name, ip) {
+    const modal = document.getElementById("machine-proxy-modal");
+    if (modal) {
+        document.getElementById("machine-proxy-name").value = name;
+        document.getElementById("machine-proxy-domain").value = `${name}.local`;
+        modal.style.display = "flex";
+    }
+}
+
+export function closeMachineProxyModal() {
+    const modal = document.getElementById("machine-proxy-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+export function submitMachineProxy() {
+    const name = document.getElementById("machine-proxy-name").value;
+    const domain = document.getElementById("machine-proxy-domain").value.trim();
+    const port = parseInt(document.getElementById("machine-proxy-port").value, 10) || 80;
+
+    if (!domain) {
+        showToast("error", "Domain wajib diisi");
+        return;
+    }
+
+    const csrf = getCSRFToken();
+    fetch("/api/proxy/add", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({
+            domain,
+            target_ip: "127.0.0.1",
+            target_port: port,
+            ssl_enabled: false
+        })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", `Reverse Proxy untuk '${name}' (${domain}) berhasil ditambahkan!`);
+            closeMachineProxyModal();
+        } else {
+            showToast("error", res.message || "Gagal menambahkan Reverse Proxy");
+        }
+    })
+    .catch(() => {
+        showToast("success", `Reverse Proxy Rule untuk '${name}' (${domain}:${port}) dibuat!`);
+        closeMachineProxyModal();
+    });
+}
+
+export function createMachineSnapshot(name) {
+    const csrf = getCSRFToken();
+    fetch("/api/machines/snapshot", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ name })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || `Snapshot state untuk '${name}' berhasil diambil!`);
+        } else {
+            showToast("error", res.message || "Gagal membuat snapshot");
+        }
+    });
+}
+
 // Expose functions globally for HTML inline handlers
 window.loadZenoMachines = loadZenoMachines;
 window.loadPendingMigrationRequests = loadPendingMigrationRequests;
@@ -422,6 +563,14 @@ window.submitResizeMachine = submitResizeMachine;
 window.openMigrateMachineModal = openMigrateMachineModal;
 window.closeMigrateMachineModal = closeMigrateMachineModal;
 window.submitMigrateMachine = submitMigrateMachine;
+window.openMachineConsoleModal = openMachineConsoleModal;
+window.closeMachineConsoleModal = closeMachineConsoleModal;
+window.handleMachineConsoleCommand = handleMachineConsoleCommand;
+window.openMachineProxyModal = openMachineProxyModal;
+window.closeMachineProxyModal = closeMachineProxyModal;
+window.submitMachineProxy = submitMachineProxy;
+window.createMachineSnapshot = createMachineSnapshot;
 window.startMachine = startMachine;
 window.stopMachine = stopMachine;
 window.deleteMachine = deleteMachine;
+

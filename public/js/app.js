@@ -262,6 +262,28 @@ import {
   openWebDocrootPicker,
   saveWebDocroot,
 } from "./websites.js";
+import {
+  loadZenoMachines,
+  openCreateMachineModal,
+  closeCreateMachineModal,
+  submitCreateMachine,
+  openResizeMachineModal,
+  closeResizeMachineModal,
+  submitResizeMachine,
+  openMigrateMachineModal,
+  closeMigrateMachineModal,
+  submitMigrateMachine,
+  openMachineConsoleModal,
+  closeMachineConsoleModal,
+  handleMachineConsoleCommand,
+  openMachineProxyModal,
+  closeMachineProxyModal,
+  submitMachineProxy,
+  createMachineSnapshot,
+  startMachine,
+  stopMachine,
+  deleteMachine,
+} from "./machines.js";
 
 // --- BI-DIRECTIONAL WINDOW STATE BINDINGS ---
 // This ensures any inline blade HTML template access matches module variables dynamically.
@@ -612,6 +634,26 @@ const functionsToBind = {
   openDocrootInFileManager,
   openWebDocrootPicker,
   saveWebDocroot,
+  loadZenoMachines,
+  openCreateMachineModal,
+  closeCreateMachineModal,
+  submitCreateMachine,
+  openResizeMachineModal,
+  closeResizeMachineModal,
+  submitResizeMachine,
+  openMigrateMachineModal,
+  closeMigrateMachineModal,
+  submitMigrateMachine,
+  openMachineConsoleModal,
+  closeMachineConsoleModal,
+  handleMachineConsoleCommand,
+  openMachineProxyModal,
+  closeMachineProxyModal,
+  submitMachineProxy,
+  createMachineSnapshot,
+  startMachine,
+  stopMachine,
+  deleteMachine,
 };
 
 Object.entries(functionsToBind).forEach(([name, fn]) => {

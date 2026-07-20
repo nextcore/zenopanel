@@ -412,7 +412,7 @@ static WAF_KEYWORDS: Lazy<AhoCorasick> = Lazy::new(|| {
         "win.ini", "system.ini", "boot.ini", "windows/system32",
         // RCE
         "/bin/bash", "/bin/sh", "cmd.exe", "powershell.exe", "pwsh.exe",
-        "exec(", "passthru(", "shell_exec(", "popen(", "proc_open(",
+        "curl ", "wget ", "exec(", "passthru(", "shell_exec(", "popen(", "proc_open(",
         "base64_decode", "phpinfo(", "{{", "${", "() {", "whoami", "uname -a",
         // SSRF — only highly specific targets; bare private IPs handled by regex with scheme context
         "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254", "metadata.google",

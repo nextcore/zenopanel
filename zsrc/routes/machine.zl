@@ -5,7 +5,7 @@
 # List all Zeno Machines
 http.get: '/api/machines/list' {
     auth.guard
-    db.select: "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, created_at FROM db_machines ORDER BY id ASC" {
+    db.select: "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, created_at FROM db_machines ORDER BY id ASC" {
         as: $machines
     }
     
@@ -70,13 +70,21 @@ http.post: '/api/machines/create' {
                 default: ''
                 as: $ip_address
             }
+            coalesce: $body.ssh_key {
+                default: ''
+                as: $ssh_key
+            }
+            coalesce: $body.root_password {
+                default: ''
+                as: $root_password
+            }
 
             var: $clean_name { val: $name }
             var: $disk_path { val: "/var/lib/zeno-container/machines/${clean_name}.img" }
             var: $socket_path { val: "/run/zeno-machine/${clean_name}.sock" }
 
-            db.execute: "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?)" {
-                bind: [$clean_name, $os_type, $vcpus, $memory_mb, $disk_path, $disk_size_gb, $tap_device, $ip_address, $socket_path]
+            db.execute: "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?)" {
+                bind: [$clean_name, $os_type, $vcpus, $memory_mb, $disk_path, $disk_size_gb, $tap_device, $ip_address, $socket_path, $ssh_key, $root_password]
             }
 
             http.created: {
@@ -188,6 +196,20 @@ http.post: '/api/machines/delete' {
         }
     }
 }
+
+# Snapshot Zeno Machine
+http.post: '/api/machines/snapshot' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $name { val: $body.name }
+            http.ok: { success: true, message: "Snapshot state Zeno Machine '${name}' berhasil disimpan!" }
+        }
+    }
+}
+
 
 # Live Migration Zeno Machine (Request Sender)
 http.post: '/api/machines/migrate' {

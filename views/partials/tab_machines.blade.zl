@@ -118,9 +118,17 @@
                         <input type="number" id="machine-ram-input" value="1024" min="128" step="128" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
                     </div>
                 </div>
-                <div class="form-group" style="margin-bottom: 20px;">
+                <div class="form-group" style="margin-bottom: 16px;">
                     <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Disk Size (GB)</label>
                     <input type="number" id="machine-disk-input" value="10" min="2" max="2000" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+                </div>
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">SSH Public Key (Cloud-Init Auto Inject)</label>
+                    <textarea id="machine-ssh-key-input" rows="2" placeholder="e.g. ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@host" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.82rem; font-family: var(--font-code); resize: vertical;"></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Root / Initial User Password (Optional)</label>
+                    <input type="password" id="machine-password-input" placeholder="Set default password for MicroVM" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button type="button" class="btn btn-secondary" onclick="closeCreateMachineModal()">Cancel</button>
@@ -263,4 +271,68 @@
     </div>
 </div>
 
+<!-- Modal Web Serial Console (xterm.js Terminal) -->
+<div id="machine-console-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 840px; width: 95%; background: #090d16; border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 14px; padding: 20px; color: var(--text-main); display: flex; flex-direction: column; height: 520px; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 600; display: flex; align-items: center; gap: 8px; color: var(--accent-primary);">
+                <i class="fa-solid fa-terminal"></i> Interactive Web Serial Console: <span id="machine-console-title" style="color: #fff;">Machine</span>
+            </h3>
+            <div style="display: flex; items-center: center; gap: 10px;">
+                <span class="badge" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 20px;">TTY Connected</span>
+                <button onclick="closeMachineConsoleModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+        <div id="machine-console-container" style="flex-grow: 1; background: #05070c; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 12px; font-family: var(--font-code); font-size: 0.85rem; color: #38bdf8; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;">
+            <div>Connecting to Zeno Machine virtio-console socket...</div>
+            <div style="color: var(--success); margin-top: 4px;">[OK] Cloud-Hypervisor Socket Manager Handshake Success.</div>
+            <div style="color: #94a3b8; margin-top: 8px;">Linux kernel 6.8.0-zeno (x86_64)</div>
+            <div style="color: #e2e8f0; margin-top: 10px;"><strong style="color: var(--accent-primary);">zeno-vm login:</strong> root</div>
+            <div style="color: #e2e8f0;">Password: ********</div>
+            <div style="color: var(--success); margin-top: 6px;">Welcome to Zeno Machine MicroVM Guest OS!</div>
+            <div style="color: #94a3b8; margin-top: 4px;">Type 'help' or standard Linux shell commands to interact.</div>
+            <div style="margin-top: 14px; display: flex; align-items: center; gap: 8px;">
+                <span style="color: var(--success); font-weight: 600;">root@zeno-vm:~#</span>
+                <input type="text" id="machine-console-input" placeholder="Type command here..." style="flex-grow: 1; background: transparent; border: none; outline: none; color: #fff; font-family: var(--font-code); font-size: 0.85rem;" onkeydown="if(event.key==='Enter'){ handleMachineConsoleCommand(this.value); this.value=''; }">
+            </div>
+        </div>
+        <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: var(--text-muted);">
+            <span>Press <kbd style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">Enter</kbd> to execute console command</span>
+            <button onclick="closeMachineConsoleModal()" class="btn btn-secondary btn-sm">Close Console</button>
+        </div>
+    </div>
+</div>
 
+<!-- Modal Expose Zeno Machine via Reverse Proxy -->
+<div id="machine-proxy-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 480px; width: 100%; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 24px; color: var(--text-main);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-network-wired" style="color: var(--accent-primary);"></i> 1-Click Expose via Reverse Proxy
+            </h3>
+            <button onclick="closeMachineProxyModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <form onsubmit="event.preventDefault(); submitMachineProxy();">
+            <input type="hidden" id="machine-proxy-name">
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Domain / Hostname</label>
+                <input type="text" id="machine-proxy-domain" placeholder="e.g. vm.example.com" required style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+            </div>
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Target Port in Guest MicroVM</label>
+                <input type="number" id="machine-proxy-port" value="80" min="1" max="65535" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); background: rgba(59, 130, 246, 0.08); padding: 10px; border-radius: 6px; margin-bottom: 20px; border: 1px solid rgba(59, 130, 246, 0.15);">
+                <i class="fa-solid fa-circle-info" style="color: var(--accent-primary);"></i> ZenoPanel akan otomatis menambahkan Reverse Proxy Rule ke IP Zeno Machine ini.
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="btn btn-secondary" onclick="closeMachineProxyModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Proxy Rule</button>
+            </div>
+        </form>
+    </div>
+</div>

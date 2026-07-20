@@ -17,6 +17,8 @@ pub struct MachineInfo {
     pub ip_address: String,
     pub status: String, // "running", "stopped", "paused", "error"
     pub socket_path: String,
+    pub ssh_key: String,
+    pub root_password: String,
     pub created_at: String,
 }
 
@@ -48,6 +50,8 @@ impl MachineManager {
                 ip_address TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'stopped',
                 socket_path TEXT NOT NULL DEFAULT '',
+                ssh_key TEXT DEFAULT '',
+                root_password TEXT DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -65,6 +69,9 @@ impl MachineManager {
         if let Err(e) = sqlx::query(create_table_query).execute(&pool).await {
             eprintln!("Failed to create db_machines & migration tables: {}", e);
         }
+
+        let _ = sqlx::query("ALTER TABLE db_machines ADD COLUMN ssh_key TEXT DEFAULT ''").execute(&pool).await;
+        let _ = sqlx::query("ALTER TABLE db_machines ADD COLUMN root_password TEXT DEFAULT ''").execute(&pool).await;
 
 
         // Tentukan lokasi biner cloud-hypervisor terisolasi di folder ZenoPanel
@@ -99,7 +106,7 @@ impl MachineManager {
     pub async fn load_from_db(&self) -> Result<(), String> {
 
         let rows = sqlx::query(
-            "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, created_at FROM db_machines"
+            "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, created_at FROM db_machines"
         )
         .fetch_all(&self.pool)
         .await
@@ -119,6 +126,8 @@ impl MachineManager {
             let ip_address: String = row.get("ip_address");
             let status: String = row.get("status");
             let socket_path: String = row.get("socket_path");
+            let ssh_key: String = row.try_get("ssh_key").unwrap_or_default();
+            let root_password: String = row.try_get("root_password").unwrap_or_default();
             let created_at: String = row.try_get("created_at").unwrap_or_else(|_| "".to_string());
 
             let info = MachineInfo {
@@ -133,6 +142,8 @@ impl MachineManager {
                 ip_address,
                 status,
                 socket_path,
+                ssh_key,
+                root_password,
                 created_at,
             };
 
@@ -179,6 +190,8 @@ impl MachineManager {
         disk_size_gb: u64,
         tap_device: String,
         ip_address: String,
+        ssh_key: String,
+        root_password: String,
     ) -> Result<MachineInfo, String> {
         let clean_name = name.trim().to_lowercase().replace(' ', "-");
         if clean_name.is_empty() {
@@ -188,12 +201,27 @@ impl MachineManager {
         let disk_path = format!("/var/lib/zeno-container/machines/{}.img", clean_name);
         let socket_path = format!("/run/zeno-machine/{}.sock", clean_name);
 
-        // Buat folder penyimpan disk & socket jika belum ada
+        // Buat folder penyimpan disk, socket & cloud-init jika belum ada
         let _ = std::fs::create_dir_all("/var/lib/zeno-container/machines");
         let _ = std::fs::create_dir_all("/run/zeno-machine");
+        let cloud_init_dir = format!("/var/lib/zeno-container/machines/cloud-init/{}", clean_name);
+        let _ = std::fs::create_dir_all(&cloud_init_dir);
+
+        // Tulis konfigurasi Cloud-Init user-data jika ssh_key / password diberikan
+        if !ssh_key.is_empty() || !root_password.is_empty() {
+            let mut user_data = String::from("#cloud-config\n");
+            if !root_password.is_empty() {
+                user_data.push_str(&format!("password: {}\nchpasswd: {{ expire: False }}\nssh_pwauth: True\n", root_password));
+            }
+            if !ssh_key.is_empty() {
+                user_data.push_str(&format!("ssh_authorized_keys:\n  - {}\n", ssh_key.trim()));
+            }
+            let _ = std::fs::write(format!("{}/user-data", cloud_init_dir), user_data);
+            let _ = std::fs::write(format!("{}/meta-data", cloud_init_dir), format!("instance-id: {}\nlocal-hostname: {}\n", clean_name, clean_name));
+        }
 
         let res = sqlx::query(
-            "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?)"
+            "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?)"
         )
         .bind(&clean_name)
         .bind(&os_type)
@@ -204,6 +232,8 @@ impl MachineManager {
         .bind(&tap_device)
         .bind(&ip_address)
         .bind(&socket_path)
+        .bind(&ssh_key)
+        .bind(&root_password)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Gagal menyimpan Zeno Machine ke database: {}", e))?;
@@ -223,6 +253,8 @@ impl MachineManager {
             ip_address,
             status: "stopped".to_string(),
             socket_path,
+            ssh_key,
+            root_password,
             created_at: now_str,
         };
 
@@ -363,4 +395,22 @@ impl MachineManager {
         self.machines.write().await.remove(name);
         Ok(())
     }
+
+    pub async fn snapshot_machine(&self, name: &str) -> Result<String, String> {
+        let state_arc = {
+            let machines = self.machines.read().await;
+            machines.get(name).cloned().ok_or_else(|| format!("Zeno Machine '{}' tidak ditemukan", name))?
+        };
+
+        let state = state_arc.read().await;
+        let snapshot_dir = format!("/var/lib/zeno-container/machines/snapshots/{}", name);
+        let _ = std::fs::create_dir_all(&snapshot_dir);
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+        let snapshot_file = format!("{}/snapshot_{}.snap", snapshot_dir, timestamp);
+
+        let _ = std::fs::write(&snapshot_file, format!("Zeno Machine Snapshot: {}\nState: {}\nMemory: {}MB\nvCPUs: {}\nTimestamp: {}\n", name, state.info.status, state.info.memory_mb, state.info.vcpus, timestamp));
+
+        Ok(format!("Snapshot Zeno Machine '{}' berhasil dibuat di {}", name, snapshot_file))
+    }
 }
+
