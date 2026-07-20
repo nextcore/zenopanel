@@ -40,15 +40,38 @@ echo "      ZenoPanel WSL2 Distro Packaging Tool        "
 echo "=================================================="
 echo -e "${NC}"
 
-# 1. Deteksi Versi ZenoPanel dari Git / Cargo.toml
-log_info "Mendeteksi versi ZenoPanel..."
-GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
-if [ -n "$GIT_TAG" ]; then
-    VERSION="$GIT_TAG"
-else
-    CARGO_VERSION=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2 2>/dev/null)
-    VERSION="v${CARGO_VERSION:-1.5.19}"
+# 1. Deteksi Berkas ZenoPanel Kompilasi di Folder dist/ & Versi
+log_info "Mencari berkas ZenoPanel terkompilasi di folder dist/..."
+
+# Cari berkas dist/zenopanel-*.tar.gz (abaikan dist/zenopanel-windows-*.zip)
+LOCAL_ZENOPANEL_TAR=$(ls -t dist/zenopanel-v*.tar.gz 2>/dev/null | head -n1)
+
+if [ -z "$LOCAL_ZENOPANEL_TAR" ]; then
+    LOCAL_ZENOPANEL_TAR=$(ls -t dist/zenopanel-*.tar.gz 2>/dev/null | grep -v 'zenopanel-windows' | grep -v 'zenoos' | head -n1)
 fi
+
+if [ -n "$LOCAL_ZENOPANEL_TAR" ] && [ -f "$LOCAL_ZENOPANEL_TAR" ]; then
+    log_success "Ditemukan berkas terkompilasi lokal: ${BOLD}$LOCAL_ZENOPANEL_TAR${NC}"
+    FILENAME=$(basename "$LOCAL_ZENOPANEL_TAR")
+    VERSION=$(echo "$FILENAME" | sed -E 's/^zenopanel-(.*)\.tar\.gz$/\1/')
+    if [[ "$VERSION" != v* ]]; then
+        VERSION="v${VERSION}"
+    fi
+else
+    log_warn "Berkas ZenoPanel terkompilasi (dist/zenopanel-*.tar.gz) tidak ditemukan di dist/."
+    log_info "Mendeteksi versi dari Cargo.toml untuk mengompilasi otomatis..."
+    CARGO_VERSION=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2 2>/dev/null)
+    VERSION="v${CARGO_VERSION:-1.5.22}"
+
+    log_info "Menjalankan ./compile.sh untuk mengompilasi ZenoPanel Linux Standalone..."
+    ./compile.sh --target musl --non-interactive
+    if [ $? -ne 0 ]; then
+        log_error "Kompilasi ZenoPanel gagal!"
+        exit 1
+    fi
+    LOCAL_ZENOPANEL_TAR="dist/zenopanel-${VERSION}.tar.gz"
+fi
+
 log_success "Versi target ZenoPanel: ${BOLD}$VERSION${NC}"
 
 # 2. Cari & Unduh Alpine Minrootfs Terbaru
@@ -98,12 +121,15 @@ fi
 log_success "Ekstraksi Alpine berhasil."
 
 # 5. Ekstrak ZenoPanel yang sudah dicompilasi ke dalam distro
-log_info "Memasukkan paket ZenoPanel ke dalam distro..."
+log_info "Memasukkan paket ZenoPanel ($LOCAL_ZENOPANEL_TAR) ke dalam distro..."
 mkdir -p "$BUILD_DIR/opt/zenopanel"
-tar -xzf "dist/zenopanel-${VERSION}.tar.gz" -C "$BUILD_DIR/opt"
-cp -r "$BUILD_DIR/opt/zenopanel-${VERSION}"/* "$BUILD_DIR/opt/zenopanel/"
-cp -r "$BUILD_DIR/opt/zenopanel-${VERSION}"/.env.example "$BUILD_DIR/opt/zenopanel/" 2>/dev/null
-rm -rf "$BUILD_DIR/opt/zenopanel-${VERSION}"
+tar -xzf "$LOCAL_ZENOPANEL_TAR" -C "$BUILD_DIR/opt"
+EXTRACTED_DIR=$(find "$BUILD_DIR/opt" -maxdepth 1 -mindepth 1 -type d -name "zenopanel-*" | head -n1)
+if [ -n "$EXTRACTED_DIR" ] && [ -d "$EXTRACTED_DIR" ]; then
+    cp -r "$EXTRACTED_DIR"/* "$BUILD_DIR/opt/zenopanel/"
+    cp -r "$EXTRACTED_DIR"/.env.example "$BUILD_DIR/opt/zenopanel/" 2>/dev/null
+    rm -rf "$EXTRACTED_DIR"
+fi
 
 # Inisialisasi berkas .env bawaan untuk lingkungan WSL2
 if [ -f "$BUILD_DIR/opt/zenopanel/.env.example" ]; then
@@ -226,14 +252,14 @@ fi
 log_success "Windows Launcher .exe berhasil dikompilasi."
 
 # 11. Mengemas ke berkas ZIP rilis (jika utility zip tersedia)
-# ZIP rilis sekarang hanya berisi launcher.exe karena distro tarball akan diunduh dari GitHub
+# ZIP rilis berisi launcher, ps1 script, dan zenoos tarball untuk instalasi offline
 ZIP_NAME="zenopanel-windows-${VERSION}"
 ZIP_FILE="dist/${ZIP_NAME}.zip"
 HAS_ZIP=false
 if command -v zip >/dev/null 2>&1; then
-    log_info "Mengompresi launcher menjadi berkas ZIP siap pakai..."
+    log_info "Mengompresi launcher dan distro ZenoOS menjadi berkas ZIP siap pakai..."
     rm -f "$ZIP_FILE"
-    zip -j "$ZIP_FILE" "$LAUNCHER_FILE" "launcher/zenopanel.ps1" > /dev/null
+    zip -j "$ZIP_FILE" "$LAUNCHER_FILE" "launcher/zenopanel.ps1" "$OUTPUT_FILE" > /dev/null
     if [ $? -eq 0 ]; then
         HAS_ZIP=true
         log_success "Arsip ZIP rilis siap-pakai berhasil dibuat."
@@ -248,7 +274,7 @@ rm -rf "$BUILD_DIR" "$TEMP_EXTRACT"
 log_success "Selamat! Pengemasan distro WSL2 berhasil diselesaikan!"
 echo -e "\n${BOLD}Detail Hasil Akhir:${NC}"
 if [ "$HAS_ZIP" = true ]; then
-    echo -e "  - Berkas Rilis ZIP (Client): ${GREEN}${PWD}/${ZIP_FILE}${NC} (Berisi launcher.exe dan zenopanel.ps1)"
+    echo -e "  - Berkas Rilis ZIP (Client): ${GREEN}${PWD}/${ZIP_FILE}${NC} (Berisi launcher.exe, zenopanel.ps1, dan distro ZenoOS)"
 fi
 echo -e "  - Berkas Tarball (GitHub)  : ${GREEN}${PWD}/${OUTPUT_FILE}${NC} (Unggah ke GitHub Releases)"
 echo -e "  - Berkas Launcher (.exe)   : ${GREEN}${PWD}/${LAUNCHER_FILE}${NC}"

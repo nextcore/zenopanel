@@ -157,7 +157,7 @@ function Run-Normal {
 
     if (-not $installed) {
         $confirm = [System.Windows.Forms.MessageBox]::Show(
-            "ZenoPanel $VERSION belum terpasang di WSL 2.`nApakah Anda ingin mengunduh dan menginstalnya sekarang secara otomatis dari GitHub? (~18MB)",
+            "ZenoPanel $VERSION belum terpasang di WSL 2.`nApakah Anda ingin memasangnya sekarang?",
             "ZenoPanel Installer",
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Question
@@ -172,64 +172,27 @@ function Run-Normal {
         $null = New-Item -ItemType Directory -Force -Path $installDir
 
         $tarFileName = "zenoos-$VERSION.tar.gz"
-        $tempDir = [System.IO.Path]::GetTempPath()
-        $tempTarPath = Join-Path $tempDir $tarFileName
-        $downloadUrl = "https://github.com/nextcore/zenopanel/releases/download/$VERSION/$tarFileName"
+        $localTar1 = Join-Path $PSScriptRoot $tarFileName
+        $localTar2 = Join-Path $PSScriptRoot "zenoos.tar.gz"
+        $finalTarPath = $null
 
-        [System.Windows.Forms.MessageBox]::Show(
-            "Proses pengunduhan distro ZenoPanel dimulai.`n`nKlik OK untuk memulai download di latar belakang. Kami akan memberi tahu Anda jika instalasi telah selesai.",
-            "Mengunduh ZenoPanel...",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information
-        )
-
-        try {
-            $oldProgress = $ProgressPreference
-            $ProgressPreference = 'SilentlyContinue'
-
-            # Pastikan TLS 1.2 / 1.3 diaktifkan untuk koneksi GitHub
-            try {
-                [System.Net.ServicePointManager]::SecurityProtocol = 3072 -bor 12288
-            } catch {
-                [System.Net.ServicePointManager]::SecurityProtocol = 3072
-            }
-
-            if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-                & curl.exe -L -s -o "$tempTarPath" "$downloadUrl"
-                if ($LASTEXITCODE -ne 0) {
-                    throw "curl.exe gagal mengunduh dengan exit code: $LASTEXITCODE"
-                }
-            } else {
-                # Fallback pertama: Invoke-WebRequest dengan User-Agent
-                Invoke-WebRequest -Uri $downloadUrl -OutFile $tempTarPath -UseBasicParsing -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-        } catch {
-            # Fallback kedua: WebClient dengan User-Agent
-            try {
-                $webClient = New-Object System.Net.WebClient
-                $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                $webClient.DownloadFile($downloadUrl, $tempTarPath)
-            } catch {
-                [System.Windows.Forms.MessageBox]::Show(
-                    "Gagal mengunduh ZenoPanel dari GitHub.`nPastikan Anda terhubung ke Internet.`n`nDetail Error: $_",
-                    "Error Download",
-                    [System.Windows.Forms.MessageBoxButtons]::OK,
-                    [System.Windows.Forms.MessageBoxIcon]::Error
-                )
-                return
-            }
-        } finally {
-            if ($null -ne $oldProgress) {
-                $ProgressPreference = $oldProgress
-            }
+        if (Test-Path $localTar1) {
+            $finalTarPath = $localTar1
+        } elseif (Test-Path $localTar2) {
+            $finalTarPath = $localTar2
+        } else {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Berkas distro ZenoOS ($tarFileName) tidak ditemukan di folder launcher.`n`nPastikan Anda telah mengekstrak seluruh isi berkas ZIP ZenoPanel.",
+                "Berkas Distro Tidak Ditemukan",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            )
+            return
         }
 
         # Import Distro WSL
         Write-Host "Mengimpor distro ZenoPanel ke WSL..."
-        $importProcess = Start-Process wsl.exe -ArgumentList "--import", $DISTRO_NAME, "`"$installDir`"", "`"$tempTarPath`"", "--version", "2" -NoNewWindow -PassThru -Wait
-        
-        # Bersihkan berkas unduhan
-        Remove-Item -Path $tempTarPath -ErrorAction SilentlyContinue
+        $importProcess = Start-Process wsl.exe -ArgumentList "--import", $DISTRO_NAME, "`"$installDir`"", "`"$finalTarPath`"", "--version", "2" -NoNewWindow -PassThru -Wait
 
         if ($importProcess.ExitCode -ne 0) {
             [System.Windows.Forms.MessageBox]::Show(

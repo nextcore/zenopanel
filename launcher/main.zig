@@ -82,34 +82,6 @@ fn openBrowser(allocator: Allocator, url: []const u8) !void {
     }
 }
 
-fn downloadFile(allocator: Allocator, url_str: []const u8, dest_path: []const u8) !void {
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
-    const uri = try std.Uri.parse(url_str);
-    var req = try client.request(.GET, uri, .{});
-    defer req.deinit();
-
-    try req.sendBodiless();
-
-    var redirect_buffer: [8192]u8 = undefined;
-    var response = try req.receiveHead(&redirect_buffer);
-
-    if (response.head.status != .ok) return error.HttpDownloadFailed;
-
-    const file = try std.fs.cwd().createFile(dest_path, .{});
-    defer file.close();
-
-    var transfer_buffer: [4096]u8 = undefined;
-    var reader = response.reader(&transfer_buffer);
-
-    var buf: [4096]u8 = undefined;
-    while (true) {
-        const bytes_read = try reader.readSliceShort(&buf);
-        if (bytes_read == 0) break;
-        try file.writeAll(buf[0..bytes_read]);
-    }
-}
 
 fn supportsWslExperimental() bool {
     if (builtin.os.tag != .windows) return false;
@@ -296,7 +268,7 @@ fn runNormal(allocator: Allocator, silent: bool) !void {
 
     if (!is_installed) {
         const confirm_text = try std.fmt.allocPrint(allocator,
-            "ZenoPanel {s} belum terpasang di WSL 2.\nApakah Anda ingin mengunduh dan menginstalnya sekarang secara otomatis dari GitHub? (~18MB)",
+            "ZenoPanel {s} belum terpasang di WSL 2.\nApakah Anda ingin memasangnya sekarang?",
             .{VERSION}
         );
         defer allocator.free(confirm_text);
@@ -319,33 +291,40 @@ fn runNormal(allocator: Allocator, silent: bool) !void {
         const tar_file_name = try std.fmt.allocPrint(allocator, "zenoos-{s}.tar.gz", .{VERSION});
         defer allocator.free(tar_file_name);
 
-        const temp_dir = std.process.getEnvVarOwned(allocator, "TEMP") catch "/tmp";
-        defer if (!std.mem.eql(u8, temp_dir, "/tmp")) allocator.free(temp_dir);
+        var final_tar_path: ?[]const u8 = null;
 
-        const temp_tar_path = try std.fs.path.join(allocator, &[_][]const u8{ temp_dir, tar_file_name });
-        defer allocator.free(temp_tar_path);
+        if (std.fs.selfExePathAlloc(allocator)) |exe_path| {
+            defer allocator.free(exe_path);
+            if (std.fs.path.dirname(exe_path)) |exe_dir| {
+                const candidate1 = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, tar_file_name });
+                if (std.fs.accessAbsolute(candidate1, .{})) |_| {
+                    final_tar_path = candidate1;
+                } else |_| {
+                    allocator.free(candidate1);
+                    const candidate2 = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "zenoos.tar.gz" });
+                    if (std.fs.accessAbsolute(candidate2, .{})) |_| {
+                        final_tar_path = candidate2;
+                    } else |_| {
+                        allocator.free(candidate2);
+                    }
+                }
+            }
+        } else |_| {}
 
-        const download_url = try std.fmt.allocPrint(allocator, "https://github.com/nextcore/zenopanel/releases/download/{s}/{s}", .{ VERSION, tar_file_name });
-        defer allocator.free(download_url);
-
-        _ = try showMessageBox(
-            "Proses pengunduhan distro ZenoPanel dimulai.\n\nKlik OK untuk memulai download di background. Kami akan memberi tahu Anda jika instalasi telah selesai.",
-            "Mengunduh ZenoPanel...",
-            0x00000000 | 0x00000040
-        );
-
-        downloadFile(allocator, download_url, temp_tar_path) catch |err| {
+        const local_tar_path = final_tar_path orelse {
             const err_msg = try std.fmt.allocPrint(allocator,
-                "Gagal mengunduh ZenoPanel dari GitHub.\nPastikan Anda terhubung ke Internet.\n\nDetail Error: {}",
-                .{err}
+                "Berkas distro ZenoOS ({s}) tidak ditemukan di direktori launcher.\n\n" ++
+                "Pastikan Anda telah mengekstrak seluruh isi berkas ZIP ZenoPanel sebelum menjalankan launcher ini.",
+                .{tar_file_name}
             );
             defer allocator.free(err_msg);
-            _ = try showMessageBox(err_msg, "Error Download", 0x00000000 | 0x00000010);
+            _ = try showMessageBox(err_msg, "Berkas Distro Tidak Ditemukan", 0x00000000 | 0x00000010);
             return;
         };
+        defer allocator.free(local_tar_path);
 
         var import_child = std.process.Child.init(&[_][]const u8{
-            "wsl.exe", "--import", DISTRO_NAME, install_dir, temp_tar_path, "--version", "2"
+            "wsl.exe", "--import", DISTRO_NAME, install_dir, local_tar_path, "--version", "2"
         }, allocator);
         import_child.stderr_behavior = .Pipe;
 
@@ -353,8 +332,6 @@ fn runNormal(allocator: Allocator, silent: bool) !void {
         const stderr_buf = try import_child.stderr.?.readToEndAlloc(allocator, 1024 * 1024);
         defer allocator.free(stderr_buf);
         const import_exit = try import_child.wait();
-
-        std.fs.deleteFileAbsolute(temp_tar_path) catch {};
 
         if (import_exit != .Exited or import_exit.Exited != 0) {
             const err_msg = try std.fmt.allocPrint(allocator,

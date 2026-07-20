@@ -195,7 +195,7 @@ except:
 #### Cara Pemasangan di Windows
 1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
 2. Ekstrak berkas tersebut.
-3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis.
+3. Jalankan \`zenopanel-launcher.exe\` untuk menginstal ZenoOS dan menyalakan panel secara otomatis.
 
 ---
 ${release_notes}"
@@ -250,7 +250,7 @@ case $notes_opt in
 #### Cara Pemasangan di Windows
 1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
 2. Ekstrak berkas tersebut.
-3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis.
+3. Jalankan \`zenopanel-launcher.exe\` untuk menginstal ZenoOS dan menyalakan panel secara otomatis.
 
 ---
 #### Changelog
@@ -271,7 +271,7 @@ case $notes_opt in
 #### Cara Pemasangan di Windows
 1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
 2. Ekstrak berkas tersebut.
-3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis."
+3. Jalankan \`zenopanel-launcher.exe\` untuk menginstal ZenoOS dan menyalakan panel secara otomatis."
         ;;
     4)
         echo -e "\nTulis deskripsi singkat untuk rilis ini:"
@@ -292,7 +292,7 @@ case $notes_opt in
 #### Cara Pemasangan di Windows
 1. Unduh berkas \`zenopanel-windows-${VERSION}.zip\`.
 2. Ekstrak berkas tersebut.
-3. Jalankan \`zenopanel-launcher.exe\` untuk mengunduh distro ZenoOS dan menyalakan panel secara otomatis."
+3. Jalankan \`zenopanel-launcher.exe\` untuk menginstal ZenoOS dan menyalakan panel secara otomatis."
         fi
         ;;
     6)
