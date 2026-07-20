@@ -1,14 +1,21 @@
-# Release Notes — ZenoPanel v1.6.3
+# Release Notes — ZenoPanel v1.6.4
 
-Rilis **v1.6.3** memberikan perbaikan kritis pada modul JavaScript frontend (`app.js`), mengeliminasi kesalahan pengimporan modul yang sempat menyebabkan tombol **ISO Library** dan modal pendukung Zeno Machine tidak bereaksi saat diklik.
+Rilis **v1.6.4** memberikan perbaikan kritis pada modul JavaScript frontend (`app.js`), mengeliminasi kesalahan pengimporan modul yang sempat menyebabkan tombol **ISO Library** dan modal pendukung Zeno Machine tidak bereaksi saat diklik, serta menyelaraskan paket kompilasi distribusi Linux dan installer WSL2 Windows.
 
 ---
 
 ## 🛠️ Perbaikan Bug & Stabilitas (Bug Fixes & Stability)
 
 ### 📀 Zeno Machine — Fix ES Module Imports & Handler Modal ISO Library
-*   **Fix Tombol ISO Library Tidak Bereaksi**: Memperbaiki masalah di mana tombol ISO Library dan modal pendukung Zeno Machine tidak ada respon saat diklik. Masalah ini disebabkan oleh impor nama fungsi yang invalid (`createMachineSnapshot`) di `public/js/app.js` yang menggagalkan inisialisasi modul JavaScript secara keseluruhan.
+*   **Fix Tombol ISO Library Tidak Bereaksi**: Memperbaiki masalah di mana tombol ISO Library dan modal pendukung Zeno Machine tidak merespon saat diklik. Masalah ini disebabkan oleh impor nama fungsi yang invalid (`createMachineSnapshot`) di `public/js/app.js` yang menggagalkan inisialisasi modul JavaScript secara keseluruhan.
 *   **Eksplisit Global Window Bindings**: Mengimpor secara lengkap fungsi modal ISO Library (`openIsoLibraryModal`, `closeIsoLibraryModal`, `loadIsoList`, `submitAddIso`, `deleteIso`), Snapshot Manager (`openSnapshotManagerModal`, `closeSnapshotManagerModal`, `submitCreateSnapshotModal`, `restoreSnapshot`, `deleteSnapshot`), serta mendaftarkannya ke `window` untuk menjamin eksekusi handler event HTML inline secara seamless.
+
+---
+
+## 📦 Paket Distribusi & Rilis (Release Assets)
+
+*   **`zenopanel-v1.6.4.tar.gz`**: Paket distribusi rilis ZenoPanel v1.6.4 untuk sistem Linux (static musl binary), lengkap dengan binary `bin/cloud-hypervisor` v42.0.
+*   **`zenopanel-windows-v1.6.4.zip`**: Paket installer/launcher Windows WSL2 (`zenopanel-launcher.exe` + `zenopanel.ps1`) dan distro ZenoOS berbasis Alpine minrootfs 3.24.
 
 ---
 
