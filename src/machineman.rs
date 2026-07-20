@@ -19,6 +19,7 @@ pub struct MachineInfo {
     pub socket_path: String,
     pub ssh_key: String,
     pub root_password: String,
+    pub iso_path: String,
     pub created_at: String,
 }
 
@@ -52,6 +53,27 @@ impl MachineManager {
                 socket_path TEXT NOT NULL DEFAULT '',
                 ssh_key TEXT DEFAULT '',
                 root_password TEXT DEFAULT '',
+                iso_path TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS db_isos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                path TEXT NOT NULL,
+                source_url TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'ready',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS db_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                machine_name TEXT NOT NULL,
+                snapshot_name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                file_path TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -67,11 +89,12 @@ impl MachineManager {
             );
         ";
         if let Err(e) = sqlx::query(create_table_query).execute(&pool).await {
-            eprintln!("Failed to create db_machines & migration tables: {}", e);
+            eprintln!("Failed to create db_machines, db_isos, db_snapshots & migration tables: {}", e);
         }
 
         let _ = sqlx::query("ALTER TABLE db_machines ADD COLUMN ssh_key TEXT DEFAULT ''").execute(&pool).await;
         let _ = sqlx::query("ALTER TABLE db_machines ADD COLUMN root_password TEXT DEFAULT ''").execute(&pool).await;
+        let _ = sqlx::query("ALTER TABLE db_machines ADD COLUMN iso_path TEXT DEFAULT ''").execute(&pool).await;
 
 
         // Tentukan lokasi biner cloud-hypervisor terisolasi di folder ZenoPanel
@@ -106,7 +129,7 @@ impl MachineManager {
     pub async fn load_from_db(&self) -> Result<(), String> {
 
         let rows = sqlx::query(
-            "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, created_at FROM db_machines"
+            "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path, created_at FROM db_machines"
         )
         .fetch_all(&self.pool)
         .await
@@ -128,6 +151,7 @@ impl MachineManager {
             let socket_path: String = row.get("socket_path");
             let ssh_key: String = row.try_get("ssh_key").unwrap_or_default();
             let root_password: String = row.try_get("root_password").unwrap_or_default();
+            let iso_path: String = row.try_get("iso_path").unwrap_or_default();
             let created_at: String = row.try_get("created_at").unwrap_or_else(|_| "".to_string());
 
             let info = MachineInfo {
@@ -144,6 +168,7 @@ impl MachineManager {
                 socket_path,
                 ssh_key,
                 root_password,
+                iso_path,
                 created_at,
             };
 
@@ -192,6 +217,7 @@ impl MachineManager {
         ip_address: String,
         ssh_key: String,
         root_password: String,
+        iso_path: String,
     ) -> Result<MachineInfo, String> {
         let clean_name = name.trim().to_lowercase().replace(' ', "-");
         if clean_name.is_empty() {
@@ -221,7 +247,7 @@ impl MachineManager {
         }
 
         let res = sqlx::query(
-            "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?)"
+            "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?)"
         )
         .bind(&clean_name)
         .bind(&os_type)
@@ -234,6 +260,7 @@ impl MachineManager {
         .bind(&socket_path)
         .bind(&ssh_key)
         .bind(&root_password)
+        .bind(&iso_path)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Gagal menyimpan Zeno Machine ke database: {}", e))?;
@@ -255,6 +282,7 @@ impl MachineManager {
             socket_path,
             ssh_key,
             root_password,
+            iso_path,
             created_at: now_str,
         };
 

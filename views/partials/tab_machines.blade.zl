@@ -10,6 +10,9 @@
             </p>
         </div>
         <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="openIsoLibraryModal()" style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-compact-disc" style="color: #ec4899;"></i> ISO Library
+            </button>
             <button class="btn btn-primary" onclick="openCreateMachineModal()" style="display: flex; align-items: center; gap: 8px;">
                 <i class="fa-solid fa-plus"></i> New Zeno Machine
             </button>
@@ -106,6 +109,12 @@
                     <select id="machine-os-input" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; cursor: pointer;">
                         <option value="linux">🐧 Linux (Ubuntu / Alpine / Debian MicroVM)</option>
                         <option value="windows">🪟 Windows (Windows 11 / Server Guest OS)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">ISO Boot Image (Optional)</label>
+                    <select id="machine-iso-input" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; cursor: pointer;">
+                        <option value="">-- No ISO Attached (Standard Boot) --</option>
                     </select>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
@@ -336,3 +345,109 @@
         </form>
     </div>
 </div>
+
+<!-- Modal ISO Library & Management -->
+<div id="iso-library-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 760px; width: 95%; background: #0f172a; border: 1px solid rgba(236, 72, 153, 0.3); border-radius: 14px; padding: 24px; color: var(--text-main);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 600; display: flex; align-items: center; gap: 10px; color: #ec4899;">
+                <i class="fa-solid fa-compact-disc"></i> ISO Image Library & Manager
+            </h3>
+            <button onclick="closeIsoLibraryModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Add ISO Form -->
+        <form onsubmit="event.preventDefault(); submitAddIso();" style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 16px; margin-bottom: 20px;">
+            <div style="font-size: 0.88rem; font-weight: 600; margin-bottom: 12px; color: var(--text-main);">Register / Add New ISO Image</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                <input type="text" id="iso-name-input" placeholder="ISO Name (e.g. ubuntu-22.04.iso)" required style="padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
+                <input type="text" id="iso-url-input" placeholder="Download Source URL (Optional)" style="padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <input type="text" id="iso-path-input" placeholder="Custom Local Path (Optional, default: /var/lib/zeno-container/isos/)" style="flex-grow: 1; padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
+                <button type="submit" class="btn btn-primary" style="background: #ec4899; border: none; padding: 9px 18px; font-weight: 600; border-radius: 6px; white-space: nowrap;">
+                    <i class="fa-solid fa-plus"></i> Add ISO
+                </button>
+            </div>
+        </form>
+
+        <!-- ISO List Table -->
+        <div style="max-height: 280px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem;">
+                <thead>
+                    <tr style="background: rgba(15, 23, 42, 0.6); color: var(--text-muted); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                        <th style="padding: 10px 14px;">ISO Name</th>
+                        <th style="padding: 10px 14px;">Path</th>
+                        <th style="padding: 10px 14px;">Status</th>
+                        <th style="padding: 10px 14px; text-align: right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="iso-list-table-body">
+                    <tr>
+                        <td colspan="4" style="padding: 20px; text-align: center; color: var(--text-muted);">
+                            Loading ISO Library...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top: 16px; text-align: right;">
+            <button onclick="closeIsoLibraryModal()" class="btn btn-secondary btn-sm">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Snapshot Manager -->
+<div id="snapshot-manager-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 720px; width: 95%; background: #0f172a; border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 14px; padding: 24px; color: var(--text-main);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 10px; color: #a855f7;">
+                <i class="fa-solid fa-camera"></i> Snapshot Manager: <span id="snapshot-machine-title" style="color: #fff;">Machine</span>
+            </h3>
+            <button onclick="closeSnapshotManagerModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <input type="hidden" id="snapshot-target-machine">
+
+        <!-- Form Create Snapshot -->
+        <form onsubmit="event.preventDefault(); submitCreateSnapshotModal();" style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 16px; margin-bottom: 20px;">
+            <div style="font-size: 0.88rem; font-weight: 600; margin-bottom: 12px; color: var(--text-main);">Take New Snapshot</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: center;">
+                <input type="text" id="snapshot-name-input" placeholder="Snapshot Name (e.g. pre-update-v1)" required style="padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
+                <input type="text" id="snapshot-desc-input" placeholder="Description (Optional)" style="padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
+                <button type="submit" class="btn btn-primary" style="background: #a855f7; border: none; padding: 9px 18px; font-weight: 600; border-radius: 6px; white-space: nowrap;">
+                    <i class="fa-solid fa-camera"></i> Create Snapshot
+                </button>
+            </div>
+        </form>
+
+        <!-- Snapshots Table -->
+        <div style="max-height: 260px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem;">
+                <thead>
+                    <tr style="background: rgba(15, 23, 42, 0.6); color: var(--text-muted); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                        <th style="padding: 10px 14px;">Snapshot Name</th>
+                        <th style="padding: 10px 14px;">Description</th>
+                        <th style="padding: 10px 14px;">Date</th>
+                        <th style="padding: 10px 14px; text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="snapshot-list-table-body">
+                    <tr>
+                        <td colspan="4" style="padding: 20px; text-align: center; color: var(--text-muted);">
+                            Loading snapshots...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top: 16px; text-align: right;">
+            <button onclick="closeSnapshotManagerModal()" class="btn btn-secondary btn-sm">Close</button>
+        </div>
+    </div>
+</div>
+

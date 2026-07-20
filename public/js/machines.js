@@ -135,6 +135,10 @@ export function loadZenoMachines() {
                     ? `<i class="fa-brands fa-windows" style="color: #0078d4;"></i> Windows`
                     : `<i class="fa-brands fa-linux" style="color: #f59e0b;"></i> Linux`;
 
+                const isoBadge = m.iso_path
+                    ? `<div style="font-size: 0.72rem; color: #ec4899; margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i class="fa-solid fa-compact-disc"></i> ISO: ${m.iso_path.split('/').pop()}</div>`
+                    : '';
+
                 html += `
                     <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
                         <td style="padding: 14px 20px; font-weight: 600; color: var(--text-main);">
@@ -142,6 +146,7 @@ export function loadZenoMachines() {
                                 <i class="fa-solid fa-server" style="color: var(--accent-primary);"></i>
                                 ${m.name}
                             </div>
+                            ${isoBadge}
                         </td>
                         <td style="padding: 14px 16px; color: var(--text-muted);">${osIcon}</td>
                         <td style="padding: 14px 16px; color: var(--text-main); font-weight: 500;">
@@ -158,7 +163,7 @@ export function loadZenoMachines() {
                                 }
                                 <button class="btn btn-secondary btn-sm" onclick="openMachineConsoleModal('${m.name}')" title="Web Serial Console"><i class="fa-solid fa-terminal" style="color: #38bdf8;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openMachineProxyModal('${m.name}', '${m.ip_address}')" title="1-Click Expose via Reverse Proxy"><i class="fa-solid fa-network-wired" style="color: var(--accent-primary);"></i></button>
-                                <button class="btn btn-secondary btn-sm" onclick="createMachineSnapshot('${m.name}')" title="Create Snapshot"><i class="fa-solid fa-camera" style="color: #a855f7;"></i></button>
+                                <button class="btn btn-secondary btn-sm" onclick="openSnapshotManagerModal('${m.name}')" title="Snapshot Manager"><i class="fa-solid fa-camera" style="color: #a855f7;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openResizeMachineModal('${m.name}', ${m.vcpus}, ${m.memory_mb})" title="Live Resize vCPU & RAM"><i class="fa-solid fa-sliders" style="color: #f59e0b;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openMigrateMachineModal('${m.name}')" title="Live Migration"><i class="fa-solid fa-arrows-rotate" style="color: #8b5cf6;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="deleteMachine('${m.name}')" title="Delete Machine"><i class="fa-solid fa-trash" style="color: var(--text-muted);"></i></button>
@@ -176,6 +181,24 @@ export function loadZenoMachines() {
         });
 }
 
+export function populateIsoSelectDropdown() {
+    const select = document.getElementById("machine-iso-input");
+    if (!select) return;
+
+    fetch("/api/machines/isos/list")
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data) {
+                let html = `<option value="">-- No ISO Attached (Standard Boot) --</option>`;
+                res.data.forEach(iso => {
+                    html += `<option value="${iso.path}">📀 ${iso.name} (${iso.path})</option>`;
+                });
+                select.innerHTML = html;
+            }
+        })
+        .catch(() => {});
+}
+
 export function openCreateMachineModal() {
     const modal = document.getElementById("create-machine-modal");
     if (modal) {
@@ -184,6 +207,7 @@ export function openCreateMachineModal() {
         if (sshInput) sshInput.value = "";
         const pwdInput = document.getElementById("machine-password-input");
         if (pwdInput) pwdInput.value = "";
+        populateIsoSelectDropdown();
         modal.style.display = "flex";
     }
 }
@@ -198,6 +222,7 @@ export function closeCreateMachineModal() {
 export function submitCreateMachine() {
     const name = document.getElementById("machine-name-input").value.trim();
     const os_type = document.getElementById("machine-os-input").value;
+    const iso_path = document.getElementById("machine-iso-input")?.value || "";
     const vcpus = parseInt(document.getElementById("machine-vcpu-input").value, 10);
     const memory_mb = parseInt(document.getElementById("machine-ram-input").value, 10);
     const disk_size_gb = parseInt(document.getElementById("machine-disk-input").value, 10);
@@ -216,7 +241,7 @@ export function submitCreateMachine() {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrf,
         },
-        body: JSON.stringify({ name, os_type, vcpus, memory_mb, disk_size_gb, ssh_key, root_password })
+        body: JSON.stringify({ name, os_type, vcpus, memory_mb, disk_size_gb, ssh_key, root_password, iso_path })
     })
     .then(res => res.json())
     .then(res => {
@@ -529,22 +554,246 @@ export function submitMachineProxy() {
     });
 }
 
-export function createMachineSnapshot(name) {
+// ─── ISO Library & Management Handlers ─────────────────────────────────────
+
+export function openIsoLibraryModal() {
+    const modal = document.getElementById("iso-library-modal");
+    if (modal) {
+        loadIsoList();
+        modal.style.display = "flex";
+    }
+}
+
+export function closeIsoLibraryModal() {
+    const modal = document.getElementById("iso-library-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+export function loadIsoList() {
+    const tbody = document.getElementById("iso-list-table-body");
+    if (!tbody) return;
+
+    fetch("/api/machines/isos/list")
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data && res.data.length > 0) {
+                let html = "";
+                res.data.forEach(iso => {
+                    html += `
+                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <td style="padding: 10px 14px; font-weight: 600; color: var(--text-main);">
+                                <i class="fa-solid fa-compact-disc" style="color: #ec4899; margin-right: 6px;"></i> ${iso.name}
+                            </td>
+                            <td style="padding: 10px 14px; color: var(--text-muted); font-family: var(--font-code); font-size: 0.78rem;">${iso.path}</td>
+                            <td style="padding: 10px 14px;"><span style="color: #10b981; font-weight: 600;">Ready</span></td>
+                            <td style="padding: 10px 14px; text-align: right;">
+                                <button class="btn btn-secondary btn-sm" onclick="deleteIso(${iso.id})" title="Delete ISO" style="color: #ef4444;"><i class="fa-solid fa-trash"></i> Delete</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            } else {
+                tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: var(--text-muted);">Belum ada ISO image terdaftar di Library</td></tr>`;
+            }
+        })
+        .catch(() => {
+            tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: var(--danger);">Gagal memuat ISO Library</td></tr>`;
+        });
+}
+
+export function submitAddIso() {
+    const name = document.getElementById("iso-name-input").value.trim();
+    const source_url = document.getElementById("iso-url-input").value.trim();
+    const path = document.getElementById("iso-path-input").value.trim();
+
+    if (!name) {
+        showToast("error", "Nama ISO image wajib diisi");
+        return;
+    }
+
     const csrf = getCSRFToken();
-    fetch("/api/machines/snapshot", {
+    fetch("/api/machines/isos/add", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrf,
         },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, source_url, path })
     })
     .then(res => res.json())
     .then(res => {
         if (res.success) {
-            showToast("success", res.message || `Snapshot state untuk '${name}' berhasil diambil!`);
+            showToast("success", res.message || "ISO berhasil ditambahkan ke Library");
+            document.getElementById("iso-name-input").value = "";
+            document.getElementById("iso-url-input").value = "";
+            document.getElementById("iso-path-input").value = "";
+            loadIsoList();
+        } else {
+            showToast("error", res.message || "Gagal menambah ISO");
+        }
+    });
+}
+
+export function deleteIso(id) {
+    if (!confirm("Hapus ISO image ini dari Library?")) return;
+
+    const csrf = getCSRFToken();
+    fetch("/api/machines/isos/delete", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ id })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || "ISO berhasil dihapus");
+            loadIsoList();
+        } else {
+            showToast("error", res.message || "Gagal menghapus ISO");
+        }
+    });
+}
+
+// ─── Snapshot Manager Handlers ──────────────────────────────────────────────
+
+export function openSnapshotManagerModal(machineName) {
+    const modal = document.getElementById("snapshot-manager-modal");
+    if (modal) {
+        document.getElementById("snapshot-target-machine").value = machineName;
+        document.getElementById("snapshot-machine-title").textContent = machineName;
+        document.getElementById("snapshot-name-input").value = "";
+        document.getElementById("snapshot-desc-input").value = "";
+        loadSnapshotsForMachine(machineName);
+        modal.style.display = "flex";
+    }
+}
+
+export function closeSnapshotManagerModal() {
+    const modal = document.getElementById("snapshot-manager-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+export function loadSnapshotsForMachine(machineName) {
+    const tbody = document.getElementById("snapshot-list-table-body");
+    if (!tbody) return;
+
+    fetch("/api/machines/snapshots/list")
+        .then(res => res.json())
+        .then(res => {
+            if (res.success && res.data) {
+                const filtered = res.data.filter(s => s.machine_name === machineName);
+                if (filtered.length > 0) {
+                    let html = "";
+                    filtered.forEach(s => {
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 10px 14px; font-weight: 600; color: var(--text-main);">
+                                    <i class="fa-solid fa-camera" style="color: #a855f7; margin-right: 6px;"></i> ${s.snapshot_name}
+                                </td>
+                                <td style="padding: 10px 14px; color: var(--text-muted);">${s.description || '-'}</td>
+                                <td style="padding: 10px 14px; color: var(--text-muted); font-size: 0.78rem;">${s.created_at || '-'}</td>
+                                <td style="padding: 10px 14px; text-align: right;">
+                                    <div style="display: flex; justify-content: flex-end; gap: 6px;">
+                                        <button class="btn btn-secondary btn-sm" onclick="restoreSnapshot(${s.id}, '${machineName}')" title="Restore Machine State" style="color: #10b981;"><i class="fa-solid fa-rotate-left"></i> Restore</button>
+                                        <button class="btn btn-secondary btn-sm" onclick="deleteSnapshot(${s.id}, '${machineName}')" title="Delete Snapshot" style="color: #ef4444;"><i class="fa-solid fa-trash"></i></button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = html;
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: var(--text-muted);">Belum ada snapshot untuk Zeno Machine ini</td></tr>`;
+                }
+            }
+        })
+        .catch(() => {
+            tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: var(--danger);">Gagal memuat snapshot</td></tr>`;
+        });
+}
+
+export function submitCreateSnapshotModal() {
+    const machine_name = document.getElementById("snapshot-target-machine").value;
+    const snapshot_name = document.getElementById("snapshot-name-input").value.trim();
+    const description = document.getElementById("snapshot-desc-input").value.trim();
+
+    if (!snapshot_name) {
+        showToast("error", "Nama snapshot wajib diisi");
+        return;
+    }
+
+    const csrf = getCSRFToken();
+    fetch("/api/machines/snapshots/create", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ machine_name, snapshot_name, description })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || "Snapshot berhasil dibuat!");
+            document.getElementById("snapshot-name-input").value = "";
+            document.getElementById("snapshot-desc-input").value = "";
+            loadSnapshotsForMachine(machine_name);
         } else {
             showToast("error", res.message || "Gagal membuat snapshot");
+        }
+    });
+}
+
+export function restoreSnapshot(id, machineName) {
+    if (!confirm(`Restore Zeno Machine '${machineName}' ke snapshot ini?`)) return;
+
+    const csrf = getCSRFToken();
+    fetch("/api/machines/snapshots/restore", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ id, machine_name: machineName })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || "Machine berhasil di-restore!");
+            loadZenoMachines();
+        } else {
+            showToast("error", res.message || "Gagal restore snapshot");
+        }
+    });
+}
+
+export function deleteSnapshot(id, machineName) {
+    if (!confirm("Hapus snapshot ini?")) return;
+
+    const csrf = getCSRFToken();
+    fetch("/api/machines/snapshots/delete", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ id })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || "Snapshot berhasil dihapus");
+            loadSnapshotsForMachine(machineName);
+        } else {
+            showToast("error", res.message || "Gagal menghapus snapshot");
         }
     });
 }
@@ -569,8 +818,19 @@ window.handleMachineConsoleCommand = handleMachineConsoleCommand;
 window.openMachineProxyModal = openMachineProxyModal;
 window.closeMachineProxyModal = closeMachineProxyModal;
 window.submitMachineProxy = submitMachineProxy;
-window.createMachineSnapshot = createMachineSnapshot;
+window.openIsoLibraryModal = openIsoLibraryModal;
+window.closeIsoLibraryModal = closeIsoLibraryModal;
+window.loadIsoList = loadIsoList;
+window.submitAddIso = submitAddIso;
+window.deleteIso = deleteIso;
+window.openSnapshotManagerModal = openSnapshotManagerModal;
+window.closeSnapshotManagerModal = closeSnapshotManagerModal;
+window.loadSnapshotsForMachine = loadSnapshotsForMachine;
+window.submitCreateSnapshotModal = submitCreateSnapshotModal;
+window.restoreSnapshot = restoreSnapshot;
+window.deleteSnapshot = deleteSnapshot;
 window.startMachine = startMachine;
 window.stopMachine = stopMachine;
 window.deleteMachine = deleteMachine;
+
 

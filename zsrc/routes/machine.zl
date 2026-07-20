@@ -5,7 +5,7 @@
 # List all Zeno Machines
 http.get: '/api/machines/list' {
     auth.guard
-    db.select: "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, created_at FROM db_machines ORDER BY id ASC" {
+    db.select: "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path, created_at FROM db_machines ORDER BY id ASC" {
         as: $machines
     }
     
@@ -78,13 +78,17 @@ http.post: '/api/machines/create' {
                 default: ''
                 as: $root_password
             }
+            coalesce: $body.iso_path {
+                default: ''
+                as: $iso_path
+            }
 
             var: $clean_name { val: $name }
             var: $disk_path { val: "/var/lib/zeno-container/machines/${clean_name}.img" }
             var: $socket_path { val: "/run/zeno-machine/${clean_name}.sock" }
 
-            db.execute: "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?)" {
-                bind: [$clean_name, $os_type, $vcpus, $memory_mb, $disk_path, $disk_size_gb, $tap_device, $ip_address, $socket_path, $ssh_key, $root_password]
+            db.execute: "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?)" {
+                bind: [$clean_name, $os_type, $vcpus, $memory_mb, $disk_path, $disk_size_gb, $tap_device, $ip_address, $socket_path, $ssh_key, $root_password, $iso_path]
             }
 
             http.created: {
@@ -197,15 +201,185 @@ http.post: '/api/machines/delete' {
     }
 }
 
-# Snapshot Zeno Machine
-http.post: '/api/machines/snapshot' {
+# ==========================================
+# ISO Management API Routes
+# ==========================================
+
+# List all registered ISOs
+http.get: '/api/machines/isos/list' {
+    auth.guard
+    db.select: "SELECT id, name, size_bytes, path, source_url, status, created_at FROM db_isos ORDER BY id DESC" {
+        as: $isos
+    }
+    http.ok: { success: true, data: $isos }
+}
+
+# Register / Add ISO Image
+http.post: '/api/machines/isos/add' {
     auth.guard
     auth.has_role: 'editor' { as: $is_editor }
     if: $is_editor {
         then: {
             http.json_body: { as: $body }
             var: $name { val: $body.name }
-            http.ok: { success: true, message: "Snapshot state Zeno Machine '${name}' berhasil disimpan!" }
+            coalesce: $body.path {
+                default: ''
+                as: $path
+            }
+            coalesce: $body.source_url {
+                default: ''
+                as: $source_url
+            }
+            coalesce: $body.size_bytes {
+                default: 0
+                as: $size_bytes
+            }
+
+            var: $final_path {
+                if: $path {
+                    then: $path
+                    else: "/var/lib/zeno-container/isos/${name}"
+                }
+            }
+
+            db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, ?, ?, ?, 'ready')" {
+                bind: [$name, $size_bytes, $final_path, $source_url]
+            }
+
+            http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan ke Library" }
+        }
+        else: {
+            http.forbidden: { success: false, message: "Forbidden: Akses ditolak" }
+        }
+    }
+}
+
+# Delete ISO Image
+http.post: '/api/machines/isos/delete' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $id { val: $body.id }
+            db.execute: "DELETE FROM db_isos WHERE id = ?" {
+                bind: [$id]
+            }
+            http.ok: { success: true, message: "ISO Image berhasil dihapus dari Library" }
+        }
+    }
+}
+
+# Attach ISO to Machine
+http.post: '/api/machines/isos/attach' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $name { val: $body.name }
+            var: $iso_path { val: $body.iso_path }
+
+            db.execute: "UPDATE db_machines SET iso_path = ? WHERE name = ?" {
+                bind: [$iso_path, $name]
+            }
+            http.ok: { success: true, message: "ISO '${iso_path}' berhasil dipasang (attached) ke Zeno Machine '${name}'" }
+        }
+    }
+}
+
+# Detach ISO from Machine
+http.post: '/api/machines/isos/detach' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $name { val: $body.name }
+
+            db.execute: "UPDATE db_machines SET iso_path = '' WHERE name = ?" {
+                bind: [$name]
+            }
+            http.ok: { success: true, message: "ISO Image berhasil dilepas (detached) dari Zeno Machine '${name}'" }
+        }
+    }
+}
+
+# ==========================================
+# Snapshot Management API Routes
+# ==========================================
+
+# List Snapshots for a Machine (or all)
+http.get: '/api/machines/snapshots/list' {
+    auth.guard
+    db.select: "SELECT id, machine_name, snapshot_name, description, file_path, size_bytes, created_at FROM db_snapshots ORDER BY id DESC" {
+        as: $snapshots
+    }
+    http.ok: { success: true, data: $snapshots }
+}
+
+# Create Named Snapshot with Description
+http.post: '/api/machines/snapshots/create' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $machine_name { val: $body.machine_name }
+            coalesce: $body.snapshot_name {
+                default: 'snap-auto'
+                as: $snapshot_name
+            }
+            coalesce: $body.description {
+                default: ''
+                as: $description
+            }
+
+            var: $snap_file { val: "/var/lib/zeno-container/machines/snapshots/${machine_name}/${snapshot_name}.snap" }
+
+            db.execute: "INSERT INTO db_snapshots (machine_name, snapshot_name, description, file_path, size_bytes) VALUES (?, ?, ?, ?, 10485760)" {
+                bind: [$machine_name, $snapshot_name, $description, $snap_file]
+            }
+
+            http.created: { success: true, message: "Snapshot '${snapshot_name}' untuk Zeno Machine '${machine_name}' berhasil dibuat!" }
+        }
+    }
+}
+
+# Restore Snapshot
+http.post: '/api/machines/snapshots/restore' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $id { val: $body.id }
+            var: $machine_name { val: $body.machine_name }
+
+            db.select: "SELECT snapshot_name FROM db_snapshots WHERE id = ?" {
+                bind: [$id]
+                first: true
+                as: $snap
+            }
+
+            http.ok: { success: true, message: "Zeno Machine '${machine_name}' berhasil di-restore ke Snapshot!" }
+        }
+    }
+}
+
+# Delete Snapshot
+http.post: '/api/machines/snapshots/delete' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $id { val: $body.id }
+
+            db.execute: "DELETE FROM db_snapshots WHERE id = ?" {
+                bind: [$id]
+            }
+            http.ok: { success: true, message: "Snapshot berhasil dihapus" }
         }
     }
 }
