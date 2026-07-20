@@ -3,7 +3,7 @@
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust&style=flat-square)](https://www.rust-lang.org)
 [![ZenoLang](https://img.shields.io/badge/engine-ZenoLang-purple?style=flat-square)](https://github.com/nextcore/zeno-rs)
 [![License](https://img.shields.io/badge/license-Apache-blue?style=flat-square)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.6.2-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.6.2)
+[![Version](https://img.shields.io/badge/version-v1.6.3-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.6.3)
 [![RAM Usage](https://img.shields.io/badge/RAM-~15MB-brightgreen?style=flat-square)](#)
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)

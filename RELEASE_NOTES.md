@@ -1,3 +1,17 @@
+# Release Notes — ZenoPanel v1.6.3
+
+Rilis **v1.6.3** memberikan perbaikan kritis pada modul JavaScript frontend (`app.js`), mengeliminasi kesalahan pengimporan modul yang sempat menyebabkan tombol **ISO Library** dan modal pendukung Zeno Machine tidak bereaksi saat diklik.
+
+---
+
+## 🛠️ Perbaikan Bug & Stabilitas (Bug Fixes & Stability)
+
+### 📀 Zeno Machine — Fix ES Module Imports & Handler Modal ISO Library
+*   **Fix Tombol ISO Library Tidak Bereaksi**: Memperbaiki masalah di mana tombol ISO Library dan modal pendukung Zeno Machine tidak ada respon saat diklik. Masalah ini disebabkan oleh impor nama fungsi yang invalid (`createMachineSnapshot`) di `public/js/app.js` yang menggagalkan inisialisasi modul JavaScript secara keseluruhan.
+*   **Eksplisit Global Window Bindings**: Mengimpor secara lengkap fungsi modal ISO Library (`openIsoLibraryModal`, `closeIsoLibraryModal`, `loadIsoList`, `submitAddIso`, `deleteIso`), Snapshot Manager (`openSnapshotManagerModal`, `closeSnapshotManagerModal`, `submitCreateSnapshotModal`, `restoreSnapshot`, `deleteSnapshot`), serta mendaftarkannya ke `window` untuk menjamin eksekusi handler event HTML inline secara seamless.
+
+---
+
 # Release Notes — ZenoPanel v1.6.2
 
 Rilis **v1.6.2** memberikan perbaikan penting pada pengolahan template UI Zeno Machine (Blade Parser Fix), mengatasi kendala `unclosed zeno` yang sempat menghambat respon navigasi tab side menu, menyelaraskan versi paket kompilasi distribusi utama Linux dan installer WSL2 Windows, serta **menambahkan fitur Manajemen ISO dan Snapshot Zeno Machine**.
