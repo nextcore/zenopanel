@@ -62,9 +62,8 @@ fi
 log_info "Versi terdeteksi: ${BOLD}$VERSION${NC}"
 
 # 4. Periksa apakah berkas rilis di folder dist/ sudah lengkap
-TAR_FILE="dist/zenoos-${VERSION}.tar.gz"
-SHA_FILE="dist/zenoos-${VERSION}.tar.gz.sha256"
 ZIP_FILE="dist/zenopanel-windows-${VERSION}.zip"
+ZIP_SHA_FILE="dist/zenopanel-windows-${VERSION}.zip.sha256"
 LINUX_TAR_FILE="dist/zenopanel-${VERSION}.tar.gz"
 LINUX_SHA_FILE="dist/zenopanel-${VERSION}.tar.gz.sha256"
 
@@ -83,11 +82,11 @@ if [ ! -f "$LINUX_TAR_FILE" ] || [ ! -f "$LINUX_SHA_FILE" ]; then
     fi
 fi
 
-# Periksa berkas WSL & Launcher
+# Periksa berkas Windows package
 MISSING_WSL=false
-for FILE in "$TAR_FILE" "$SHA_FILE" "$ZIP_FILE"; do
+for FILE in "$ZIP_FILE" "$ZIP_SHA_FILE"; do
     if [ ! -f "$FILE" ]; then
-        log_error "Berkas WSL/Launcher tidak ditemukan: $FILE"
+        log_error "Berkas Windows package tidak ditemukan: $FILE"
         MISSING_WSL=true
     fi
 done
@@ -108,9 +107,9 @@ if [ "$MISSING_WSL" = true ]; then
     fi
 fi
 
-# Pastikan seluruh 5 berkas rilis ada
+# Pastikan seluruh berkas rilis ada (4 file)
 ALL_FILES_PRESENT=true
-for FILE in "$TAR_FILE" "$SHA_FILE" "$ZIP_FILE" "$LINUX_TAR_FILE" "$LINUX_SHA_FILE"; do
+for FILE in "$ZIP_FILE" "$ZIP_SHA_FILE" "$LINUX_TAR_FILE" "$LINUX_SHA_FILE"; do
     if [ ! -f "$FILE" ]; then
         log_error "Berkas rilis masih tidak ditemukan: $FILE"
         ALL_FILES_PRESENT=false
@@ -313,9 +312,8 @@ echo -e "  - Repositori : $(git remote get-url origin)"
 echo -e "  - Tag/Versi  : ${BOLD}${VERSION}${NC}"
 echo -e "  - Tipe Rilis : ${BOLD}${RELEASE_STATUS}${NC}"
 echo -e "  - Aset Rilis :"
-echo -e "    * $TAR_FILE (ZenoOS WSL2 Distro)"
-echo -e "    * $SHA_FILE"
-echo -e "    * $ZIP_FILE (Windows Client Launcher)"
+echo -e "    * $ZIP_FILE (Windows: launcher.exe + zenopanel.ps1 + ZenoOS distro)"
+echo -e "    * $ZIP_SHA_FILE"
 echo -e "    * $LINUX_TAR_FILE (Linux Standalone Core)"
 echo -e "    * $LINUX_SHA_FILE"
 echo -e "=================================================="
@@ -330,9 +328,8 @@ fi
 log_info "Memulai pembuatan rilis di GitHub dan mengunggah aset..."
 
 gh release create "$VERSION" \
-    "$TAR_FILE" \
-    "$SHA_FILE" \
     "$ZIP_FILE" \
+    "$ZIP_SHA_FILE" \
     "$LINUX_TAR_FILE" \
     "$LINUX_SHA_FILE" \
     --title "ZenoPanel $VERSION" \
