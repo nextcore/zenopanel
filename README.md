@@ -3,14 +3,14 @@
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust&style=flat-square)](https://www.rust-lang.org)
 [![ZenoLang](https://img.shields.io/badge/engine-ZenoLang-purple?style=flat-square)](https://github.com/nextcore/zeno-rs)
 [![License](https://img.shields.io/badge/license-Apache-blue?style=flat-square)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.5.19-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.5.19)
+[![Version](https://img.shields.io/badge/version-v1.6.0-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.6.0)
 [![RAM Usage](https://img.shields.io/badge/RAM-~15MB-brightgreen?style=flat-square)](#)
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
 
 **ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang untuk para developer modern yang menginginkan kendali penuh atas server mereka — tanpa overhead, tanpa bloatware, tanpa kompromi.
 
-ZenoPanel hadir sebagai **single binary** dengan zero external dependency: gateway reverse proxy Pingora, container runtime **Zeno Box** (OCI-compliant), database hosting, cloud backup, firewall, dan WAF — semua terintegrasi dalam satu binary yang berjalan native di **semua distribusi Linux**, termasuk Alpine Linux (MUSL/OpenRC).
+ZenoPanel hadir sebagai **single binary** dengan zero external dependency: gateway reverse proxy Pingora, container runtime **Zeno Box** (OCI-compliant), MicroVM engine **Zeno Machine** (Cloud-Hypervisor), database hosting, cloud backup, firewall, dan WAF — semua terintegrasi dalam satu binary yang berjalan native di **semua distribusi Linux**, termasuk Alpine Linux (MUSL/OpenRC).
 
 ---
 
@@ -27,6 +27,25 @@ ZenoPanel bukan sekadar panel hosting. Ini adalah **platform infrastruktur lengk
 
 ## ✨ Fitur-Fitur Unggulan
 
+### 🖥️ Zeno Machine — MicroVM Engine (NEW in v1.6.0)
+Engine virtualisasi MicroVM terbaru berbasis **[Cloud-Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor)** — hypervisor generasi baru yang ditulis dalam Rust, ringan, dan aman.
+
+- **Buat & Kelola MicroVM**: Jalankan VM Linux atau Windows dengan konfigurasi vCPU & RAM yang dapat disesuaikan — langsung dari UI panel.
+- **Live Hot-Plug (vCPU & RAM)**: Ubah alokasi resource VM secara *real-time* tanpa reboot.
+- **Live Migration (KVM Memory Sync)**: Pindahkan VM yang sedang aktif antar server fisik dengan jeda handoff kurang dari 50ms — tanpa memutuskan koneksi pengguna.
+- **Dashboard Statistik**: Ringkasan total VM, VM aktif, total vCPU dan RAM terpakai ditampilkan secara live.
+- **Binary Cloud-Hypervisor Terintegrasi**: Binary `cloud-hypervisor-static` (musl/Alpine) disertakan langsung di dalam paket distribusi.
+
+### 🔄 Live Migration Dual-Engine (NEW in v1.6.0)
+Live Migration tersedia untuk dua engine sekaligus dengan **Manual Approval Handshake** — persetujuan manual diperlukan dari Administrator server tujuan sebelum transmisi dimulai.
+
+- **Zeno Machine Migration (KVM)**: Transmisi memori VM secara pre-copy dengan dirty page sync. Jeda freeze <50ms.
+- **Zeno Box Migration (CRIU)**: Checkpoint/Restore proses container dengan socket TCP aktif dipertahankan. Waktu transmisi <200ms.
+- **Pre-flight Compatibility Check**: Verifikasi otomatis konektivitas, latensi, ketersediaan RAM, dan kompatibilitas kernel sebelum migrasi dapat dimulai.
+- **Dual-Host Progress Tracking**: Progress bar HOST A (sumber) dan HOST B (tujuan) ditampilkan secara bersamaan, dengan label fase teknis yang update tiap langkah.
+- **Rollback Otomatis**: VM/Container tetap berjalan di HOST A jika proses migrasi ke HOST B gagal.
+- **Glowing Approval Banner**: Notifikasi bercahaya muncul di dashboard server penerima dengan tombol Accept & Reject.
+
 ### 🖥️ Process Manager (Supervisord-Like)
 - Kelola proses background aplikasi Anda (Node, Go, Python, dll) langsung dari UI web.
 - **Auto-Restart Cerdas**: Pemulihan otomatis jika proses crash dengan algoritma *exponential backoff*.
@@ -42,7 +61,7 @@ ZenoPanel bukan sekadar panel hosting. Ini adalah **platform infrastruktur lengk
 - **Browse Files Container**: Navigasi filesystem container langsung dari File Manager.
 - **Real-Time Status**: Status container update otomatis secara instan via Server-Sent Events (SSE).
 - **Rootless Mode**: Container bisa jalan tanpa hak root (menggunakan user namespace).
-- **Native Checksum Fix**: Penanganan manual offloading TCP Checksum via system call `ioctl` di Rust — loopback NAT selalu lancar tanpa dependensi `ethtool`.
+- **Live Migration (CRIU)**: Pindahkan container yang aktif ke server lain tanpa menghentikan proses (lihat seksi Live Migration).
 
 ### 📦 Docker Compose Support
 - **YAML Parser Bawaan**: Parse `docker-compose.yml` langsung — tanpa dependency eksternal.
@@ -65,50 +84,40 @@ Deploy dan kelola database server langsung dari panel — terisolasi penuh di da
 
 - **Support MySQL 5.7, MySQL 8, dan PostgreSQL** — pilih versi sesuai kebutuhan.
 - **Isolasi Penuh per Kontainer Zeno Box**: Setiap server database berjalan di dalam kontainer terisolasi tersendiri, tanpa konflik versi.
-- **Connection Pooling Sidecar**: Dukungan connection pooling terintegrasi menggunakan sidecar container **ProxySQL** (untuk MySQL/MariaDB) dan **PgBouncer** (untuk PostgreSQL) untuk mengoptimalkan penggunaan resource koneksi database dan meningkatkan konkurensi.
-- **Auto Health Check & Reconnect**: Pool koneksi MySQL/PostgreSQL di-ping otomatis setiap 60 detik. Jika koneksi terputus, reconnect dilakukan secara otomatis tanpa intervensi manual.
+- **Connection Pooling Sidecar**: Dukungan connection pooling terintegrasi menggunakan sidecar container **ProxySQL** (untuk MySQL/MariaDB) dan **PgBouncer** (untuk PostgreSQL).
+- **Auto Health Check & Reconnect**: Pool koneksi MySQL/PostgreSQL di-ping otomatis setiap 60 detik.
 - **Manajemen Database & User**: Buat database, buat user, atur GRANT, dan ganti password — dari UI.
 - **SQL Console Bawaan**: Eksekusi query SQL langsung dari browser.
 - **Bulk Data Support**: Pool koneksi Rust internal mendukung operasi batch (500+ INSERT rows) dengan latensi sub-detik.
-- **Visual Config Tuner**: Sesuaikan parameter performa database (max connections, buffer pool, max allowed packet) via antarmuka visual — tanpa edit `.cnf` atau `postgresql.conf` secara manual. Restart container otomatis setelah perubahan disimpan.
+- **Visual Config Tuner**: Sesuaikan parameter performa database via antarmuka visual — tanpa edit `.cnf` secara manual.
 - **Database Maintenance**: `ANALYZE`, `OPTIMIZE`, `REPAIR TABLE` (MySQL) dan `ANALYZE`, `VACUUM` (PostgreSQL) langsung dari UI.
 
 ### 💾 Backup & Pemulihan (Otomatis + Cloud)
 - **Auto Backup Terjadwal (Cron)**: Pencadangan database otomatis (per jam, harian, mingguan) dengan retensi yang dapat diatur.
-- **Manual Trigger Backup**: Picu backup kapan saja langsung dari UI untuk database maupun volume kontainer.
+- **Manual Trigger Backup**: Picu backup kapan saja langsung dari UI.
 - **Backup ke Cloud (S3-Compatible & Google Drive)**:
-  - **S3-Compatible Storage**: Upload otomatis ke Cloudflare R2, MinIO, AWS S3, atau provider S3-compatible lainnya menggunakan **AWS Signature V4** yang diimplementasikan native di Rust.
-  - **Google Drive via Service Account**: Upload ke Google Drive menggunakan autentikasi **JWT RSA-256** Google Service Account — tanpa binary eksternal seperti `rclone`.
-- **Opsi Simpan Lokal**: Atur apakah file backup dipertahankan di disk server atau dihapus setelah diunggah ke cloud.
-- **Backup Volume Kontainer**: Cadangkan folder data volume sebagai berkas `.tar.gz` terkompresi.
-- **Kebijakan Retensi**: Hapus backup lokal lama secara otomatis berdasarkan jumlah yang dipertahankan.
+  - **S3-Compatible Storage**: Upload otomatis ke Cloudflare R2, MinIO, AWS S3, menggunakan **AWS Signature V4** native Rust.
+  - **Google Drive via Service Account**: Upload ke Google Drive menggunakan **JWT RSA-256** tanpa binary eksternal seperti `rclone`.
+- **Backup Volume Kontainer**: Cadangkan folder data volume sebagai berkas `.tar.gz`.
+- **Kebijakan Retensi**: Hapus backup lokal lama secara otomatis.
 
 ### 🛡️ Web Application Firewall (WAF) & Rate Limiter
+WAF beroperasi di dua lapisan: **Axum middleware** (panel) dan **Pingora gateway** (proxy traffic).
 
-WAF ZenoPanel beroperasi di dua lapisan sekaligus: **Axum middleware** (panel) dan **Pingora gateway** (proxy traffic), memberikan perlindungan end-to-end tanpa konfigurasi tambahan.
-
-- **Deteksi Ancaman Multi-Layer**:
-  - SQL Injection (UNION-based, boolean-based, time-based blind, stacked queries)
-  - Cross-Site Scripting / XSS (termasuk `data:`, `vbscript:`, SVG-based XSS)
-  - Remote Code Execution / RCE (shell injection, PHP code injection, template injection)
-  - Path Traversal (plain, URL-encoded, double-encoded, null byte)
-  - **Server-Side Request Forgery / SSRF** — deteksi akses ke metadata cloud & network internal
-  - **Log4Shell / JNDI Injection** — termasuk variant yang di-obfuscate
-  - **Scanner & Attack Tool** — blokir otomatis User-Agent dari sqlmap, nikto, nmap, nuclei, acunetix, burpsuite, dll.
-- **Dynamic Bot Detection & Whitelisting**: Izinkan perayap mesin pencari (Googlebot, Bingbot, Yandex, dll.) agar tidak terblokir oleh WAF, dan tambahkan regex kustom untuk memblokir bot/crawler tertentu secara dinamis.
-- **Per-Website IP Access Control**: Atur whitelist atau blacklist IP (mendukung format CIDR) pada masing-masing website/reverse proxy untuk membatasi akses secara granular.
-- **Mode Log-Only (Dry Run) Default**: Meminimalkan false positive dengan mengaktifkan mode uji coba (dry run) secara default saat instalasi awal. WAF dapat dinonaktifkan atau diatur kebijakannya langsung via file `.env` atau menu Pengaturan Keamanan.
-- **IP Block & Whitelist**: Block atau izinkan IP tertentu secara manual dari panel. Aturan bersifat **persistent** di database dan aktif instan tanpa restart.
-- **Rate Limiting Granular**: Batasi request per IP dalam jendela waktu — konfigurasi dari UI tanpa restart.
-- **Brute-Force Auto-Block**: IP yang gagal login sebanyak 5 kali secara otomatis diblokir dan masuk ke WAF blocklist secara permanen.
-- **Security Response Headers**: Setiap response menyertakan `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, dan Referrer-Policy.
-- **Audit Log Real-Time**: Setiap serangan dicatat lengkap dengan IP, metode HTTP, kategori ancaman, severity, dan timestamp — tersedia di Security Tab.
+- **Deteksi Ancaman Multi-Layer**: SQL Injection, XSS, RCE, Path Traversal, SSRF, Log4Shell/JNDI, Scanner/Attack Tool.
+- **Dynamic Bot Detection & Whitelisting**: Izinkan Googlebot, Bingbot, Yandex, dan tambahkan regex kustom.
+- **Per-Website IP Access Control**: Whitelist/blacklist IP per website (mendukung CIDR).
+- **Mode Log-Only (Dry Run) Default**: Minimalisasi false positive.
+- **IP Block & Whitelist**: Persistent di database, aktif instan.
+- **Rate Limiting Granular**: Batasi request per IP dalam jendela waktu — konfigurasi dari UI.
+- **Brute-Force Auto-Block**: IP yang gagal login 5 kali otomatis diblokir permanen.
+- **Audit Log Real-Time**: Setiap serangan dicatat lengkap dengan IP, kategori ancaman, dan timestamp.
 
 ### 🧱 Firewall Rules Manager (iptables)
 - Kelola aturan `iptables` secara visual dari UI panel.
-- **Persistent Rules**: Aturan firewall disimpan di database dan disinkronisasi ulang secara otomatis saat startup — tidak hilang setelah restart server.
-- **Lockout Protection**: Cegah pemblokiran port SSH (22) dan port panel admin secara tidak sengaja.
-- **Lockdown Mode**: Aktifkan kebijakan *default-DROP* instan — blokir semua, izinkan hanya port vital secara dinamis.
+- **Persistent Rules**: Disimpan di database, disinkronisasi ulang saat startup.
+- **Lockout Protection**: Cegah pemblokiran port SSH dan port panel admin secara tidak sengaja.
+- **Lockdown Mode**: Aktifkan kebijakan *default-DROP* instan.
 
 ### 🔒 SSL/TLS Otomatis & HTTP/2 ALPN Native
 - **HTTP/2 Multiplexing & ALPN** (`h2` dan `http/1.1`) native di handler TLS Pingora.
@@ -121,16 +130,16 @@ WAF ZenoPanel beroperasi di dua lapisan sekaligus: **Axum middleware** (panel) d
 - Perlindungan **CSRF** bawaan pada semua request modifikasi data.
 
 ### 🗃️ File Manager, Database Console, & Web Terminal
-- **File Manager**: Navigasi direktori, unggah file via multipart, buat, edit, dan hapus berkas langsung dari browser. Mendukung operasi massal (bulk copy, bulk cut, bulk paste) dengan antarmuka penuh berbahasa Inggris.
+- **File Manager**: Navigasi direktori, unggah file via multipart, buat, edit, dan hapus berkas. Mendukung operasi massal (bulk copy, cut, paste).
 - **Interactive Terminal**: Akses shell server secara aman di browser (khusus Administrator).
 
 ### 🔄 Self-Update Satu-Klik
 - Deteksi rilis terbaru ZenoPanel secara real-time dari menu Pengaturan.
-- **Hot Replacement**: Unlink binary lama sebelum mengunduh rilis baru — mencegah error *Text file busy* dan restart layanan secara aman.
+- **Hot Replacement**: Unlink binary lama sebelum mengunduh rilis baru — mencegah error *Text file busy*.
 
 ### 🌐 Service Injector (Alpine Linux & OpenRC)
 ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, panel secara otomatis:
-- Menghasilkan skrip layanan OpenRC (`openrc-run`) native di `/etc/init.d/zenopanel`.
+- Menghasilkan skrip layanan OpenRC native di `/etc/init.d/zenopanel`.
 - Mendaftarkan startup otomatis via `rc-update add zenopanel default`.
 - Menginisialisasi direktori data `/var/lib/zeno-container` tanpa campur tangan manual.
 
@@ -143,6 +152,8 @@ ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, pan
 | **Proxy Engine** | [Cloudflare Pingora](https://github.com/cloudflare/pingora) (`pingora-core` & `pingora-proxy`) |
 | **Web Engine** | [Axum](https://github.com/tokio-rs/axum) & [Tokio](https://tokio.rs/) Async Runtime |
 | **Container Runtime** | **Zeno Box** (berbasis [runc](https://github.com/opencontainers/runc) embedded) |
+| **MicroVM Engine** | **Zeno Machine** (berbasis [Cloud-Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) static/musl) |
+| **Live Migration** | KVM Memory Sync (Zeno Machine) & [CRIU](https://criu.org/) Checkpoint/Restore (Zeno Box) |
 | **TLS & Crypto** | OpenSSL (Pingora handshake) & [Rustls](https://github.com/rustls/rustls) |
 | **ACME & SSL** | [instant-acme](https://github.com/jsha/instant-acme), [rcgen](https://github.com/rustls/rcgen), [x509-parser](https://github.com/rusticata/x509-parser) |
 | **Scripting Engine** | ZenoLang (custom scripting runtime di atas Zeno Rust) |
