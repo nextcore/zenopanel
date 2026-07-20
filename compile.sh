@@ -267,6 +267,57 @@ fi
 log_success "Kompilasi ZenoPanel berhasil."
 
 # ------------------------------------------------------------------------------
+# 8b. Download & Bundle Binary Cloud-Hypervisor (Alpine/musl static)
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}Menyiapkan binary Cloud-Hypervisor...${NC}"
+
+CLOUD_HV_VERSION="v42.0"
+CLOUD_HV_URL="https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/${CLOUD_HV_VERSION}/cloud-hypervisor-static"
+BIN_DIR="$PWD/bin"
+CLOUD_HV_BIN="$BIN_DIR/cloud-hypervisor"
+CACHE_MARKER="$BIN_DIR/.cloud-hv-version"
+
+mkdir -p "$BIN_DIR"
+
+# Cek apakah binary versi ini sudah di-cache
+if [ -f "$CLOUD_HV_BIN" ] && [ -f "$CACHE_MARKER" ] && grep -q "$CLOUD_HV_VERSION" "$CACHE_MARKER" 2>/dev/null; then
+    log_success "Binary Cloud-Hypervisor ${CLOUD_HV_VERSION} sudah tersedia di cache (${BIN_DIR}/)."
+else
+    log_info "Mengunduh Cloud-Hypervisor ${CLOUD_HV_VERSION} (static/musl — kompatibel Alpine)..."
+    log_info "URL: ${CLOUD_HV_URL}"
+
+    if command -v wget > /dev/null 2>&1; then
+        wget -q --show-progress -O "$CLOUD_HV_BIN" "$CLOUD_HV_URL"
+        DOWNLOAD_STATUS=$?
+    elif command -v curl > /dev/null 2>&1; then
+        curl -L --progress-bar -o "$CLOUD_HV_BIN" "$CLOUD_HV_URL"
+        DOWNLOAD_STATUS=$?
+    else
+        log_error "wget atau curl tidak ditemukan. Tidak dapat mengunduh Cloud-Hypervisor."
+        log_warn "Pasang wget atau curl, lalu jalankan compile.sh kembali."
+        DOWNLOAD_STATUS=1
+    fi
+
+    if [ $DOWNLOAD_STATUS -ne 0 ] || [ ! -s "$CLOUD_HV_BIN" ]; then
+        log_error "Gagal mengunduh Cloud-Hypervisor! Pengemasan akan dilanjutkan TANPA binary cloud-hypervisor."
+        log_warn "Anda dapat mengunduhnya secara manual dari:"
+        log_warn "  ${CLOUD_HV_URL}"
+        log_warn "Simpan ke: ${CLOUD_HV_BIN}"
+        rm -f "$CLOUD_HV_BIN"
+    else
+        chmod +x "$CLOUD_HV_BIN"
+        strip "$CLOUD_HV_BIN" 2>/dev/null
+        echo "$CLOUD_HV_VERSION" > "$CACHE_MARKER"
+
+        log_success "Cloud-Hypervisor ${CLOUD_HV_VERSION} berhasil diunduh!"
+        if command -v file > /dev/null 2>&1; then
+            echo -e "${CYAN}${BOLD}[Cloud-Hypervisor Binary Info]${NC}"
+            file "$CLOUD_HV_BIN"
+        fi
+    fi
+fi
+
+# ------------------------------------------------------------------------------
 # 9. Pengemasan ke Folder /dist
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}Memulai pengemasan paket distribusi...${NC}"
@@ -289,6 +340,18 @@ cp -r public "$PKG_PATH/"
 cp -r views "$PKG_PATH/"
 cp -r zsrc "$PKG_PATH/"
 cp .env.example "$PKG_PATH/"
+
+# Bundle folder bin/ (cloud-hypervisor & binary pendukung)
+if [ -d "$BIN_DIR" ] && [ -n "$(ls -A "$BIN_DIR" 2>/dev/null)" ]; then
+    log_info "Menyertakan folder bin/ (Cloud-Hypervisor & binary pendukung)..."
+    mkdir -p "$PKG_PATH/bin"
+    cp -r "$BIN_DIR"/. "$PKG_PATH/bin/"
+    # Hapus cache marker dari paket distribusi (bukan diperlukan di server)
+    rm -f "$PKG_PATH/bin/.cloud-hv-version"
+    log_success "Folder bin/ berhasil disertakan dalam paket."
+else
+    log_warn "Folder bin/ kosong atau tidak ada — paket tidak menyertakan Cloud-Hypervisor."
+fi
 
 # Salin binary utama
 log_info "Menyalin binary zeno..."
