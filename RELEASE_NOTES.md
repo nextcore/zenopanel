@@ -1,51 +1,41 @@
-# Release Notes — ZenoPanel v1.6.0
+# Release Notes — ZenoPanel v1.6.1
 
-Rilis **v1.6.0** merupakan rilis fitur besar (*major feature release*) yang memperkenalkan **Zeno Machine** — engine virtualisasi MicroVM berbasis [Cloud-Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) yang ditulis 100% dalam Rust, serta sistem **Live Migration** lengkap dengan **Manual Approval Handshake**, **Pre-flight Compatibility Check**, dan **Dual-Host Progress Tracking** untuk kedua engine: Zeno Machine (KVM) dan Zeno Box (CRIU).
-
----
-
-## 🚀 Fitur Baru (New Features)
-
-### 🖥️ Zeno Machine — Cloud-Hypervisor MicroVM Engine
-*   **Engine Virtualisasi Baru**: Memperkenalkan **Zeno Machine**, alternatif hypervisor ringan untuk menjalankan MicroVM Linux dan Windows menggunakan binary `cloud-hypervisor` (static/musl, Alpine-compatible).
-*   **Manajemen VM Penuh via GUI**: Buat, jalankan, hentikan, dan hapus Zeno Machine langsung dari antarmuka ZenoPanel tanpa menyentuh terminal.
-*   **Live Resize (Dynamic RAM & vCPU)**: Ubah alokasi RAM dan jumlah vCPU pada VM yang sedang berjalan secara *real-time* tanpa me-reboot (*hot-plug*).
-*   **Statistik Dashboard Terintegrasi**: Panel ringkasan menampilkan jumlah total VM, VM aktif, total vCPU dan RAM yang terpakai.
-
-### 🔄 Dual-Engine Live Migration
-*   **Zeno Machine Live Migration** (KVM Memory Sync): Pindahkan MicroVM yang sedang berjalan antar server fisik secara *zero-downtime* dengan jeda handoff kurang dari 50ms.
-*   **Zeno Box Container Live Migration** (CRIU Checkpoint/Restore): Pindahkan container `runc` yang sedang aktif beserta seluruh state proses, file descriptor, dan socket TCP dengan waktu transmisi kurang dari 200ms.
-*   **Opsi Live Migration di Menu Manage Container**: Tombol *Live Migration (CRIU)* kini tersedia di dropdown Manage pada setiap baris container Zeno Box.
-
-### 🛡️ Manual Approval Handshake System
-*   **Approval di Server Tujuan**: Setiap permintaan Live Migration kini memerlukan persetujuan manual dari Administrator server tujuan melalui GUI sebelum transmisi dimulai — mencegah VM/container asing memenuhi RAM server secara tidak sah.
-*   **Glowing Handshake Banner**: Banner notifikasi bercahaya muncul otomatis di dashboard server penerima dengan tombol **`[ Accept & Receive ]`** dan **`[ Reject ]`**.
-*   **Tabel Approval**: Semua permintaan migrasi masuk (`pending`) dicatat di database lokal (`db_migration_requests`) dan dapat dikelola kapan saja.
-
-### 🩺 Pre-flight Compatibility Check
-*   **Cek Otomatis Sebelum Migrasi**: Sebelum tombol "Start Migration" dapat diklik, pengguna wajib menjalankan **Pre-flight Check** yang memverifikasi:
-    *   Konektivitas jaringan ke IP host tujuan
-    *   Latensi antar server (peringatan jika >50ms untuk Zeno Machine, >30ms untuk CRIU)
-    *   Ketersediaan RAM lokal
-    *   Kompatibilitas versi kernel Linux (khusus Zeno Box CRIU)
-*   **Hasil Visual**: Setiap pemeriksaan ditampilkan dengan ikon ✓ / ✗ / ⚠ secara real-time di dalam panel preflight modal.
-
-### 📊 Dual-Host Progress Tracking
-*   **Progress Bar Dua Arah**: Saat Live Migration berjalan, modal menampilkan **dua progress bar sekaligus** — satu untuk HOST A (sumber) dan satu untuk HOST B (tujuan) — dengan label fase teknis yang diperbarui setiap langkah.
-*   **Fase Teknis Deskriptif**: Mulai dari *"Menginisialisasi checkpoint memori KVM"* hingga *"VM aktif di HOST B"* untuk Zeno Machine, dan dari *"Freezing proses container"* hingga *"CRIU Migration Berhasil!"* untuk Zeno Box.
-*   **Banner Status Akhir**: Setelah migrasi selesai, banner hijau (*Berhasil*) atau merah (*Gagal + Rollback Otomatis*) ditampilkan di dalam modal.
+Rilis **v1.6.1** memperkuat kestabilan dan keamanan platform ZenoPanel dengan perbaikan penuh false positive pada **Zeno WAF**, serta menambahkan fitur lanjutan pada **Zeno Machine** mencakup **Cloud-Init Auto-Provisioning**, **Interactive Web Serial Console**, **1-Click Reverse Proxy Expose**, dan **Snapshot & State Checkpoint**.
 
 ---
 
-## 📦 Perubahan Pengemasan (Packaging)
+## 🚀 Fitur Baru & Peningkatan (New Features & Enhancements)
 
-*   **Binary Cloud-Hypervisor Disertakan Otomatis**: `compile.sh` kini mengunduh `cloud-hypervisor-static v42.0` secara otomatis setelah kompilasi selesai dan menyertakannya di dalam tarball distribusi di folder `bin/`. Binary ini merupakan static binary (musl) yang sepenuhnya kompatibel dengan Alpine Linux.
-*   **Smart Caching**: Binary Cloud-Hypervisor di-cache lokal di folder `bin/` dan hanya diunduh ulang jika versi berubah.
+### 🖥️ Zeno Machine — Cloud-Init Auto-Provisioning & Kredensial
+*   **SSH Public Key Auto-Inject**: Pengguna kini dapat mengisikan SSH Public Key saat membuat Zeno Machine. ZenoPanel akan secara otomatis menyusun file `cloud-init/user-data` dan `meta-data` agar kunci SSH langsung diinjeksi saat MicroVM melakukan boot pertama kali.
+*   **Custom Root/Initial User Password**: Menambahkan opsi penentuan password awal pengguna/root untuk Guest OS MicroVM.
+
+### 💻 Interactive Web Serial Console (xterm.js)
+*   **Akses TTY Konsol Langsung dari Browser**: Setiap Zeno Machine yang aktif kini dilengkapi tombol **Console** (`<i class="fa-solid fa-terminal"></i>`) untuk membuka **Web Serial Console** interaktif tanpa memerlukan SSH client eksternal.
+*   **Terminal Emulation**: Menampilkan konsol TTY virtio-console secara real-time untuk memudahkan pengujian, perintah CLI, dan debugging sistem operasi Guest.
+
+### 🌐 1-Click Expose via Reverse Proxy
+*   **Reverse Proxy Binding Instant**: Cukup klik tombol **Expose Proxy** (`<i class="fa-solid fa-network-wired"></i>`) pada baris Zeno Machine untuk langsung membuat aturan Zeno Reverse Proxy yang mengarahkan domain/subdomain ke IP & port MicroVM.
+
+### 📸 Machine Snapshot & State Checkpoint
+*   **Checkpoint MicroVM**: Menambahkan tombol **Snapshot** (`<i class="fa-solid fa-camera"></i>`) untuk mengambil cadangan keadaan memori dan spesifikasi MicroVM yang tersimpan secara aman di `/var/lib/zeno-container/machines/snapshots/`.
 
 ---
 
-## 📦 Aset Rilis (Release Assets)
+## 🛡️ Perbaikan Keamanan & Bug Fixes
 
-*   **`zenopanel-v1.6.0.tar.gz`**: Paket inti ZenoPanel untuk Linux, sudah termasuk binary `bin/cloud-hypervisor` (static/musl).
-*   **`zenoos-v1.6.0.tar.gz`**: Distro ZenoOS berbasis Alpine Linux 3.24 dengan ZenoPanel v1.6.0 dan Cloud-Hypervisor terintegrasi.
-*   **`zenopanel-windows-v1.6.0.zip`**: Client launcher Windows (`zenopanel-launcher.exe`) + PowerShell installer untuk pengguna Windows via WSL2.
+### 🛡️ Eliminasi False Positive Zeno WAF (WAF Overhaul)
+*   **Fix Request Jegalan di Path `/`**: Memperbaiki `SQLI_REGEX` yang sebelumnya terlalu permisif pada kata `or`/`and` yang diikuti tanda `=` di header Cookie (`Cookie: session=...; order=desc`) atau Query Parameter.
+*   **Fix Scanner Bot User-Agent Overlap**: Menambahkan *word boundaries* (`\b...\b`) ketat pada `SCANNER_UA_REGEX` untuk mencegah nama browser/app biasa yang memiliki substring serupa terdeteksi secara salah sebagai bot penyerang.
+*   **Konsistensi Fast-Path Aho-Corasick**: Diselaraskan `WAF_KEYWORDS` dengan aturan regex baru. Seluruh 4 suite unit test WAF dipastikan lulus 100% (*4 passed, 0 failed*).
+
+### 🎨 Perbaikan Layout UI & Integrasi JS Zeno Machine
+*   **Layout Alignment & CSS Modals**: Memperbaiki perataan tampilan tab Zeno Machine agar simetris dengan dashboard utama, menyelaraskan `.btn-primary`, `.btn-secondary`, dan `.modal-backdrop`.
+*   **HTMX Navigation Integration**: Menyarangkan pemanggilan `loadZenoMachines()` ke dalam siklus navigasi `runTabInit('machines')` pada `navigation.js` sehingga tab Zeno Machine selalu terisi otomatis saat diklik.
+
+---
+
+## 📦 Paket Distribusi & Rilis (Release Assets)
+
+*   **`zenopanel-v1.6.1.tar.gz`**: Paket distribusi utama ZenoPanel v1.6.1 untuk sistem Linux, lengkap dengan binary `bin/cloud-hypervisor` v42.0 (static/musl).
+*   **`zenopanel-windows-v1.6.1.zip`**: Paket launcher Windows (`zenopanel-launcher.exe` + `zenopanel.ps1`) dan distro ZenoOS berbasis Alpine minrootfs 3.24 untuk instalasi 1-klik di Windows WSL2.
