@@ -24,10 +24,10 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 jsonwebtoken = "9.3.0"
 bcrypt = "0.15"
-zenocore = "0.1.0"
-zeno-blade = "0.1.0"
-zeno-std = "0.1.0"
-zenoengine = "0.1.0"
+zenocore = { path = "../zeno-rs/crates/zenocore" }
+zeno-blade = { path = "../zeno-rs/crates/zeno-blade" }
+zeno-std = { path = "../zeno-rs/crates/zeno-std" }
+zenoengine = { path = "../zeno-rs/crates/zenoengine" }
 pingora = { version = "0.8.1", features = ["openssl", "proxy"] }
 openssl = "0.10"
 async-trait = "0.1"
