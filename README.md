@@ -1,14 +1,14 @@
 # ⚡ ZenoPanel
 
 [![Rust](https://img.shields.io/badge/language-Rust-orange?logo=rust&style=flat-square)](https://www.rust-lang.org)
-[![ZenoLang](https://img.shields.io/badge/engine-ZenoLang-purple?style=flat-square)](https://github.com/nextcore/zeno-rs)
+[![ZenoCore](https://img.shields.io/badge/engine-ZenoCore_v0.2.0-purple?style=flat-square)](https://crates.io/crates/zenocore)
 [![License](https://img.shields.io/badge/license-Apache-blue?style=flat-square)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.6.4-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.6.4)
+[![Version](https://img.shields.io/badge/version-v1.7.0-success?style=flat-square)](https://github.com/nextcore/zenopanel/releases/tag/v1.7.0)
 [![RAM Usage](https://img.shields.io/badge/RAM-~15MB-brightgreen?style=flat-square)](#)
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
 
-**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **Zeno Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang untuk para developer modern yang menginginkan kendali penuh atas server mereka — tanpa overhead, tanpa bloatware, tanpa kompromi.
+**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **ZenoCore Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang untuk para developer modern yang menginginkan kendali penuh atas server mereka — tanpa overhead, tanpa bloatware, tanpa kompromi.
 
 ZenoPanel hadir sebagai **single binary** dengan zero external dependency: gateway reverse proxy Pingora, container runtime **Zeno Box** (OCI-compliant), MicroVM engine **Zeno Machine** (Cloud-Hypervisor), database hosting, cloud backup, firewall, dan WAF — semua terintegrasi dalam satu binary yang berjalan native di **semua distribusi Linux**, termasuk Alpine Linux (MUSL/OpenRC).
 
@@ -21,13 +21,19 @@ ZenoPanel bukan sekadar panel hosting. Ini adalah **platform infrastruktur lengk
 - **Zero Dependency**: Single static binary. Tidak ada runtime eksternal, tidak ada daemon tambahan, tidak ada package manager yang harus dijalankan sebelum panel bisa hidup.
 - **Zero Bloatware**: Hanya mengonsumsi **~15 MB RAM** saat idle. Seluruh sumber daya server dapat dialokasikan penuh untuk aplikasi bisnis Anda.
 - **Zero Downtime**: Semua perubahan konfigurasi — domain, SSL, proxy rules — diterapkan secara instan di memori tanpa restart gateway. Koneksi client aktif tidak pernah terputus.
-- **Scriptable**: Seluruh logika panel ditulis dalam **ZenoLang**, bahasa scripting yang berjalan di atas Zeno Rust runtime. Anda dapat mengubah atau memperluas perilaku panel tanpa perlu mengkompilasi ulang binary Rust.
+- **Scriptable**: Seluruh logika panel ditulis dalam **ZenoLang**, bahasa scripting yang berjalan di atas ZenoCore v0.2.0 Rust runtime. Anda dapat mengubah atau memperluas perilaku panel tanpa perlu mengkompilasi ulang binary Rust.
 
 ---
 
 ## ✨ Fitur-Fitur Unggulan
 
-### 🖥️ Zeno Machine — MicroVM Engine (NEW in v1.6.0)
+### ⚙️ ZenoCore v0.2.0 & Dynamic Plugin Engine (NEW in v1.7.0)
+ZenoPanel kini didukung penuh oleh **`zenocore v0.2.0`** resmi dari [crates.io](https://crates.io/crates/zenocore):
+- **50+ Slot Bawaan (Standard Library)**: Dukungan manipulasi string (`string.*`), kalkulasi matematika (`math.*`), operasi array & map (`array.*`/`map.*`), evaluasi `if` kompleks (`&&`/`||`), dan casting tipe data.
+- **Native Dynamic Plugin System (`plugin.load`)**: Muat extension plugin `.so`/`.dylib` yang dikompilasi dari Rust secara *runtime* tanpa perlu mengompilasi ulang binary ZenoPanel utama.
+- **Thread-Safe Architecture**: Arsitektur interior mutability `Mutex` yang *thread-safe* untuk eksekusi concurrent pada multi-threaded Axum/Tokio web server.
+
+### 🖥️ Zeno Machine — MicroVM Engine
 Engine virtualisasi MicroVM terbaru berbasis **[Cloud-Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor)** — hypervisor generasi baru yang ditulis dalam Rust, ringan, dan aman.
 
 - **Buat & Kelola MicroVM**: Jalankan VM Linux atau Windows dengan konfigurasi vCPU & RAM yang dapat disesuaikan — langsung dari UI panel.
@@ -36,7 +42,7 @@ Engine virtualisasi MicroVM terbaru berbasis **[Cloud-Hypervisor](https://github
 - **Dashboard Statistik**: Ringkasan total VM, VM aktif, total vCPU dan RAM terpakai ditampilkan secara live.
 - **Binary Cloud-Hypervisor Terintegrasi**: Binary `cloud-hypervisor-static` (musl/Alpine) disertakan langsung di dalam paket distribusi.
 
-### 🔄 Live Migration Dual-Engine (NEW in v1.6.0)
+### 🔄 Live Migration Dual-Engine
 Live Migration tersedia untuk dua engine sekaligus dengan **Manual Approval Handshake** — persetujuan manual diperlukan dari Administrator server tujuan sebelum transmisi dimulai.
 
 - **Zeno Machine Migration (KVM)**: Transmisi memori VM secara pre-copy dengan dirty page sync. Jeda freeze <50ms.
@@ -61,7 +67,7 @@ Live Migration tersedia untuk dua engine sekaligus dengan **Manual Approval Hand
 - **Browse Files Container**: Navigasi filesystem container langsung dari File Manager.
 - **Real-Time Status**: Status container update otomatis secara instan via Server-Sent Events (SSE).
 - **Rootless Mode**: Container bisa jalan tanpa hak root (menggunakan user namespace).
-- **Live Migration (CRIU)**: Pindahkan container yang aktif ke server lain tanpa menghentikan proses (lihat seksi Live Migration).
+- **Live Migration (CRIU)**: Pindahkan container yang aktif ke server lain tanpa menghentikan proses.
 
 ### 📦 Docker Compose Support
 - **YAML Parser Bawaan**: Parse `docker-compose.yml` langsung — tanpa dependency eksternal.
@@ -151,12 +157,12 @@ ZenoPanel mendeteksi lingkungan sistem init secara dinamis. Di Alpine Linux, pan
 | :--- | :--- |
 | **Proxy Engine** | [Cloudflare Pingora](https://github.com/cloudflare/pingora) (`pingora-core` & `pingora-proxy`) |
 | **Web Engine** | [Axum](https://github.com/tokio-rs/axum) & [Tokio](https://tokio.rs/) Async Runtime |
+| **Scripting Engine** | **ZenoLang** powered by [`zenocore v0.2.0`](https://crates.io/crates/zenocore) & [`zenoengine v0.2.0`](https://crates.io/crates/zenoengine) |
 | **Container Runtime** | **Zeno Box** (berbasis [runc](https://github.com/opencontainers/runc) embedded) |
 | **MicroVM Engine** | **Zeno Machine** (berbasis [Cloud-Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) static/musl) |
 | **Live Migration** | KVM Memory Sync (Zeno Machine) & [CRIU](https://criu.org/) Checkpoint/Restore (Zeno Box) |
 | **TLS & Crypto** | OpenSSL (Pingora handshake) & [Rustls](https://github.com/rustls/rustls) |
 | **ACME & SSL** | [instant-acme](https://github.com/jsha/instant-acme), [rcgen](https://github.com/rustls/rcgen), [x509-parser](https://github.com/rusticata/x509-parser) |
-| **Scripting Engine** | ZenoLang (custom scripting runtime di atas Zeno Rust) |
 | **Cloud Backup** | AWS Signature V4 (S3) & Google JWT RSA-256 (Drive) — native Rust, tanpa `rclone` |
 
 ---
@@ -184,14 +190,6 @@ git clone https://github.com/nextcore/zenopanel.git
 cd zenopanel
 cargo build --release
 ```
-
-### Jalankan
-```bash
-cp .env.example .env
-PATH=$PWD/cmake_local/bin:$PATH cargo run
-```
-
-Buka `http://localhost:3001/zpanel` di browser. Untuk detail port dan konfigurasi lokal, lihat [development.md](./development.md). Untuk kompilasi static MUSL (Alpine) atau GLIBC 2.17, lihat [compile.md](./compile.md).
 
 ---
 
