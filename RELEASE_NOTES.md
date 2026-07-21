@@ -1,54 +1,51 @@
-# Release Notes — ZenoPanel v1.6.4
+# 🚀 ZenoPanel Release Notes — v1.7.0
 
-Rilis **v1.6.4** memberikan perbaikan kritis pada modul JavaScript frontend (`app.js`), mengeliminasi kesalahan pengimporan modul yang sempat menyebabkan tombol **ISO Library** dan modal pendukung Zeno Machine tidak bereaksi saat diklik, serta menyelaraskan paket kompilasi distribusi Linux dan installer WSL2 Windows.
+Kami dengan bangga mengumumkan rilis **ZenoPanel v1.7.0**! 
 
----
-
-## 🛠️ Perbaikan Bug & Stabilitas (Bug Fixes & Stability)
-
-### 📀 Zeno Machine — Fix ES Module Imports & Handler Modal ISO Library
-*   **Fix Tombol ISO Library Tidak Bereaksi**: Memperbaiki masalah di mana tombol ISO Library dan modal pendukung Zeno Machine tidak merespon saat diklik. Masalah ini disebabkan oleh impor nama fungsi yang invalid (`createMachineSnapshot`) di `public/js/app.js` yang menggagalkan inisialisasi modul JavaScript secara keseluruhan.
-*   **Eksplisit Global Window Bindings**: Mengimpor secara lengkap fungsi modal ISO Library (`openIsoLibraryModal`, `closeIsoLibraryModal`, `loadIsoList`, `submitAddIso`, `deleteIso`), Snapshot Manager (`openSnapshotManagerModal`, `closeSnapshotManagerModal`, `submitCreateSnapshotModal`, `restoreSnapshot`, `deleteSnapshot`), serta mendaftarkannya ke `window` untuk menjamin eksekusi handler event HTML inline secara seamless.
+Versi ini membawa peningkatan besar pada fondasi *scripting & template engine* dengan mengintegrasikan **`zenocore v0.2.0`** resmi dari [crates.io](https://crates.io/crates/zenocore), menghadirkan **50+ slot standar baru**, serta memperkenalkan dukungan **Native C-ABI Dynamic Plugin System**.
 
 ---
 
-## 📦 Paket Distribusi & Rilis (Release Assets)
+## 🌟 Sorotan Utama Rilis v1.7.0
 
-*   **`zenopanel-v1.6.4.tar.gz`**: Paket distribusi rilis ZenoPanel v1.6.4 untuk sistem Linux (static musl binary), lengkap dengan binary `bin/cloud-hypervisor` v42.0.
-*   **`zenopanel-windows-v1.6.4.zip`**: Paket installer/launcher Windows WSL2 (`zenopanel-launcher.exe` + `zenopanel.ps1`) dan distro ZenoOS berbasis Alpine minrootfs 3.24.
+### 1. 📦 Integrasi `zenocore v0.2.0` dari crates.io
+ZenoPanel secara resmi bermigrasi ke paket **`zenocore v0.2.0`**, **`zeno-blade v0.2.0`**, **`zeno-std v0.2.0`**, dan **`zenoengine v0.2.0`** yang diterbitkan langsung pada registry crates.io:
+- Menjamin stabilitas ekosistem dan kompatibilitas jangka panjang.
+- Arsitektur interior mutability `Mutex` yang *thread-safe* untuk penanganan *concurrent HTTP request* di Tokio/Axum.
 
----
+### 2. 🧰 Suite 50+ Slot Bawaan (Standard Library)
+Seluruh skrip & template Blade di ZenoPanel kini mendapatkan akses penuh ke suite slot bawaan ZenoCore:
+- **String Manipulation (`string.*`)**: `trim`, `upper`, `lower`, `split`, `replace`, `contains`, `starts_with`, `ends_with`, `len`, `concat`, `substr`, `format`, `repeat`.
+- **Kalkulasi Matematika (`math.*`)**: `add`, `sub`, `mul`, `div`, `mod`, `pow`, `sqrt`, `abs`, `ceil`, `floor`, `round`, `min`, `max`, `clamp`, `random`.
+- **Koleksi Array & Map (`array.*` / `map.*`)**: `reverse`, `unique`, `shift`, `unshift`, `slice`, `contains`, `sort`, `map.get`, `delete`, `merge`, `values`, `has`, `entries`.
+- **Evaluasi Logika Dinamis**: Pencabangan `if` dengan operator logika kompleks (`&&`, `||`, ternary `? :`, dan null-coalescing `??`).
+- **Tipe Data & Utilitas**: `cast.to_int/float/string/bool`, `coalesce`, `util.datetime`, `util.timestamp`, `util.uuid`, `util.env`.
 
-# Release Notes — ZenoPanel v1.6.2
-
-Rilis **v1.6.2** memberikan perbaikan penting pada pengolahan template UI Zeno Machine (Blade Parser Fix), mengatasi kendala `unclosed zeno` yang sempat menghambat respon navigasi tab side menu, menyelaraskan versi paket kompilasi distribusi utama Linux dan installer WSL2 Windows, serta **menambahkan fitur Manajemen ISO dan Snapshot Zeno Machine**.
-
----
-
-## 🚀 Fitur Baru (New Features)
-
-### 📀 Zeno Machine — Manajemen ISO (ISO Image Library)
-*   **ISO Library & Manager Modal**: Menyediakan antarmuka terpusat untuk mendaftarkan, menyimpan, dan mengelola file ISO image (misal Ubuntu, Debian, Alpine) di `/var/lib/zeno-container/isos/`.
-*   **Attach / Detach ISO Boot**: Mendukung pemilihan ISO image boot saat membuat Zeno Machine (MicroVM) baru maupun mengaitkan/melepas ISO pada VM yang sudah terdaftar.
-*   **API Management ISO**: Menambahkan rute API `/api/machines/isos/list`, `/api/machines/isos/add`, `/api/machines/isos/delete`, `/api/machines/isos/attach`, dan `/api/machines/isos/detach`.
-
-### 📸 Zeno Machine — Manajemen Snapshot (Snapshot Manager)
-*   **Snapshot Manager UI**: Menyediakan modal manajemen snapshot khusus per Zeno Machine untuk melihat riwayat snapshot, membuat snapshot baru dengan nama & deskripsi kustom, diiringi status badge visual.
-*   **Restore & Delete Snapshot**: Mendukung fitur restore status Zeno Machine dari file snapshot yang dipilih serta opsi penghapusan file snapshot.
-*   **API Management Snapshot**: Menambahkan rute API `/api/machines/snapshots/list`, `/api/machines/snapshots/create`, `/api/machines/snapshots/restore`, dan `/api/machines/snapshots/delete`.
+### 3. 🔌 Native Dynamic Plugin Engine (`plugin.load`)
+ZenoPanel kini dapat memuat plugin `.so` (Linux), `.dylib` (macOS), atau `.dll` (Windows) yang dikompilasi dari Rust secara *runtime* tanpa perlu mengompilasi ulang biner ZenoPanel utama:
+```yaml
+# Memuat extension plugin eksternal secara dinamis
+plugin.load: './plugins/libcustom_waf.so'
+```
 
 ---
 
-## 🛠️ Perbaikan Bug & Stabilitas (Bug Fixes & Stability)
+## 🛠️ Ringkasan Perubahan Teknis (Changelog)
 
-### 🖥️ Zeno Machine — Fix Blade Template Parser & Navigasi Tab Side Menu
-*   **Fix Error `unclosed zeno` di Terminal & UI**: Memperbaiki masalah di mana saat tombol **Zeno Machine** pada side menu diklik, tidak terjadi pergerakan halaman di UI dan terminal mengeluarkan log error `unclosed zeno`.
-*   **Escaping `@` pada TTY Console Preview**: Karakter `@` pada string prompt konsol TTY (`root@zeno-vm:~#` dan `user@host`) di `views/partials/tab_machines.blade.zl` diubah menggunakan HTML Entity (`&#64;`). Hal ini mencegah parser **Zeno-Blade** salah menginterpretasikan string tersebut sebagai klausa/direktif Blade bertingkat (`@zeno`), sehingga rendering HTMX dan navigasi tab kembali berjalan lancar 100%.
+- **[Dependency]**: Upgraded `zenocore`, `zeno-blade`, `zeno-std`, `zenoengine` to `0.2.0`.
+- **[Engine]**: Refactored `Engine` struct to use `Mutex` guards for slot registry and documentation.
+- **[Feature]**: Added dynamic slot loading support via `libloading` FFI.
+- **[Parity]**: Completed full 1:1 feature parity between ZenoCore stdlib and ZenoPanel templates.
+- **[Build]**: Verified clean compilation across Rust 2024 edition target.
 
 ---
 
-## 📦 Paket Distribusi & Rilis (Release Assets)
+## 📥 Cara Update
 
-*   **`zenopanel-v1.6.2.tar.gz`**: Paket distribusi rilis ZenoPanel v1.6.2 untuk sistem Linux (static musl binary), lengkap dengan binary `bin/cloud-hypervisor` v42.0.
-*   **`zenopanel-windows-v1.6.2.zip`**: Paket installer/launcher Windows WSL2 (`zenopanel-launcher.exe` + `zenopanel.ps1`) dan distro ZenoOS berbasis Alpine minrootfs 3.24.
+```bash
+cd zenopanel
+git pull origin main
+cargo build --release
+```
 
+Terima kasih kepada seluruh kontributor dan komunitas NextCore yang terus mendukung perkembangan ZenoPanel & ZenoLang! 🎉
