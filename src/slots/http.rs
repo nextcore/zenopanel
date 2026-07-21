@@ -504,9 +504,12 @@ pub fn register(engine: &mut Engine) {
 
             let dest_dir_path = std::path::Path::new(&dest_dir);
             if !dest_dir_path.exists() {
+                let _ = std::fs::create_dir_all(&dest_dir_path);
+            }
+            if !dest_dir_path.exists() {
                 return Err(Diagnostic {
                     r#type: "error".to_string(),
-                    message: format!("http.save_uploads: destination directory does not exist: {}", dest_dir),
+                    message: format!("http.save_uploads: destination directory does not exist and could not be created: {}", dest_dir),
                     filename: node.filename.clone(),
                     line: node.line,
                     col: node.col,

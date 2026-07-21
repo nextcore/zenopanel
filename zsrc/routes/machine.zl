@@ -208,7 +208,7 @@ http.post: '/api/machines/delete' {
 # List all registered ISOs
 http.get: '/api/machines/isos/list' {
     auth.guard
-    db.select: "SELECT id, name, size_bytes, path, source_url, status, created_at FROM db_isos ORDER BY id DESC" {
+    db.select: "SELECT i.id, i.name, i.size_bytes, i.path, i.source_url, i.status, i.created_at, (SELECT COUNT(*) FROM db_machines m WHERE m.iso_path = i.path OR m.iso_path = i.name) as attached_count FROM db_isos i ORDER BY i.id DESC" {
         as: $isos
     }
     http.ok: { success: true, data: $isos }
@@ -247,6 +247,44 @@ http.post: '/api/machines/isos/add' {
             }
 
             http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan ke Library" }
+        }
+        else: {
+            http.forbidden: { success: false, message: "Forbidden: Akses ditolak" }
+        }
+    }
+}
+
+# Edit / Update ISO Image
+http.post: '/api/machines/isos/edit' {
+    auth.guard
+    auth.has_role: 'editor' { as: $is_editor }
+    if: $is_editor {
+        then: {
+            http.json_body: { as: $body }
+            var: $id { val: $body.id }
+            var: $name { val: $body.name }
+            coalesce: $body.path {
+                default: ''
+                as: $path
+            }
+            coalesce: $body.source_url {
+                default: ''
+                as: $source_url
+            }
+            coalesce: $body.size_bytes {
+                default: 0
+                as: $size_bytes
+            }
+            coalesce: $body.status {
+                default: 'ready'
+                as: $status
+            }
+
+            db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = ?, status = ? WHERE id = ?" {
+                bind: [$name, $path, $source_url, $size_bytes, $status, $id]
+            }
+
+            http.ok: { success: true, message: "ISO Image '${name}' berhasil diperbarui" }
         }
         else: {
             http.forbidden: { success: false, message: "Forbidden: Akses ditolak" }

@@ -96,6 +96,10 @@ impl MachineManager {
         let _ = sqlx::query("ALTER TABLE db_machines ADD COLUMN root_password TEXT DEFAULT ''").execute(&pool).await;
         let _ = sqlx::query("ALTER TABLE db_machines ADD COLUMN iso_path TEXT DEFAULT ''").execute(&pool).await;
 
+        let _ = std::fs::create_dir_all("/var/lib/zeno-container/isos");
+        let _ = std::fs::create_dir_all("/var/lib/zeno-container/machines");
+        let _ = std::fs::create_dir_all("/run/zeno-machine");
+
 
         // Tentukan lokasi biner cloud-hypervisor terisolasi di folder ZenoPanel
         let binary_path = match std::env::current_exe() {

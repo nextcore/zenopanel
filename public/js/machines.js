@@ -1,4 +1,4 @@
-import { getCSRFToken } from "./utils.js";
+import { getCSRFToken, formatBytes, escapeHtml } from "./utils.js";
 import { showToast } from "./toast.js";
 import { runMachinePreflight, startMachineMigrationProgress } from "./migration.js";
 
@@ -136,7 +136,10 @@ export function loadZenoMachines() {
                     : `<i class="fa-brands fa-linux" style="color: #f59e0b;"></i> Linux`;
 
                 const isoBadge = m.iso_path
-                    ? `<div style="font-size: 0.72rem; color: #ec4899; margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i class="fa-solid fa-compact-disc"></i> ISO: ${m.iso_path.split('/').pop()}</div>`
+                    ? `<div style="font-size: 0.72rem; color: #ec4899; margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-compact-disc"></i> ISO: ${m.iso_path.split('/').pop()}
+                        <button onclick="detachIsoFromMachine('${m.name}')" title="Detach ISO" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 0; font-size: 0.72rem;"><i class="fa-solid fa-link-slash"></i></button>
+                       </div>`
                     : '';
 
                 html += `
@@ -556,6 +559,112 @@ export function submitMachineProxy() {
 
 // ─── ISO Library & Management Handlers ─────────────────────────────────────
 
+let currentIsoData = [];
+
+export function triggerIsoFileUpload() {
+    const input = document.getElementById("iso-file-upload-input");
+    if (input) {
+        input.value = "";
+        input.click();
+    }
+}
+
+export function handleIsoFileUpload(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const isoName = file.name;
+    const isoSize = file.size;
+    const destDir = "/var/lib/zeno-container/isos";
+
+    // Progress container elements
+    const progressContainer = document.getElementById("iso-upload-progress-container");
+    const progressBar = document.getElementById("iso-upload-progress-bar");
+    const progressText = document.getElementById("iso-upload-progress-text");
+    const progressPercent = document.getElementById("iso-upload-progress-percent");
+
+    if (progressContainer) progressContainer.style.display = "block";
+    if (progressBar) progressBar.style.width = "5%";
+    if (progressPercent) progressPercent.textContent = "5%";
+    if (progressText) progressText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading '${escapeHtml(isoName)}' (${formatBytes(isoSize)})...`;
+
+    const formData = new FormData();
+    formData.append("path", destDir);
+    formData.append("files", file);
+
+    const csrf = getCSRFToken();
+
+    // Perform upload via XMLHttpRequest for real-time progress tracking
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/files/upload", true);
+    xhr.setRequestHeader("X-CSRF-Token", csrf);
+
+    xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            if (progressBar) progressBar.style.width = `${percent}%`;
+            if (progressPercent) progressPercent.textContent = `${percent}%`;
+        }
+    };
+
+    xhr.onload = () => {
+        if (progressContainer) progressContainer.style.display = "none";
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+            let res = {};
+            try { res = JSON.parse(xhr.responseText); } catch(e) {}
+            if (res.success) {
+                showToast("success", `ISO '${isoName}' berhasil diupload! Mendaftarkan ke Library...`);
+                // Auto-register uploaded file in db_isos
+                const fullPath = `${destDir}/${isoName}`;
+                fetch("/api/machines/isos/add", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRF-Token": getCSRFToken(),
+                    },
+                    body: JSON.stringify({
+                        name: isoName,
+                        path: fullPath,
+                        source_url: "Uploaded file",
+                        size_bytes: isoSize
+                    })
+                })
+                .then(r => r.json())
+                .then(r => {
+                    if (r.success) {
+                        showToast("success", `ISO '${isoName}' berhasil terdaftar di Library!`);
+                    } else {
+                        showToast("error", r.message || "Gagal mendaftarkan ISO ke Library");
+                        console.error("[ISO Register] Server error:", r);
+                    }
+                })
+                .catch(err => {
+                    console.error("[ISO Register] Fetch error:", err);
+                    showToast("error", "Gagal mendaftarkan ISO: " + (err.message || err));
+                })
+                .finally(() => {
+                    // Always refresh ISO list regardless of registration success/failure
+                    loadIsoList();
+                    populateIsoSelectDropdown();
+                });
+            } else {
+                showToast("error", res.message || "Gagal mengupload file ISO");
+            }
+        } else {
+            showToast("error", `Upload gagal dengan HTTP ${xhr.status}: ${xhr.responseText}`);
+        }
+    };
+
+    xhr.onerror = () => {
+        if (progressContainer) progressContainer.style.display = "none";
+        showToast("error", "Network error during ISO upload");
+    };
+
+    xhr.send(formData);
+}
+
 export function openIsoLibraryModal() {
     const modal = document.getElementById("iso-library-modal");
     if (modal) {
@@ -578,30 +687,98 @@ export function loadIsoList() {
     fetch("/api/machines/isos/list")
         .then(res => res.json())
         .then(res => {
-            if (res.success && res.data && res.data.length > 0) {
-                let html = "";
-                res.data.forEach(iso => {
-                    html += `
-                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <td style="padding: 10px 14px; font-weight: 600; color: var(--text-main);">
-                                <i class="fa-solid fa-compact-disc" style="color: #ec4899; margin-right: 6px;"></i> ${iso.name}
-                            </td>
-                            <td style="padding: 10px 14px; color: var(--text-muted); font-family: var(--font-code); font-size: 0.78rem;">${iso.path}</td>
-                            <td style="padding: 10px 14px;"><span style="color: #10b981; font-weight: 600;">Ready</span></td>
-                            <td style="padding: 10px 14px; text-align: right;">
-                                <button class="btn btn-secondary btn-sm" onclick="deleteIso(${iso.id})" title="Delete ISO" style="color: #ef4444;"><i class="fa-solid fa-trash"></i> Delete</button>
-                            </td>
-                        </tr>
-                    `;
-                });
-                tbody.innerHTML = html;
+            if (res.success && res.data) {
+                currentIsoData = res.data;
+
+                // Render Quick Stats
+                const totalCount = currentIsoData.length;
+                const readyCount = currentIsoData.filter(i => i.status === "ready").length;
+                const attachedCount = currentIsoData.filter(i => (i.attached_count || 0) > 0).length;
+
+                const elTotal = document.getElementById("iso-stat-total");
+                const elReady = document.getElementById("iso-stat-ready");
+                const elAttached = document.getElementById("iso-stat-attached");
+                if (elTotal) elTotal.textContent = totalCount;
+                if (elReady) elReady.textContent = readyCount;
+                if (elAttached) elAttached.textContent = attachedCount;
+
+                renderIsoRows(currentIsoData);
             } else {
-                tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: var(--text-muted);">Belum ada ISO image terdaftar di Library</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: var(--text-muted);">Belum ada ISO image terdaftar di Library</td></tr>`;
             }
         })
         .catch(() => {
-            tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: var(--danger);">Gagal memuat ISO Library</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: var(--danger);">Gagal memuat ISO Library</td></tr>`;
         });
+}
+
+export function renderIsoRows(data) {
+    const tbody = document.getElementById("iso-list-table-body");
+    if (!tbody) return;
+
+    if (!data || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: var(--text-muted);">Belum ada ISO image terdaftar di Library</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    data.forEach(iso => {
+        const sizeFormatted = iso.size_bytes && iso.size_bytes > 0 ? formatBytes(iso.size_bytes) : "-";
+        const statusBadge = iso.status === "ready"
+            ? `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">Ready</span>`
+            : iso.status === "downloading"
+            ? `<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;"><i class="fa-solid fa-spinner fa-spin"></i> Downloading</span>`
+            : `<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">Error</span>`;
+
+        const sourceSubtext = iso.source_url
+            ? `<div style="font-size: 0.72rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 200px;" title="${escapeHtml(iso.source_url)}"><i class="fa-solid fa-link"></i> ${escapeHtml(iso.source_url)}</div>`
+            : '';
+
+        const attachedBadge = (iso.attached_count && iso.attached_count > 0)
+            ? `<span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${iso.attached_count} VM(s)</span>`
+            : `<span style="color: var(--text-muted); font-size: 0.78rem;">-</span>`;
+
+        const escapedName = escapeHtml(iso.name);
+        const escapedPath = escapeHtml(iso.path);
+        const escapedUrl = escapeHtml(iso.source_url || "");
+
+        html += `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 10px 14px; font-weight: 600; color: var(--text-main);">
+                    <i class="fa-solid fa-compact-disc" style="color: #ec4899; margin-right: 6px;"></i> ${escapedName}
+                </td>
+                <td style="padding: 10px 14px;">
+                    <div style="color: var(--text-muted); font-family: var(--font-code); font-size: 0.78rem;">${escapedPath}</div>
+                    ${sourceSubtext}
+                </td>
+                <td style="padding: 10px 14px; color: var(--text-muted); font-size: 0.78rem;">${sizeFormatted}</td>
+                <td style="padding: 10px 14px;">${statusBadge}</td>
+                <td style="padding: 10px 14px;">${attachedBadge}</td>
+                <td style="padding: 10px 14px; text-align: right;">
+                    <div style="display: flex; justify-content: flex-end; gap: 6px;">
+                        <button class="btn btn-secondary btn-sm" onclick="openAttachIsoModal('${escapedPath}', '${escapedName}')" title="Attach ISO to Zeno Machine" style="color: #38bdf8;"><i class="fa-solid fa-plug"></i></button>
+                        <button class="btn btn-secondary btn-sm" onclick="openEditIsoModal(${iso.id}, '${escapedName}', '${escapedPath}', '${escapedUrl}', '${iso.status || 'ready'}')" title="Edit ISO Entry" style="color: #ec4899;"><i class="fa-solid fa-pen-to-square"></i></button>
+                        <button class="btn btn-secondary btn-sm" onclick="deleteIso(${iso.id})" title="Delete ISO" style="color: #ef4444;"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+}
+
+export function filterIsoTable(query) {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) {
+        renderIsoRows(currentIsoData);
+        return;
+    }
+    const filtered = currentIsoData.filter(i =>
+        (i.name && i.name.toLowerCase().includes(q)) ||
+        (i.path && i.path.toLowerCase().includes(q)) ||
+        (i.source_url && i.source_url.toLowerCase().includes(q))
+    );
+    renderIsoRows(filtered);
 }
 
 export function submitAddIso() {
@@ -631,8 +808,149 @@ export function submitAddIso() {
             document.getElementById("iso-url-input").value = "";
             document.getElementById("iso-path-input").value = "";
             loadIsoList();
+            populateIsoSelectDropdown();
         } else {
             showToast("error", res.message || "Gagal menambah ISO");
+        }
+    });
+}
+
+export function openEditIsoModal(id, name, path, source_url, status) {
+    const modal = document.getElementById("edit-iso-modal");
+    if (modal) {
+        document.getElementById("edit-iso-id").value = id;
+        document.getElementById("edit-iso-name").value = name || "";
+        document.getElementById("edit-iso-path").value = path || "";
+        document.getElementById("edit-iso-url").value = source_url || "";
+        document.getElementById("edit-iso-status").value = status || "ready";
+        modal.style.display = "flex";
+    }
+}
+
+export function closeEditIsoModal() {
+    const modal = document.getElementById("edit-iso-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+export function submitEditIso() {
+    const id = parseInt(document.getElementById("edit-iso-id").value, 10);
+    const name = document.getElementById("edit-iso-name").value.trim();
+    const path = document.getElementById("edit-iso-path").value.trim();
+    const source_url = document.getElementById("edit-iso-url").value.trim();
+    const status = document.getElementById("edit-iso-status").value;
+
+    if (!name || !path) {
+        showToast("error", "Nama dan Path ISO wajib diisi");
+        return;
+    }
+
+    const csrf = getCSRFToken();
+    fetch("/api/machines/isos/edit", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ id, name, path, source_url, status })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || "ISO Entry berhasil diperbarui");
+            closeEditIsoModal();
+            loadIsoList();
+            populateIsoSelectDropdown();
+            loadZenoMachines();
+        } else {
+            showToast("error", res.message || "Gagal memperbarui ISO Entry");
+        }
+    });
+}
+
+export function openAttachIsoModal(path, name) {
+    const modal = document.getElementById("attach-iso-modal");
+    if (!modal) return;
+
+    document.getElementById("attach-iso-target-path").value = path;
+    document.getElementById("attach-iso-name-display").value = name;
+    const select = document.getElementById("attach-iso-machine-select");
+    if (select) {
+        fetch("/api/machines/list")
+            .then(res => res.json())
+            .then(res => {
+                if (res.success && res.data) {
+                    let html = `<option value="">-- Choose Zeno Machine --</option>`;
+                    res.data.forEach(m => {
+                        const isAttached = m.iso_path === path;
+                        html += `<option value="${m.name}" ${isAttached ? 'selected' : ''}>🖥️ ${m.name} (${m.os_type})${isAttached ? ' [Currently Attached]' : ''}</option>`;
+                    });
+                    select.innerHTML = html;
+                }
+            });
+    }
+    modal.style.display = "flex";
+}
+
+export function closeAttachIsoModal() {
+    const modal = document.getElementById("attach-iso-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+export function submitAttachIso() {
+    const name = document.getElementById("attach-iso-machine-select").value;
+    const iso_path = document.getElementById("attach-iso-target-path").value;
+
+    if (!name) {
+        showToast("error", "Pilih Zeno Machine target terlebih dahulu");
+        return;
+    }
+
+    const csrf = getCSRFToken();
+    fetch("/api/machines/isos/attach", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ name, iso_path })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || `ISO dipasang ke '${name}'`);
+            closeAttachIsoModal();
+            loadIsoList();
+            loadZenoMachines();
+        } else {
+            showToast("error", res.message || "Gagal memasang ISO ke Machine");
+        }
+    });
+}
+
+export function detachIsoFromMachine(name) {
+    if (!confirm(`Lepas (detach) ISO image dari Zeno Machine '${name}'?`)) return;
+
+    const csrf = getCSRFToken();
+    fetch("/api/machines/isos/detach", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ name })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            showToast("success", res.message || `ISO dilepas dari '${name}'`);
+            loadZenoMachines();
+            loadIsoList();
+        } else {
+            showToast("error", res.message || "Gagal melepas ISO");
         }
     });
 }
@@ -654,6 +972,8 @@ export function deleteIso(id) {
         if (res.success) {
             showToast("success", res.message || "ISO berhasil dihapus");
             loadIsoList();
+            populateIsoSelectDropdown();
+            loadZenoMachines();
         } else {
             showToast("error", res.message || "Gagal menghapus ISO");
         }
@@ -821,7 +1141,18 @@ window.submitMachineProxy = submitMachineProxy;
 window.openIsoLibraryModal = openIsoLibraryModal;
 window.closeIsoLibraryModal = closeIsoLibraryModal;
 window.loadIsoList = loadIsoList;
+window.renderIsoRows = renderIsoRows;
+window.filterIsoTable = filterIsoTable;
+window.triggerIsoFileUpload = triggerIsoFileUpload;
+window.handleIsoFileUpload = handleIsoFileUpload;
 window.submitAddIso = submitAddIso;
+window.openEditIsoModal = openEditIsoModal;
+window.closeEditIsoModal = closeEditIsoModal;
+window.submitEditIso = submitEditIso;
+window.openAttachIsoModal = openAttachIsoModal;
+window.closeAttachIsoModal = closeAttachIsoModal;
+window.submitAttachIso = submitAttachIso;
+window.detachIsoFromMachine = detachIsoFromMachine;
 window.deleteIso = deleteIso;
 window.openSnapshotManagerModal = openSnapshotManagerModal;
 window.closeSnapshotManagerModal = closeSnapshotManagerModal;
