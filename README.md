@@ -8,7 +8,7 @@
 [![Single Binary](https://img.shields.io/badge/binary-single-red?style=flat-square)](#)
 [![Alpine Linux](https://img.shields.io/badge/compatibility-Alpine_Linux-blue?logo=alpine-linux&style=flat-square)](#)
 
-**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **ZenoCore Rust** (runtime bahasa scripting *ZenoLang* berkinerja tinggi), ZenoPanel dirancang untuk para developer modern yang menginginkan kendali penuh atas server mereka — tanpa overhead, tanpa bloatware, tanpa kompromi.
+**ZenoPanel** adalah server management control panel generasi baru yang super cepat, sangat ringan (~15MB RAM), dan mandiri (*self-hosted*). Dibangun di atas engine proxy **Cloudflare Pingora** & **ZenoCore Rust**, ZenoPanel dirancang untuk para developer modern yang menginginkan kendali penuh atas server mereka — tanpa overhead, tanpa bloatware, tanpa kompromi.
 
 ZenoPanel hadir sebagai **single binary** dengan zero external dependency: gateway reverse proxy Pingora, container runtime **Zeno Box** (OCI-compliant), MicroVM engine **Zeno Machine** (Cloud-Hypervisor), database hosting, cloud backup, firewall, dan WAF — semua terintegrasi dalam satu binary yang berjalan native di **semua distribusi Linux**, termasuk Alpine Linux (MUSL/OpenRC).
 
@@ -21,23 +21,18 @@ ZenoPanel bukan sekadar panel hosting. Ini adalah **platform infrastruktur lengk
 - **Zero Dependency**: Single static binary. Tidak ada runtime eksternal, tidak ada daemon tambahan, tidak ada package manager yang harus dijalankan sebelum panel bisa hidup.
 - **Zero Bloatware**: Hanya mengonsumsi **~15 MB RAM** saat idle. Seluruh sumber daya server dapat dialokasikan penuh untuk aplikasi bisnis Anda.
 - **Zero Downtime**: Semua perubahan konfigurasi — domain, SSL, proxy rules — diterapkan secara instan di memori tanpa restart gateway. Koneksi client aktif tidak pernah terputus.
-- **Scriptable**: Seluruh logika panel ditulis dalam **ZenoLang**, bahasa scripting yang berjalan di atas ZenoCore v0.2.0 Rust runtime. Anda dapat mengubah atau memperluas perilaku panel tanpa perlu mengkompilasi ulang binary Rust.
 
 ---
 
 ## ✨ Fitur-Fitur Unggulan
-
-### ⚙️ ZenoCore v0.2.0 & Dynamic Plugin Engine (NEW in v1.7.0)
-ZenoPanel kini didukung penuh oleh **`zenocore v0.2.0`** resmi dari [crates.io](https://crates.io/crates/zenocore):
-- **50+ Slot Bawaan (Standard Library)**: Dukungan manipulasi string (`string.*`), kalkulasi matematika (`math.*`), operasi array & map (`array.*`/`map.*`), evaluasi `if` kompleks (`&&`/`||`), dan casting tipe data.
-- **Native Dynamic Plugin System (`plugin.load`)**: Muat extension plugin `.so`/`.dylib` yang dikompilasi dari Rust secara *runtime* tanpa perlu mengompilasi ulang binary ZenoPanel utama.
-- **Thread-Safe Architecture**: Arsitektur interior mutability `Mutex` yang *thread-safe* untuk eksekusi concurrent pada multi-threaded Axum/Tokio web server.
 
 ### 🖥️ Zeno Machine — MicroVM Engine
 Engine virtualisasi MicroVM terbaru berbasis **[Cloud-Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor)** — hypervisor generasi baru yang ditulis dalam Rust, ringan, dan aman.
 
 - **Buat & Kelola MicroVM**: Jalankan VM Linux atau Windows dengan konfigurasi vCPU & RAM yang dapat disesuaikan — langsung dari UI panel.
 - **Live Hot-Plug (vCPU & RAM)**: Ubah alokasi resource VM secara *real-time* tanpa reboot.
+- **Offline & Online Disk Resizing (NEW)**: Perbesar kapasitas disk VM secara dinamis. Jika VM mati (offline), kapasitas berkas disk diperbesar sebelum booting. Jika VM menyala (online), perubahan kapasitas langsung disinkronkan ke Cloud-Hypervisor secara *live* via API control socket tanpa menghentikan uptime.
+- **Web Serial Console (NEW)**: Akses console serial microVM secara interaktif langsung dari UI panel menggunakan xterm.js melalui pipa stream WebSocket non-blocking.
 - **Live Migration (KVM Memory Sync)**: Pindahkan VM yang sedang aktif antar server fisik dengan jeda handoff kurang dari 50ms — tanpa memutuskan koneksi pengguna.
 - **Dashboard Statistik**: Ringkasan total VM, VM aktif, total vCPU dan RAM terpakai ditampilkan secara live.
 - **Binary Cloud-Hypervisor Terintegrasi**: Binary `cloud-hypervisor-static` (musl/Alpine) disertakan langsung di dalam paket distribusi.
