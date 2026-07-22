@@ -89,7 +89,8 @@ impl LoginLimiter {
 
 pub(crate) struct AppState {
     pub(crate) engine: Engine,
-    pub(crate) router: MatchitRouter<MethodRouter>,
+    pub(crate) router: std::sync::RwLock<MatchitRouter<MethodRouter>>,
+    pub(crate) last_reload_mtime: Mutex<Option<std::time::SystemTime>>,
     pub(crate) parent_scope: Arc<Scope>,
     pub(crate) db_manager: DBManager,
     pub(crate) process_manager: Arc<crate::procman::ProcessManager>,
@@ -593,12 +594,7 @@ fn main() {
     println!("🔥 Syncing firewall rules from database...");
     crate::slots::system::sync_firewall_rules(&default_pool);
 
-    #[derive(Clone)]
-    struct RouteReg {
-        method: String,
-        path: String,
-        node: Node,
-    }
+
     let registered_routes = Arc::new(Mutex::new(Vec::new()));
 
     let reg_clone = registered_routes.clone();
@@ -1076,7 +1072,8 @@ fn main() {
 
     let state = Arc::new(AppState {
         engine,
-        router,
+        router: std::sync::RwLock::new(router),
+        last_reload_mtime: Mutex::new(None),
         parent_scope,
         db_manager,
         process_manager: process_manager.clone(),
@@ -1347,6 +1344,127 @@ fn serde_json_to_value(val: serde_json::Value) -> Value {
             Value::Map(map)
         }
     }
+}
+
+#[derive(Clone)]
+struct RouteReg {
+    method: String,
+    path: String,
+    node: Node,
+}
+
+fn get_zsrc_max_mtime() -> Option<std::time::SystemTime> {
+    let mut max_time = None;
+    let paths = ["zsrc", "zsrc/routes", "views", "views/partials"];
+    for dir in &paths {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                        if max_time.is_none() || mtime > max_time.unwrap() {
+                            max_time = Some(mtime);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    max_time
+}
+
+fn reload_routes_struct(
+    db_manager: &crate::db::DBManager,
+    process_manager: &Arc<crate::procman::ProcessManager>,
+    proxy_manager: &Arc<crate::proxyman::ProxyManager>,
+    parent_scope: &Arc<Scope>,
+) -> Result<MatchitRouter<MethodRouter>, String> {
+    let mut engine = zenoengine::new_engine();
+    crate::slots::register_custom_slots(&mut engine);
+
+    let registered_routes = Arc::new(std::sync::Mutex::new(Vec::new()));
+    
+    let reg_clone_get = registered_routes.clone();
+    engine.register("http.get", Arc::new(move |_engine, _ctx, node, _scope| {
+        let path = node.value.clone().unwrap_or_default().trim().to_string();
+        let clean_path = if path.starts_with('\'') || path.starts_with('"') {
+            path[1..path.len()-1].to_string()
+        } else {
+            path
+        };
+        reg_clone_get.lock().unwrap().push(RouteReg {
+            method: "GET".to_string(),
+            path: clean_path,
+            node: node.clone(),
+        });
+        Ok(())
+    }), zenocore::SlotMeta {
+        description: "".to_string(),
+        example: "".to_string(),
+        inputs: HashMap::new(),
+        required_blocks: Vec::new(),
+        value_type: "".to_string(),
+    });
+
+    let reg_clone_post = registered_routes.clone();
+    engine.register("http.post", Arc::new(move |_engine, _ctx, node, _scope| {
+        let path = node.value.clone().unwrap_or_default().trim().to_string();
+        let clean_path = if path.starts_with('\'') || path.starts_with('"') {
+            path[1..path.len()-1].to_string()
+        } else {
+            path
+        };
+        reg_clone_post.lock().unwrap().push(RouteReg {
+            method: "POST".to_string(),
+            path: clean_path,
+            node: node.clone(),
+        });
+        Ok(())
+    }), zenocore::SlotMeta {
+        description: "".to_string(),
+        example: "".to_string(),
+        inputs: HashMap::new(),
+        required_blocks: Vec::new(),
+        value_type: "".to_string(),
+    });
+
+    let main_zl_content = std::fs::read_to_string("zsrc/main.zl")
+        .map_err(|e| format!("Failed to read zsrc/main.zl: {}", e))?;
+    let main_node = zenocore::parser::parse_string(&main_zl_content, "zsrc/main.zl")
+        .map_err(|e| format!("Failed to parse zsrc/main.zl: {:?}", e))?;
+
+    let mut init_ctx = zenocore::Context::new();
+    init_ctx.set("db_manager", db_manager.clone());
+    init_ctx.set("process_manager", process_manager.clone());
+    init_ctx.set("proxy_manager", proxy_manager.clone());
+
+    if let Err(e) = engine.execute(&mut init_ctx, &main_node, parent_scope) {
+        return Err(format!("Failed to execute zsrc/main.zl: {}", e));
+    }
+
+    let mut matchit_routes: HashMap<String, MethodRouter> = HashMap::new();
+    let routes_list = registered_routes.lock().unwrap();
+    for route in routes_list.iter() {
+        let matchit_path = convert_path_to_matchit(&route.path);
+        let entry = matchit_routes.entry(matchit_path).or_insert_with(|| MethodRouter {
+            get: None,
+            post: None,
+        });
+        if route.method == "GET" {
+            entry.get = Some(route.node.clone());
+        } else if route.method == "POST" {
+            entry.post = Some(route.node.clone());
+        }
+    }
+
+    let mut router = MatchitRouter::new();
+    for (path, method_router) in matchit_routes {
+        if let Err(e) = router.insert(&path, method_router) {
+            eprintln!("Failed to insert route '{}' into router: {}", path, e);
+        }
+    }
+
+    Ok(router)
 }
 
 async fn wildcard_handler(
@@ -1634,8 +1752,49 @@ async fn wildcard_handler(
         }
     }
 
-    let matched = match state.router.at(path) {
-        Ok(m) => m,
+    // Hot Reload check in development mode
+    let is_dev = std::env::var("APP_ENV").map(|v| v != "production").unwrap_or(true);
+    if is_dev {
+        if let Some(current_max) = get_zsrc_max_mtime() {
+            let should_reload = {
+                let last_reload = state.last_reload_mtime.lock().unwrap();
+                last_reload.is_none() || current_max > last_reload.unwrap()
+            };
+
+            if should_reload {
+                println!("🔄 [Hot Reload] Changes detected in .zl files! Reloading routes...");
+                match reload_routes_struct(
+                    &state.db_manager,
+                    &state.process_manager,
+                    &state.proxy_manager,
+                    &state.parent_scope,
+                ) {
+                    Ok(new_router) => {
+                        let mut router_write = state.router.write().unwrap();
+                        *router_write = new_router;
+                        let mut last_reload = state.last_reload_mtime.lock().unwrap();
+                        *last_reload = Some(current_max);
+                        println!("✨ [Hot Reload] Routes successfully reloaded!");
+                    }
+                    Err(e) => {
+                        eprintln!("❌ [Hot Reload] Failed to reload routes: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    let router_read = state.router.read().unwrap();
+    let matched = match router_read.at(path) {
+        Ok(m) => {
+            // Clone the route handler node out of the matchit reference so we can release the read lock early
+            let value = m.value.clone();
+            let mut params = HashMap::new();
+            for (k, v) in m.params.iter() {
+                params.insert(k.to_string(), v.to_string());
+            }
+            (value, params)
+        }
         Err(_) => {
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -1646,8 +1805,8 @@ async fn wildcard_handler(
     };
 
     let handler_node = match method_str {
-        "GET" => matched.value.get.as_ref(),
-        "POST" => matched.value.post.as_ref(),
+        "GET" => matched.0.get.as_ref(),
+        "POST" => matched.0.post.as_ref(),
         _ => None,
     };
 
@@ -1666,7 +1825,7 @@ async fn wildcard_handler(
     let req_scope = Scope::new(Some(state.parent_scope.clone()));
 
     let mut params_map = HashMap::new();
-    for (k, v) in matched.params.iter() {
+    for (k, v) in matched.1.iter() {
         req_scope.set(k, Value::String(v.to_string()));
         params_map.insert(k.to_string(), Value::String(v.to_string()));
     }
@@ -2201,6 +2360,7 @@ use std::io::{Read, Write};
 #[derive(serde::Deserialize)]
 struct TerminalQuery {
     container: Option<String>,
+    machine: Option<String>,
 }
 
 async fn terminal_ws_handler(
@@ -2213,14 +2373,68 @@ async fn terminal_ws_handler(
     let token = auth::extract_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let _claims = auth::verify_jwt(&token, &state.jwt_secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
     
-    Ok(ws.on_upgrade(move |socket| handle_terminal_socket(socket, state, query.container)))
+    Ok(ws.on_upgrade(move |socket| handle_terminal_socket(socket, state, query.container, query.machine)))
 }
 
 async fn handle_terminal_socket(
     socket: axum::extract::ws::WebSocket,
-    _state: Arc<AppState>,
+    state: Arc<AppState>,
     container_id: Option<String>,
+    machine_name: Option<String>,
 ) {
+    if let Some(ref m_name) = machine_name {
+        if !m_name.is_empty() {
+            let socket_path = format!("/run/zeno-machine/{}-serial.sock", m_name);
+            println!("[Console WS] Connecting to microVM serial socket: {}", socket_path);
+            
+            let stream = match tokio::net::UnixStream::connect(&socket_path).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Failed to connect to machine serial socket (is the machine running?): {}", e);
+                    return;
+                }
+            };
+            
+            use futures_util::StreamExt;
+            use futures_util::SinkExt;
+            let (mut ws_sender, mut ws_receiver) = socket.split();
+            let (mut stream_reader, mut stream_writer) = stream.into_split();
+            
+            // Read from VM serial and send to WS
+            let ws_sender_task = tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = stream_reader.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    if ws_sender.send(axum::extract::ws::Message::Text(data)).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            
+            // Read from WS and write to VM serial
+            let ws_receiver_task = tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                while let Some(Ok(msg)) = ws_receiver.next().await {
+                    if let axum::extract::ws::Message::Text(text) = msg {
+                        if stream_writer.write_all(text.as_bytes()).await.is_err() {
+                            break;
+                        }
+                    } else if let axum::extract::ws::Message::Binary(bin) = msg {
+                        if stream_writer.write_all(&bin).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            let _ = tokio::join!(ws_sender_task, ws_receiver_task);
+            return;
+        }
+    }
     let pty_system = NativePtySystem::default();
     
     let pair = match pty_system.openpty(PtySize {

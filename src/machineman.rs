@@ -144,6 +144,17 @@ impl MachineManager {
             }
         });
 
+        // Spawn background VM state reconciler loop
+        let manager_clone = manager.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                if let Err(e) = manager_clone.reconcile_machines().await {
+                    eprintln!("[VM Reconciler] Error: {}", e);
+                }
+            }
+        });
+
         manager
     }
 
@@ -219,6 +230,51 @@ impl MachineManager {
         }
         list.sort_by(|a, b| a.id.cmp(&b.id));
         list
+    }
+
+    pub async fn reconcile_machines(&self) -> Result<(), String> {
+        let db_states = match sqlx::query_as::<_, (String, String)>("SELECT name, status FROM db_machines").fetch_all(&self.pool).await {
+            Ok(states) => states,
+            Err(e) => return Err(e.to_string()),
+        };
+
+        for (name, db_status) in db_states {
+            let state_opt = {
+                let machines = self.machines.read().await;
+                machines.get(&name).cloned()
+            };
+
+            if let Some(state_arc) = state_opt {
+                let (current_status, has_pid) = {
+                    let s = state_arc.read().await;
+                    (s.info.status.clone(), s.pid.is_some())
+                };
+
+                if db_status == "running" && !has_pid {
+                    println!("[Reconciler] VM '{}' should be running but is stopped. Starting...", name);
+                    if let Err(e) = self.start_machine(&name).await {
+                        eprintln!("[Reconciler] Failed to start VM '{}': {}", name, e);
+                        let _ = sqlx::query("UPDATE db_machines SET status = 'stopped' WHERE name = ?")
+                            .bind(&name)
+                            .execute(&self.pool)
+                            .await;
+                    }
+                } else if db_status == "stopped" && has_pid {
+                    println!("[Reconciler] VM '{}' should be stopped but is running. Stopping...", name);
+                    if let Err(e) = self.stop_machine(&name).await {
+                        eprintln!("[Reconciler] Failed to stop VM '{}': {}", name, e);
+                    }
+                } else {
+                    if current_status != db_status {
+                        let mut s = state_arc.write().await;
+                        s.info.status = db_status;
+                    }
+                }
+            } else {
+                let _ = self.load_from_db().await;
+            }
+        }
+        Ok(())
     }
 
     pub async fn get_machine(&self, name: &str) -> Option<MachineInfo> {
@@ -321,19 +377,101 @@ impl MachineManager {
         Ok(info)
     }
 
+    async fn ensure_firmware(&self) -> Result<String, String> {
+        let binary_dir = match std::env::current_exe() {
+            Ok(exe) => exe.parent().map(|p| p.join("bin")).unwrap_or_else(|| std::path::PathBuf::from("/opt/zenopanel/bin")),
+            Err(_) => std::path::PathBuf::from("/opt/zenopanel/bin"),
+        };
+        let _ = std::fs::create_dir_all(&binary_dir);
+        let firmware_path = binary_dir.join("CLOUDHV.fd");
+        if !firmware_path.exists() {
+            println!("📥 Downloading Cloud-Hypervisor UEFI firmware CLOUDHV.fd...");
+            let url = "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v42.0/CLOUDHV.fd";
+            Self::download_file(url, &firmware_path.to_string_lossy()).await?;
+            println!("✅ UEFI firmware CLOUDHV.fd successfully downloaded.");
+        }
+        Ok(firmware_path.to_string_lossy().to_string())
+    }
+
     pub async fn start_machine(&self, name: &str) -> Result<(), String> {
         let state_arc = {
             let machines = self.machines.read().await;
             machines.get(name).cloned().ok_or_else(|| format!("Zeno Machine '{}' tidak ditemukan", name))?
         };
 
+        // 1. Ensure UEFI firmware is available
+        let firmware_path = self.ensure_firmware().await?;
+
         let mut state = state_arc.write().await;
         if state.info.status == "running" {
             return Ok(());
         }
 
-        // Perbarui status ke database & memori
+        // 2. Ensure sparse disk image file exists
+        let disk_path = &state.info.disk_path;
+        if !std::path::Path::new(disk_path).exists() {
+            if let Some(parent) = std::path::Path::new(disk_path).parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let file = std::fs::File::create(disk_path)
+                .map_err(|e| format!("Gagal membuat disk file: {}", e))?;
+            file.set_len(state.info.disk_size_gb * 1024 * 1024 * 1024)
+                .map_err(|e| format!("Gagal menentukan kapasitas disk: {}", e))?;
+        }
+
+        // 3. Clean up socket files if they exist
+        let _ = std::fs::remove_file(&state.info.socket_path);
+        let serial_socket = format!("/run/zeno-machine/{}-serial.sock", name);
+        let _ = std::fs::remove_file(&serial_socket);
+
+        // 4. Construct cloud-hypervisor arguments
+        let mut cmd = tokio::process::Command::new(&self.binary_path);
+        cmd.arg("--api-socket").arg(&state.info.socket_path);
+        cmd.arg("--firmware").arg(&firmware_path);
+        cmd.arg("--cpus").arg(format!("boot={}", state.info.vcpus));
+        cmd.arg("--memory").arg(format!("size={}M,shared=on", state.info.memory_mb));
+        
+        let mut disks = format!("path={}", state.info.disk_path);
+        if !state.info.iso_path.is_empty() {
+            disks.push_str(&format!(",path={}", state.info.iso_path));
+        }
+        cmd.arg("--disk").arg(disks);
+
+        if !state.info.tap_device.is_empty() {
+            cmd.arg("--net").arg(format!("tap={}", state.info.tap_device));
+        }
+
+        cmd.arg("--serial").arg(format!("socket={}", serial_socket));
+        cmd.arg("--console").arg("off");
+
+        // 5. Spawn VM
+        let mut child = cmd.spawn().map_err(|e| format!("Gagal memicu Cloud-Hypervisor: {}", e))?;
+        let pid = child.id().unwrap_or(0);
+        state.pid = Some(pid);
         state.info.status = "running".to_string();
+
+        // 6. Spawn background monitor loop
+        let name_clone = name.to_string();
+        let state_arc_clone = state_arc.clone();
+        let pool_clone = self.pool.clone();
+        tokio::spawn(async move {
+            let status = child.wait().await;
+            println!("[Zeno Machine] MicroVM '{}' (PID {}) exited with status {:?}", name_clone, pid, status);
+            let mut s = state_arc_clone.write().await;
+            s.pid = None;
+            s.info.status = "stopped".to_string();
+            let _ = sqlx::query("UPDATE db_machines SET status = 'stopped' WHERE name = ?")
+                .bind(&name_clone)
+                .execute(&pool_clone)
+                .await;
+            
+            // Clean up socket files
+            let _ = std::fs::remove_file(&s.info.socket_path);
+            let serial_socket = format!("/run/zeno-machine/{}-serial.sock", name_clone);
+            let _ = std::fs::remove_file(&serial_socket);
+        });
+
+        // 7. Update database status
         let _ = sqlx::query("UPDATE db_machines SET status = 'running' WHERE name = ?")
             .bind(name)
             .execute(&self.pool)
@@ -349,6 +487,12 @@ impl MachineManager {
         };
 
         let mut state = state_arc.write().await;
+        if let Some(pid) = state.pid {
+            let _ = std::process::Command::new("kill").args(&["-15", &pid.to_string()]).status();
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+            let _ = std::process::Command::new("kill").args(&["-9", &pid.to_string()]).status();
+        }
+
         state.info.status = "stopped".to_string();
         state.pid = None;
 

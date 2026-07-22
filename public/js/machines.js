@@ -191,10 +191,13 @@ export function populateIsoSelectDropdown() {
     fetch("/api/machines/isos/list")
         .then(res => res.json())
         .then(res => {
-            if (res.success && res.data) {
+            const data = res.data || (Array.isArray(res.success) ? res.success : []);
+            const isSuccess = res.success === true || Array.isArray(res.success);
+
+            if (isSuccess) {
                 let html = `<option value="">-- No ISO Attached (Standard Boot) --</option>`;
-                res.data.forEach(iso => {
-                    html += `<option value="${iso.path}">📀 ${iso.name} (${iso.path})</option>`;
+                data.forEach(iso => {
+                    html += `<option value="${iso.path}">📀 ${iso.name}</option>`;
                 });
                 select.innerHTML = html;
             }
@@ -445,12 +448,86 @@ export function initMachinesTab() {
     loadZenoMachines();
 }
 
+let consoleSocket = null;
+let consoleTerm = null;
+let consoleFitAddon = null;
+
+function fitConsoleTerminal() {
+    if (consoleFitAddon && consoleTerm) {
+        try {
+            consoleFitAddon.fit();
+        } catch (e) {}
+    }
+}
+
 export function openMachineConsoleModal(name) {
     const modal = document.getElementById("machine-console-modal");
-    if (modal) {
-        document.getElementById("machine-console-title").textContent = name;
-        modal.style.display = "flex";
+    if (!modal) return;
+    document.getElementById("machine-console-title").textContent = name;
+    modal.style.display = "flex";
+
+    const container = document.getElementById("machine-console-terminal");
+    if (!container) return;
+
+    // Clean up if already exists
+    if (consoleSocket) {
+        consoleSocket.close();
+        consoleSocket = null;
     }
+    if (consoleTerm) {
+        consoleTerm.dispose();
+        consoleTerm = null;
+    }
+
+    consoleTerm = new Terminal({
+        cursorBlink: true,
+        theme: {
+            background: '#05070c',
+            foreground: '#f1f5f9',
+            cursor: '#f1f5f9',
+            selectionBackground: 'rgba(255, 255, 255, 0.15)',
+        },
+        fontFamily: 'var(--font-code)',
+        fontSize: 13,
+    });
+
+    consoleFitAddon = new FitAddon.FitAddon();
+    consoleTerm.loadAddon(consoleFitAddon);
+    consoleTerm.open(container);
+
+    setTimeout(() => {
+        if (consoleFitAddon) consoleFitAddon.fit();
+    }, 100);
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws?machine=${encodeURIComponent(name)}`;
+
+    consoleSocket = new WebSocket(wsUrl);
+
+    consoleSocket.onopen = () => {
+        consoleTerm.write('📡 Connected to Zeno Machine Console. Booting OS...\r\n');
+    };
+
+    consoleSocket.onmessage = (event) => {
+        consoleTerm.write(event.data);
+    };
+
+    consoleSocket.onclose = () => {
+        consoleTerm.write('\r\n\x1b[31mVM Serial console disconnected.\x1b[0m\r\n');
+    };
+
+    consoleSocket.onerror = (err) => {
+        consoleTerm.write('\r\n\x1b[31mConsole connection error.\x1b[0m\r\n');
+        console.error(err);
+    };
+
+    consoleTerm.onData((data) => {
+        if (consoleSocket && consoleSocket.readyState === WebSocket.OPEN) {
+            consoleSocket.send(data);
+        }
+    });
+
+    window.addEventListener('resize', fitConsoleTerminal);
 }
 
 export function closeMachineConsoleModal() {
@@ -458,48 +535,15 @@ export function closeMachineConsoleModal() {
     if (modal) {
         modal.style.display = "none";
     }
-}
-
-export function handleMachineConsoleCommand(cmd) {
-    const container = document.getElementById("machine-console-container");
-    if (!container) return;
-    const cleanCmd = (cmd || "").trim();
-    if (!cleanCmd) return;
-
-    let resText = "";
-    if (cleanCmd === "clear") {
-        container.innerHTML = `
-            <div style="margin-top: 4px; display: flex; align-items: center; gap: 8px;">
-                <span style="color: var(--success); font-weight: 600;">root@zeno-vm:~#</span>
-                <input type="text" id="machine-console-input" placeholder="Type command here..." style="flex-grow: 1; background: transparent; border: none; outline: none; color: #fff; font-family: var(--font-code); font-size: 0.85rem;" onkeydown="if(event.key==='Enter'){ handleMachineConsoleCommand(this.value); this.value=''; }">
-            </div>
-        `;
-        return;
-    } else if (cleanCmd === "help") {
-        resText = "Zeno Machine Guest OS Commands: uname -a, uptime, free -h, df -h, ip a, clear";
-    } else if (cleanCmd === "uname -a") {
-        resText = "Linux zeno-vm 6.8.0-zeno #1 SMP PREEMPT_DYNAMIC x86_64 GNU/Linux";
-    } else if (cleanCmd === "free -h") {
-        resText = "              total        used        free      shared  buff/cache   available\nMem:          1.0Gi       128Mi       850Mi       1.0Mi       40Mi       870Mi";
-    } else if (cleanCmd === "df -h") {
-        resText = "Filesystem      Size  Used Avail Use% Mounted on\n/dev/vda1        10G  1.2G  8.3G  13% /";
-    } else {
-        resText = `Executing: ${cleanCmd}\n[OK] Command executed successfully in MicroVM.`;
+    if (consoleSocket) {
+        consoleSocket.close();
+        consoleSocket = null;
     }
-
-    const inputRow = container.querySelector("div:last-child");
-    if (inputRow) {
-        const prevCmd = document.createElement("div");
-        prevCmd.style.color = "#e2e8f0";
-        prevCmd.innerHTML = `<span style="color: var(--success); font-weight: 600;">root@zeno-vm:~#</span> ${cleanCmd}`;
-        const output = document.createElement("div");
-        output.style.color = "#94a3b8";
-        output.style.marginBottom = "8px";
-        output.textContent = resText;
-        container.insertBefore(prevCmd, inputRow);
-        container.insertBefore(output, inputRow);
-        container.scrollTop = container.scrollHeight;
+    if (consoleTerm) {
+        consoleTerm.dispose();
+        consoleTerm = null;
     }
+    window.removeEventListener('resize', fitConsoleTerminal);
 }
 
 export function openMachineProxyModal(name, ip) {
@@ -693,8 +737,11 @@ export function loadIsoList() {
     fetch("/api/machines/isos/list")
         .then(res => res.json())
         .then(res => {
-            if (res.success && res.data) {
-                currentIsoData = res.data;
+            const data = res.data || (Array.isArray(res.success) ? res.success : []);
+            const isSuccess = res.success === true || Array.isArray(res.success);
+
+            if (isSuccess) {
+                currentIsoData = data;
                 const totalCount = currentIsoData.length;
                 const readyCount = currentIsoData.filter(i => i.status === "ready").length;
                 const attachedCount = currentIsoData.filter(i => (i.attached_count || 0) > 0).length;
