@@ -114,7 +114,7 @@ impl MachineManager {
         };
 
         let manager = Self {
-            pool,
+            pool: pool.clone(),
             machines: Arc::new(RwLock::new(HashMap::new())),
             binary_path,
         };
@@ -122,6 +122,18 @@ impl MachineManager {
         if let Err(e) = manager.load_from_db().await {
             eprintln!("Failed to load machines from database: {}", e);
         }
+
+        // Spawn background downloader loop
+        let pool_clone = pool.clone();
+        let downloading_ids = Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                if let Err(e) = Self::process_pending_iso_downloads(&pool_clone, &downloading_ids).await {
+                    eprintln!("[ISO Downloader] Error: {}", e);
+                }
+            }
+        });
 
         manager
     }
@@ -443,6 +455,103 @@ impl MachineManager {
         let _ = std::fs::write(&snapshot_file, format!("Zeno Machine Snapshot: {}\nState: {}\nMemory: {}MB\nvCPUs: {}\nTimestamp: {}\n", name, state.info.status, state.info.memory_mb, state.info.vcpus, timestamp));
 
         Ok(format!("Snapshot Zeno Machine '{}' berhasil dibuat di {}", name, snapshot_file))
+    }
+
+    async fn process_pending_iso_downloads(
+        pool: &SqlitePool,
+        downloading_ids: &Arc<tokio::sync::Mutex<std::collections::HashSet<i64>>>,
+    ) -> Result<(), String> {
+        let rows = sqlx::query(
+            "SELECT id, name, source_url, path FROM db_isos WHERE status = 'downloading'"
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        for row in rows {
+            use sqlx::Row;
+            let id: i64 = row.get("id");
+            let name: String = row.get("name");
+            let source_url: String = row.get("source_url");
+            let path_str: String = row.get("path");
+
+            {
+                let mut ids = downloading_ids.lock().await;
+                if ids.contains(&id) {
+                    continue;
+                }
+                ids.insert(id);
+            }
+
+            let pool_clone = pool.clone();
+            let downloading_ids_clone = downloading_ids.clone();
+            tokio::spawn(async move {
+                println!("[ISO Downloader] Starting download for '{}' from {}", name, source_url);
+                match Self::download_file(&source_url, &path_str).await {
+                    Ok(size_bytes) => {
+                        println!("[ISO Downloader] Successfully downloaded '{}' ({} bytes)", name, size_bytes);
+                        let _ = sqlx::query(
+                            "UPDATE db_isos SET status = 'ready', size_bytes = ? WHERE id = ?"
+                        )
+                        .bind(size_bytes as i64)
+                        .bind(id)
+                        .execute(&pool_clone)
+                        .await;
+                    }
+                    Err(err) => {
+                        eprintln!("[ISO Downloader] Failed to download '{}': {}", name, err);
+                        let _ = sqlx::query(
+                            "UPDATE db_isos SET status = 'error' WHERE id = ?"
+                        )
+                        .bind(id)
+                        .execute(&pool_clone)
+                        .await;
+                    }
+                }
+                downloading_ids_clone.lock().await.remove(&id);
+            });
+        }
+        Ok(())
+    }
+
+    async fn download_file(url: &str, dest_path: &str) -> Result<u64, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(600)) // 10 minutes timeout for large ISO files
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+        let mut response = client.get(url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to send request: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Server returned status: {}", response.status()));
+        }
+
+        let path = std::path::Path::new(dest_path);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::File::create(path)
+            .await
+            .map_err(|e| format!("Failed to create file: {}", e))?;
+
+        let mut size_bytes = 0;
+        while let Some(chunk) = response.chunk().await.map_err(|e| format!("Failed to read chunk: {}", e))? {
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("Failed to write chunk: {}", e))?;
+            size_bytes += chunk.len() as u64;
+        }
+
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed to flush file: {}", e))?;
+
+        Ok(size_bytes)
     }
 }
 

@@ -229,6 +229,32 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "util.is_download_url",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut val = String::new();
+            let mut target = "is_download".to_string();
+
+            if node.value.is_some() {
+                val = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+
+            for child in &node.children {
+                let child_val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "val" || child.name == "value" {
+                    val = child_val.to_string_coerce();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let is_download = val.to_lowercase().starts_with("http://") || val.to_lowercase().starts_with("https://");
+            scope.set(&target, Value::Bool(is_download));
+            Ok(())
+        }),
+        SlotMeta { description: "Check if value starts with http:// or https://".to_string(), example: "util.is_download_url: $source_url { as: $is_download }".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "bool".to_string() }
+    );
 }
 
 fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>) -> bool {

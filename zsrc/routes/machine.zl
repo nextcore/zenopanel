@@ -235,18 +235,43 @@ http.post: '/api/machines/isos/add' {
                 as: $size_bytes
             }
 
-            var: $final_path {
-                if: $path {
-                    then: $path
-                    else: "/var/lib/zeno-container/isos/${name}"
+            var: $final_path { val: '' }
+            if: $path {
+                then: {
+                    var: $final_path { val: $path }
+                }
+                else: {
+                    var: $final_path { val: "/var/lib/zeno-container/isos/${name}" }
                 }
             }
 
-            db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, ?, ?, ?, 'ready')" {
-                bind: [$name, $size_bytes, $final_path, $source_url]
+            util.is_download_url: $source_url { as: $is_download }
+            if: $is_download {
+                then: {
+                    db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, 0, ?, ?, 'downloading')" {
+                        bind: [$name, $final_path, $source_url]
+                    }
+                    http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan. Proses download dimulai di background." }
+                }
+                else: {
+                    io.exists: $final_path { as: $exists }
+                    if: $exists {
+                        then: {
+                            io.file.size: $final_path { as: $size }
+                            db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, ?, ?, ?, 'ready')" {
+                                bind: [$name, $size, $final_path, $source_url]
+                            }
+                            http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan ke Library" }
+                        }
+                        else: {
+                            db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, 0, ?, ?, 'error')" {
+                                bind: [$name, $final_path, $source_url]
+                            }
+                            http.created: { success: true, message: "ISO '${name}' terdaftar dengan status ERROR (file tidak ditemukan di lokal)" }
+                        }
+                    }
+                }
             }
-
-            http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan ke Library" }
         }
         else: {
             http.forbidden: { success: false, message: "Forbidden: Akses ditolak" }
@@ -280,8 +305,29 @@ http.post: '/api/machines/isos/edit' {
                 as: $status
             }
 
-            db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = ?, status = ? WHERE id = ?" {
-                bind: [$name, $path, $source_url, $size_bytes, $status, $id]
+            util.is_download_url: $source_url { as: $is_download }
+            if: $is_download {
+                then: {
+                    db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = 0, status = 'downloading' WHERE id = ?" {
+                        bind: [$name, $path, $source_url, $id]
+                    }
+                }
+                else: {
+                    io.exists: $path { as: $exists }
+                    if: $exists {
+                        then: {
+                            io.file.size: $path { as: $size }
+                            db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = ?, status = ? WHERE id = ?" {
+                                bind: [$name, $path, $source_url, $size, $status, $id]
+                            }
+                        }
+                        else: {
+                            db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = 0, status = 'error' WHERE id = ?" {
+                                bind: [$name, $path, $source_url, $id]
+                            }
+                        }
+                    }
+                }
             }
 
             http.ok: { success: true, message: "ISO Image '${name}' berhasil diperbarui" }
@@ -300,10 +346,36 @@ http.post: '/api/machines/isos/delete' {
         then: {
             http.json_body: { as: $body }
             var: $id { val: $body.id }
-            db.execute: "DELETE FROM db_isos WHERE id = ?" {
-                bind: [$id]
+
+            db.select: "SELECT COUNT(*) as attached_count FROM db_machines WHERE iso_path = (SELECT path FROM db_isos WHERE id = ?) OR iso_path = (SELECT name FROM db_isos WHERE id = ?)" {
+                bind: [$id, $id]
+                first: true
+                as: $check
             }
-            http.ok: { success: true, message: "ISO Image berhasil dihapus dari Library" }
+
+            if: $check.attached_count > 0 {
+                then: {
+                    http.bad_request: { success: false, message: "ISO tidak dapat dihapus karena masih terpasang pada Zeno Machine" }
+                }
+                else: {
+                    db.select: "SELECT path FROM db_isos WHERE id = ?" {
+                        bind: [$id]
+                        first: true
+                        as: $iso_info
+                    }
+                    if: $iso_info {
+                        then: {
+                            var: $iso_path { val: $iso_info.path }
+                            io.file.delete: $iso_path
+                        }
+                    }
+
+                    db.execute: "DELETE FROM db_isos WHERE id = ?" {
+                        bind: [$id]
+                    }
+                    http.ok: { success: true, message: "ISO Image berhasil dihapus dari Library" }
+                }
+            }
         }
     }
 }
