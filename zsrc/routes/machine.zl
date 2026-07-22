@@ -208,6 +208,7 @@ http.post: '/api/machines/delete' {
 # List all registered ISOs
 http.get: '/api/machines/isos/list' {
     auth.guard
+    util.sync_local_isos
     db.select: "SELECT i.id, i.name, i.size_bytes, i.path, i.source_url, i.status, i.created_at, (SELECT COUNT(*) FROM db_machines m WHERE m.iso_path = i.path OR m.iso_path = i.name) as attached_count FROM db_isos i ORDER BY i.id DESC" {
         as: $isos
     }
@@ -236,7 +237,7 @@ http.post: '/api/machines/isos/add' {
             }
 
             var: $final_path { val: '' }
-            if: $path {
+            if: "$path != ''" {
                 then: {
                     var: $final_path { val: $path }
                 }

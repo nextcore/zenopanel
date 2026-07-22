@@ -346,102 +346,127 @@
     </div>
 </div>
 
-<!-- Modal ISO Library & Management -->
-<div id="iso-library-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
-    <div class="modal-content" style="max-width: 860px; width: 95%; background: #0f172a; border: 1px solid rgba(236, 72, 153, 0.3); border-radius: 14px; padding: 24px; color: var(--text-main);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 600; display: flex; align-items: center; gap: 10px; color: #ec4899;">
-                <i class="fa-solid fa-compact-disc"></i> ISO Image Library & Manager
-            </h3>
-            <button onclick="closeIsoLibraryModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+<!-- Modal ISO Library (Proxmox-style) -->
+<div id="iso-library-modal" class="modal-backdrop" style="display: none; align-items: flex-start; justify-content: center; padding-top: 60px;">
+    <div class="modal-content" style="max-width: 960px; width: 96%; background: #1a1f2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: var(--text-main); overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.6);">
+
+        <!-- Header bar -->
+        <div style="background: linear-gradient(135deg, #1e2538 0%, #252d40 100%); padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <i class="fa-solid fa-database" style="color: #7dd3fc; font-size: 1rem;"></i>
+                <span style="font-weight: 700; font-size: 1rem; color: var(--text-main);">ISO Images</span>
+                <span style="font-size: 0.78rem; color: var(--text-muted); padding-left: 6px; border-left: 1px solid rgba(255,255,255,0.1);">Storage: local &mdash; /var/lib/zeno-container/isos</span>
+            </div>
+            <button onclick="closeIsoLibraryModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; padding: 2px 6px; border-radius: 4px;" onmouseover="this.style.color='var(--text-main)'" onmouseout="this.style.color='var(--text-muted)'">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
 
-        <!-- Quick Stats Banner -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px;">
-            <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">TOTAL ISO IMAGES</span>
-                <span id="iso-stat-total" style="font-weight: 700; color: #ec4899; font-size: 1.1rem;">0</span>
-            </div>
-            <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">READY TO BOOT</span>
-                <span id="iso-stat-ready" style="font-weight: 700; color: #10b981; font-size: 1.1rem;">0</span>
-            </div>
-            <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">ATTACHED TO VMS</span>
-                <span id="iso-stat-attached" style="font-weight: 700; color: #38bdf8; font-size: 1.1rem;">0</span>
+        <!-- Toolbar (Proxmox-style) -->
+        <div style="padding: 10px 16px; background: rgba(15,20,35,0.5); border-bottom: 1px solid rgba(255,255,255,0.07); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <!-- Upload button -->
+            <button onclick="triggerIsoFileUpload()" style="background: rgba(30,41,59,0.8); border: 1px solid rgba(255,255,255,0.15); color: var(--text-main); padding: 6px 14px; border-radius: 5px; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 7px; font-weight: 500; transition: background 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.12)';this.style.borderColor='#38bdf8'" onmouseout="this.style.background='rgba(30,41,59,0.8)';this.style.borderColor='rgba(255,255,255,0.15)'">
+                <i class="fa-solid fa-cloud-arrow-up" style="color: #38bdf8;"></i> Upload
+            </button>
+            <input type="file" id="iso-file-upload-input" accept=".iso,.img" style="display: none;" onchange="handleIsoFileUpload(event)">
+
+            <!-- Download from URL button -->
+            <button onclick="openIsoDownloadUrlDialog()" style="background: rgba(30,41,59,0.8); border: 1px solid rgba(255,255,255,0.15); color: var(--text-main); padding: 6px 14px; border-radius: 5px; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 7px; font-weight: 500; transition: background 0.15s;" onmouseover="this.style.background='rgba(167,139,250,0.12)';this.style.borderColor='#a78bfa'" onmouseout="this.style.background='rgba(30,41,59,0.8)';this.style.borderColor='rgba(255,255,255,0.15)'">
+                <i class="fa-solid fa-link" style="color: #a78bfa;"></i> Download from URL
+            </button>
+
+            <!-- Remove button -->
+            <button id="iso-remove-btn" onclick="deleteSelectedIso()" disabled style="background: rgba(30,41,59,0.8); border: 1px solid rgba(255,255,255,0.15); color: var(--text-muted); padding: 6px 14px; border-radius: 5px; font-size: 0.82rem; cursor: not-allowed; display: flex; align-items: center; gap: 7px; font-weight: 500; transition: all 0.15s;">
+                <i class="fa-solid fa-trash"></i> Remove
+            </button>
+
+            <div style="flex: 1;"></div>
+
+            <!-- Refresh -->
+            <button onclick="loadIsoList()" style="background: none; border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); padding: 6px 10px; border-radius: 5px; font-size: 0.82rem; cursor: pointer;" title="Refresh" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.1)'">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+
+            <!-- Search -->
+            <div style="position: relative;">
+                <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.75rem; pointer-events: none;"></i>
+                <input type="text" id="iso-search-input" oninput="filterIsoTable(this.value)" placeholder="Name, Format" style="padding: 6px 10px 6px 28px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,23,42,0.8); color: var(--text-main); font-size: 0.8rem; width: 190px; outline: none;">
             </div>
         </div>
 
-        <!-- Add ISO Form -->
-        <form onsubmit="event.preventDefault(); submitAddIso();" style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 16px; margin-bottom: 16px;">
-            <div style="font-size: 0.88rem; font-weight: 600; margin-bottom: 12px; color: var(--text-main); display: flex; justify-content: space-between; align-items: center;">
-                <span style="display: flex; align-items: center; gap: 8px;">
-                    <i class="fa-solid fa-plus-circle" style="color: #ec4899;"></i> Register / Add New ISO Image
-                </span>
-                <button type="button" onclick="triggerIsoFileUpload()" class="btn btn-secondary btn-sm" style="border: 1px solid #ec4899; color: #ec4899; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-cloud-arrow-up"></i> Upload ISO File
-                </button>
-                <input type="file" id="iso-file-upload-input" accept=".iso,.img" style="display: none;" onchange="handleIsoFileUpload(event)">
+        <!-- Upload progress (hidden by default) -->
+        <div id="iso-upload-progress-container" style="display: none; padding: 8px 16px; background: rgba(56,189,248,0.06); border-bottom: 1px solid rgba(56,189,248,0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; margin-bottom: 5px;">
+                <span id="iso-upload-progress-text" style="color: #38bdf8; font-weight: 600;"><i class="fa-solid fa-spinner fa-spin"></i> Uploading...</span>
+                <span id="iso-upload-progress-percent" style="color: var(--text-main); font-weight: 700; font-family: monospace;">0%</span>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-                <input type="text" id="iso-name-input" placeholder="ISO Name (e.g. ubuntu-22.04.iso)" required style="padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
-                <input type="text" id="iso-url-input" placeholder="Download Source URL (Optional)" style="padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
+            <div style="background: rgba(255,255,255,0.08); height: 5px; border-radius: 10px; overflow: hidden;">
+                <div id="iso-upload-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8); transition: width 0.3s ease;"></div>
             </div>
-            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 8px;">
-                <input type="text" id="iso-path-input" placeholder="Custom Local Path (Optional, default: /var/lib/zeno-container/isos/)" style="flex-grow: 1; padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.85rem;">
-                <button type="submit" class="btn btn-primary" style="background: #ec4899; border: none; padding: 9px 18px; font-weight: 600; border-radius: 6px; white-space: nowrap;">
-                    <i class="fa-solid fa-plus"></i> Add ISO
-                </button>
-            </div>
-            <!-- Upload Progress Bar Container -->
-            <div id="iso-upload-progress-container" style="display: none; margin-top: 10px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(236, 72, 153, 0.3); border-radius: 8px; padding: 10px 14px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; margin-bottom: 6px;">
-                    <span id="iso-upload-progress-text" style="color: #ec4899; font-weight: 600;"><i class="fa-solid fa-spinner fa-spin"></i> Uploading ISO file...</span>
-                    <span id="iso-upload-progress-percent" style="color: var(--text-main); font-weight: 700;">0%</span>
-                </div>
-                <div style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 10px; overflow: hidden;">
-                    <div id="iso-upload-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #ec4899, #f43f5e); transition: width 0.3s ease;"></div>
-                </div>
-            </div>
-        </form>
-
-        <!-- Search & Filter Bar -->
-        <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Registered ISO Images</div>
-            <input type="text" id="iso-search-input" oninput="filterIsoTable(this.value)" placeholder="🔍 Search ISO..." style="padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(15, 23, 42, 0.7); color: var(--text-main); font-size: 0.8rem; width: 200px;">
         </div>
 
-        <!-- ISO List Table -->
-        <div style="max-height: 280px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.82rem;">
-                <thead>
-                    <tr style="background: rgba(15, 23, 42, 0.6); color: var(--text-muted); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
-                        <th style="padding: 10px 14px;">ISO Name</th>
-                        <th style="padding: 10px 14px;">Path & Source</th>
-                        <th style="padding: 10px 14px;">Size</th>
-                        <th style="padding: 10px 14px;">Status</th>
-                        <th style="padding: 10px 14px;">Attached VM</th>
-                        <th style="padding: 10px 14px; text-align: right;">Actions</th>
+        <!-- ISO File Table (Proxmox-style) -->
+        <div style="max-height: 380px; overflow-y: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                <thead style="position: sticky; top: 0; z-index: 2;">
+                    <tr style="background: rgba(15,20,35,0.95); border-bottom: 2px solid rgba(255,255,255,0.08);">
+                        <th style="padding: 9px 14px; text-align: left; color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; width: 36px;"></th>
+                        <th style="padding: 9px 14px; text-align: left; color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Name</th>
+                        <th style="padding: 9px 14px; text-align: left; color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Date</th>
+                        <th style="padding: 9px 14px; text-align: left; color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; width: 70px;">Format</th>
+                        <th style="padding: 9px 14px; text-align: right; color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Size</th>
                     </tr>
                 </thead>
                 <tbody id="iso-list-table-body">
                     <tr>
-                        <td colspan="6" style="padding: 20px; text-align: center; color: var(--text-muted);">
-                            Loading ISO Library...
+                        <td colspan="5" style="padding: 32px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+                            <i class="fa-solid fa-spinner fa-spin" style="margin-right: 8px;"></i> Loading...
                         </td>
                     </tr>
                 </tbody>
             </table>
         </div>
-        <div style="margin-top: 16px; text-align: right;">
-            <button onclick="closeIsoLibraryModal()" class="btn btn-secondary btn-sm">Close</button>
+
+        <!-- Status bar (Proxmox-style footer) -->
+        <div style="padding: 8px 16px; background: rgba(15,20,35,0.6); border-top: 1px solid rgba(255,255,255,0.07); display: flex; align-items: center; gap: 18px; font-size: 0.77rem; color: var(--text-muted);">
+            <span><i class="fa-solid fa-compact-disc" style="margin-right: 5px; color: #7dd3fc;"></i>Total: <strong id="iso-stat-total" style="color: var(--text-main);">0</strong> files</span>
+            <span><i class="fa-solid fa-circle-check" style="margin-right: 5px; color: #10b981;"></i>Ready: <strong id="iso-stat-ready" style="color: var(--text-main);">0</strong></span>
+            <span><i class="fa-solid fa-link" style="margin-right: 5px; color: #f59e0b;"></i>Attached: <strong id="iso-stat-attached" style="color: var(--text-main);">0</strong></span>
+            <div style="flex:1;"></div>
+            <span id="iso-selected-info" style="display:none; color: #38bdf8;"></span>
         </div>
     </div>
 </div>
 
+<!-- Download from URL Dialog -->
+<div id="iso-url-dialog" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div style="background: #1e2538; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 24px; width: 480px; max-width: 95%;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
+            <h3 style="margin: 0; font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-link" style="color: #a78bfa;"></i> Download from URL
+            </h3>
+            <button onclick="closeIsoDownloadUrlDialog()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1rem;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="margin-bottom: 14px;">
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 6px;">URL</label>
+            <input type="url" id="iso-download-url-input" placeholder="https://example.com/ubuntu-24.04.iso" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,23,42,0.8); color: var(--text-main); font-size: 0.85rem; outline: none;">
+        </div>
+        <div style="margin-bottom: 18px;">
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 6px;">File Name (optional, auto-detected from URL)</label>
+            <input type="text" id="iso-download-name-input" placeholder="ubuntu-24.04.iso" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,23,42,0.8); color: var(--text-main); font-size: 0.85rem; outline: none;">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button onclick="closeIsoDownloadUrlDialog()" style="background: rgba(30,41,59,0.8); border: 1px solid rgba(255,255,255,0.15); color: var(--text-muted); padding: 8px 16px; border-radius: 6px; font-size: 0.82rem; cursor: pointer; font-weight: 500;">Cancel</button>
+            <button onclick="submitIsoDownloadUrl()" style="background: linear-gradient(135deg, #7c3aed, #a78bfa); border: none; color: white; padding: 8px 20px; border-radius: 6px; font-size: 0.82rem; cursor: pointer; font-weight: 600;">
+                <i class="fa-solid fa-cloud-arrow-down"></i> Download
+            </button>
+        </div>
+    </div>
+</div>
+
+
 <!-- Modal Edit ISO Image -->
+
 <div id="edit-iso-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
     <div class="modal-content" style="max-width: 500px; width: 95%; background: #0f172a; border: 1px solid rgba(236, 72, 153, 0.3); border-radius: 12px; padding: 24px; color: var(--text-main);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">

@@ -39,7 +39,7 @@ http.get: /* {
 http.post: /* {
     system.entrance_path: { as: $login_path }
     http.request_path: { as: $current_path }
-    log: "POST dynamic route: current_path=" + $current_path + ", login_path=" + $login_path
+    log: "POST dynamic route: current_path=${current_path}, login_path=${login_path}"
 
     if: "$current_path == $login_path" {
         then: {

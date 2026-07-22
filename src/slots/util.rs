@@ -255,6 +255,89 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "Check if value starts with http:// or https://".to_string(), example: "util.is_download_url: $source_url { as: $is_download }".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "bool".to_string() }
     );
+
+    engine.register(
+        "util.sync_local_isos",
+        Arc::new(|_engine, ctx, node, _scope| {
+            let db_mgr = ctx.get::<crate::db::DBManager>("db_manager").ok_or_else(|| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: "util.sync_local_isos: DBManager not found".to_string(),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("util.sync_local_isos".to_string()),
+                }
+            })?;
+
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let pool_opt = db_mgr.get_pool("default").await;
+                    if let Some(crate::db::DbPool::Sqlite(pool)) = pool_opt {
+                        let dir_path = "/var/lib/zeno-container/isos";
+                        let _ = std::fs::create_dir_all(dir_path);
+
+                        // Read all physical files
+                        let mut physical_files = HashMap::new();
+                        if let Ok(entries) = std::fs::read_dir(dir_path) {
+                            for entry in entries.flatten() {
+                                if let Ok(meta) = entry.metadata() {
+                                    if meta.is_file() {
+                                        let name = entry.file_name().to_string_lossy().to_string();
+                                        let path = entry.path().to_string_lossy().to_string();
+                                        physical_files.insert(path, (name, meta.len()));
+                                    }
+                                }
+                            }
+                        }
+
+                        // Retrieve registered ISOs under /var/lib/zeno-container/isos from db
+                        let db_isos: Vec<(i64, String, String)> = sqlx::query_as::<_, (i64, String, String)>(
+                            "SELECT id, path, status FROM db_isos WHERE path LIKE '/var/lib/zeno-container/isos/%'"
+                        )
+                        .fetch_all(&pool)
+                        .await
+                        .unwrap_or_default();
+
+                        // Clean up database records whose physical files are missing
+                        for (id, path, status) in db_isos {
+                            // If status is 'downloading', do not delete it even if file doesn't exist yet!
+                            if status != "downloading" && !physical_files.contains_key(&path) {
+                                let _ = sqlx::query("DELETE FROM db_isos WHERE id = ?")
+                                    .bind(id)
+                                    .execute(&pool)
+                                    .await;
+                            }
+                        }
+
+                        // Insert new physical files not yet in database
+                        for (path, (name, size)) in physical_files {
+                            // Check if already exists in db
+                            let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM db_isos WHERE path = ?")
+                                .bind(&path)
+                                .fetch_one(&pool)
+                                .await
+                                .unwrap_or(0) > 0;
+
+                            if !exists {
+                                let _ = sqlx::query(
+                                    "INSERT INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, ?, ?, 'Local Storage', 'ready')"
+                                )
+                                .bind(name)
+                                .bind(size as i64)
+                                .bind(path)
+                                .execute(&pool)
+                                .await;
+                            }
+                        }
+                    }
+                })
+            });
+
+            Ok(())
+        }),
+        SlotMeta { description: "Sync local ISO files to database".to_string(), example: "util.sync_local_isos".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
 }
 
 fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>) -> bool {

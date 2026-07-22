@@ -135,6 +135,15 @@ impl MachineManager {
             }
         });
 
+        // Spawn background ISO directory sync loop (Proxmox-like auto-detect)
+        let pool_sync = pool.clone();
+        tokio::spawn(async move {
+            loop {
+                Self::sync_local_isos_to_db(&pool_sync).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            }
+        });
+
         manager
     }
 
@@ -455,6 +464,63 @@ impl MachineManager {
         let _ = std::fs::write(&snapshot_file, format!("Zeno Machine Snapshot: {}\nState: {}\nMemory: {}MB\nvCPUs: {}\nTimestamp: {}\n", name, state.info.status, state.info.memory_mb, state.info.vcpus, timestamp));
 
         Ok(format!("Snapshot Zeno Machine '{}' berhasil dibuat di {}", name, snapshot_file))
+    }
+
+    /// Sync physical ISO files in /var/lib/zeno-container/isos to the database.
+    /// This mimics Proxmox behavior: files that exist on disk are auto-registered,
+    /// files removed from disk are auto-removed from the db (except 'downloading').
+    pub async fn sync_local_isos_to_db(pool: &SqlitePool) {
+        let dir_path = "/var/lib/zeno-container/isos";
+        let _ = std::fs::create_dir_all(dir_path);
+
+        // Scan physical files
+        let mut physical_files: std::collections::HashMap<String, (String, u64)> = std::collections::HashMap::new();
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        let path = entry.path().to_string_lossy().to_string();
+                        physical_files.insert(path, (name, meta.len()));
+                    }
+                }
+            }
+        }
+
+        // Get all db records for isos stored in /var/lib/zeno-container/isos
+        let db_isos: Vec<(i64, String, String)> = sqlx::query_as::<_, (i64, String, String)>(
+            "SELECT id, path, status FROM db_isos WHERE path LIKE '/var/lib/zeno-container/isos/%'"
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        // Clean up db entries whose physical files are gone (skip 'downloading' status)
+        for (id, path, status) in &db_isos {
+            if status != "downloading" && !physical_files.contains_key(path) {
+                let _ = sqlx::query("DELETE FROM db_isos WHERE id = ?")
+                    .bind(id)
+                    .execute(pool)
+                    .await;
+            }
+        }
+
+        // Build a set of paths already in db
+        let db_paths: std::collections::HashSet<String> = db_isos.iter().map(|(_, p, _)| p.clone()).collect();
+
+        // Register new physical files not yet in db
+        for (path, (name, size)) in physical_files {
+            if !db_paths.contains(&path) {
+                let _ = sqlx::query(
+                    "INSERT OR IGNORE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, ?, ?, 'Local Storage', 'ready')"
+                )
+                .bind(&name)
+                .bind(size as i64)
+                .bind(&path)
+                .execute(pool)
+                .await;
+            }
+        }
     }
 
     async fn process_pending_iso_downloads(
