@@ -208,14 +208,19 @@ impl MachineManager {
                 created_at,
             };
 
-            map.insert(
-                name.clone(),
-                Arc::new(RwLock::new(MachineState {
-                    info,
-                    pid: None,
-                    stop_requested: false,
-                })),
-            );
+            if let Some(state_arc) = map.get(&name) {
+                let mut state = state_arc.write().await;
+                state.info = info;
+            } else {
+                map.insert(
+                    name.clone(),
+                    Arc::new(RwLock::new(MachineState {
+                        info,
+                        pid: None,
+                        stop_requested: false,
+                    })),
+                );
+            }
         }
 
         Ok(())
@@ -420,14 +425,25 @@ impl MachineManager {
             state.info.socket_path.clone()
         };
 
+        let target_len = state.info.disk_size_gb * 1024 * 1024 * 1024;
         if !std::path::Path::new(&disk_path).exists() {
             if let Some(parent) = std::path::Path::new(&disk_path).parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
             let file = std::fs::File::create(&disk_path)
                 .map_err(|e| format!("Gagal membuat disk file: {}", e))?;
-            file.set_len(state.info.disk_size_gb * 1024 * 1024 * 1024)
+            file.set_len(target_len)
                 .map_err(|e| format!("Gagal menentukan kapasitas disk: {}", e))?;
+        } else {
+            if let Ok(metadata) = std::fs::metadata(&disk_path) {
+                let current_len = metadata.len();
+                if target_len > current_len {
+                    println!("[Zeno Machine] Expanding disk file '{}' from {} to {} bytes...", disk_path, current_len, target_len);
+                    if let Ok(file) = std::fs::OpenOptions::new().write(true).open(&disk_path) {
+                        let _ = file.set_len(target_len);
+                    }
+                }
+            }
         }
 
         // 3. Clean up socket files if they exist
