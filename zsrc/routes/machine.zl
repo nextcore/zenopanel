@@ -176,9 +176,10 @@ http.post: '/api/machines/resize' {
             var: $name { val: $body.name }
             var: $vcpus { val: $body.vcpus }
             var: $memory_mb { val: $body.memory_mb }
+            var: $disk_size_gb { val: $body.disk_size_gb }
 
-            db.execute: "UPDATE db_machines SET vcpus = ?, memory_mb = ? WHERE name = ?" {
-                bind: [$vcpus, $memory_mb, $name]
+            db.execute: "UPDATE db_machines SET vcpus = ?, memory_mb = ?, disk_size_gb = ? WHERE name = ?" {
+                bind: [$vcpus, $memory_mb, $disk_size_gb, $name]
             }
             http.ok: { message: "Spesifikasi Zeno Machine '${name}' berhasil diperbarui" }
         }

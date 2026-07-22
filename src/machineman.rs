@@ -238,6 +238,7 @@ impl MachineManager {
     }
 
     pub async fn reconcile_machines(&self) -> Result<(), String> {
+        let _ = self.load_from_db().await;
         let db_states = match sqlx::query_as::<_, (String, String)>("SELECT name, status FROM db_machines").fetch_all(&self.pool).await {
             Ok(states) => states,
             Err(e) => return Err(e.to_string()),
@@ -272,7 +273,54 @@ impl MachineManager {
                 } else {
                     if current_status != db_status {
                         let mut s = state_arc.write().await;
-                        s.info.status = db_status;
+                        s.info.status = db_status.clone();
+                    }
+                    if db_status == "running" && has_pid {
+                        let (disk_path, disk_size_gb, socket_path) = {
+                            let s = state_arc.read().await;
+                            (s.info.disk_path.clone(), s.info.disk_size_gb, s.info.socket_path.clone())
+                        };
+                        let clean_name = name.trim().to_lowercase().replace(' ', "-");
+                        let disk_path = if disk_path.contains("${name}") || disk_path.contains("${clean_name}") {
+                            format!("/var/lib/zeno-container/machines/{}.img", clean_name)
+                        } else {
+                            disk_path
+                        };
+                        let socket_path = if socket_path.contains("${name}") || socket_path.contains("${clean_name}") {
+                            format!("/run/zeno-machine/{}.sock", clean_name)
+                        } else {
+                            socket_path
+                        };
+                        let target_len = disk_size_gb * 1024 * 1024 * 1024;
+                        if let Ok(metadata) = std::fs::metadata(&disk_path) {
+                            let current_len = metadata.len();
+                            if target_len > current_len {
+                                println!("[Reconciler] VM '{}' requires online disk expansion from {} to {} bytes", name, current_len, target_len);
+                                if let Ok(file) = std::fs::OpenOptions::new().write(true).open(&disk_path) {
+                                    if let Ok(_) = file.set_len(target_len) {
+                                        let payload = serde_json::json!({
+                                            "disk_id": "disk0",
+                                            "size": target_len
+                                        }).to_string();
+                                        
+                                        let socket_path_clone = socket_path.clone();
+                                        tokio::spawn(async move {
+                                            let status = tokio::process::Command::new("curl")
+                                                .args(&[
+                                                    "-X", "PUT",
+                                                    "--unix-socket", &socket_path_clone,
+                                                    "-H", "Content-Type: application/json",
+                                                    "-d", &payload,
+                                                    "http://localhost/vm.resize-disk"
+                                                ])
+                                                .status()
+                                                .await;
+                                            println!("[Reconciler] Online disk resize API status for VM: {:?}", status);
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } else {
