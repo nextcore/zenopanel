@@ -36,13 +36,24 @@ pub struct HttpResponseBuilder {
 }
 
 pub(crate) fn resolve_scope_path(path: &str, scope: &Arc<Scope>) -> Option<Value> {
+    let get_from_scope = |k: &str| {
+        scope.get(k).or_else(|| {
+            if !k.starts_with('$') {
+                scope.get(&format!("${}", k))
+            } else {
+                scope.get(&k[1..])
+            }
+        })
+    };
+
     if path.contains('.') {
         let parts: Vec<&str> = path.split('.').collect();
-        if let Some(mut current) = scope.get(parts[0]) {
+        if let Some(mut current) = get_from_scope(parts[0]) {
             for part in &parts[1..] {
                 match current {
                     Value::Map(ref m) => {
-                        if let Some(next_val) = m.get(*part) {
+                        let clean_part = if part.starts_with('$') { &part[1..] } else { *part };
+                        if let Some(next_val) = m.get(clean_part).or_else(|| m.get(&format!("${}", clean_part))) {
                             current = next_val.clone();
                         } else {
                             return None;
@@ -56,7 +67,7 @@ pub(crate) fn resolve_scope_path(path: &str, scope: &Arc<Scope>) -> Option<Value
             None
         }
     } else {
-        scope.get(path)
+        get_from_scope(path)
     }
 }
 
@@ -200,7 +211,7 @@ pub(crate) fn send_json_response(
     let mut map = HashMap::new();
     map.insert("success".to_string(), Value::Bool(success));
     for child in &node.children {
-        let val = engine.resolve_shorthand_value(child, scope);
+        let val = resolve_node_value(engine, child, scope);
         map.insert(child.name.clone(), val);
     }
 

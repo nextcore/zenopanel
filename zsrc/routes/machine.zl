@@ -93,7 +93,7 @@ http.post: '/api/machines/create' {
 
             http.created: {
                 success: true
-                message: "Zeno Machine '${clean_name}' berhasil dibuat"
+                message: "Zeno Machine '${name}' berhasil dibuat"
             }
         }
         else: {
