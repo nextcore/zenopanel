@@ -113,7 +113,7 @@ http.post: '/api/machines/start' {
             db.execute: "UPDATE db_machines SET status = 'running' WHERE name = ?" {
                 bind: [$name]
             }
-            http.ok: { success: true, message: "Zeno Machine '${name}' berhasil dinyalakan" }
+            http.ok: { message: "Zeno Machine '${name}' berhasil dinyalakan" }
         }
     }
 }
@@ -129,7 +129,7 @@ http.post: '/api/machines/stop' {
             db.execute: "UPDATE db_machines SET status = 'stopped' WHERE name = ?" {
                 bind: [$name]
             }
-            http.ok: { success: true, message: "Zeno Machine '${name}' dimatikan" }
+            http.ok: { message: "Zeno Machine '${name}' dimatikan" }
         }
     }
 }
@@ -145,7 +145,7 @@ http.post: '/api/machines/pause' {
             db.execute: "UPDATE db_machines SET status = 'paused' WHERE name = ?" {
                 bind: [$name]
             }
-            http.ok: { success: true, message: "Zeno Machine '${name}' ditangguhkan (paused)" }
+            http.ok: { message: "Zeno Machine '${name}' ditangguhkan (paused)" }
         }
     }
 }
@@ -161,7 +161,7 @@ http.post: '/api/machines/resume' {
             db.execute: "UPDATE db_machines SET status = 'running' WHERE name = ?" {
                 bind: [$name]
             }
-            http.ok: { success: true, message: "Zeno Machine '${name}' dilanjutkan" }
+            http.ok: { message: "Zeno Machine '${name}' dilanjutkan" }
         }
     }
 }
@@ -180,7 +180,7 @@ http.post: '/api/machines/resize' {
             db.execute: "UPDATE db_machines SET vcpus = ?, memory_mb = ? WHERE name = ?" {
                 bind: [$vcpus, $memory_mb, $name]
             }
-            http.ok: { success: true, message: "Spesifikasi Zeno Machine '${name}' berhasil diperbarui" }
+            http.ok: { message: "Spesifikasi Zeno Machine '${name}' berhasil diperbarui" }
         }
     }
 }
@@ -196,7 +196,7 @@ http.post: '/api/machines/delete' {
             db.execute: "DELETE FROM db_machines WHERE name = ?" {
                 bind: [$name]
             }
-            http.ok: { success: true, message: "Zeno Machine '${name}' berhasil dihapus" }
+            http.ok: { message: "Zeno Machine '${name}' berhasil dihapus" }
         }
     }
 }
