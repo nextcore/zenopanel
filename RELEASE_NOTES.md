@@ -4,9 +4,9 @@ Daftar rilis resmi fitur, perbaikan, dan peningkatan teknologi pada platform Zen
 
 ---
 
-## 🌟 Versi v1.7.10 (Rilis Terbaru)
+## 🌟 Versi v1.7.11 (Rilis Terbaru)
 
-Rilis **v1.7.10** berfokus pada stabilitas, peningkatan pengalaman pengguna (*developer experience*), dan ketangguhan fitur virtualisasi pada **Zeno Machine (Cloud-Hypervisor MicroVM)**.
+Rilis **v1.7.11** berfokus pada stabilitas, peningkatan pengalaman pengguna (*developer experience*), dan ketangguhan fitur virtualisasi pada **Zeno Machine (Cloud-Hypervisor MicroVM)**.
 
 ### 🖥️ 1. Web Serial Console (xterm.js & WebSockets)
 Kami menggantikan penanganan konsol CLI lama dengan integrasi terminal penuh:
@@ -29,15 +29,16 @@ Perbaikan mesin templating ZenoLang untuk meminimalisasi kegagalan notifikasi:
 
 ---
 
-## 🛠️ Ringkasan Perubahan Teknis (Changelog v1.7.10)
+## 🛠️ Ringkasan Perubahan Teknis (Changelog v1.7.11)
 - **[Feature]**: Implementasi modul terminal serial WebSocket di [src/machineman.rs](file:///home/max/Documents/PROJ/github/zenopanel/src/machineman.rs).
 - **[Feature]**: Logika auto-resize disk offline/online terintegrasi di loop konsolidator backend.
+- **[Bug Fix]**: Memperbaiki loop rekonsiliasi tak terbatas (*infinite starting loop*) pada `start_machine` dengan mengganti validasi status string menjadi pengecekan PID proses aktif (`state.pid.is_some()`).
 - **[Bug Fix]**: Memperbaiki resolusi string JSON response di [src/slots/mod.rs](file:///home/max/Documents/PROJ/github/zenopanel/src/slots/mod.rs) untuk mencegah pesan `undefined` di toast.
 - **[UI/UX]**: Menambahkan input field ukuran penyimpanan (Disk GB) pada modal resize spesifikasi mesin.
 
 ---
 
-## 📥 Cara Update ke v1.7.10
+## 📥 Cara Update ke v1.7.11
 Cukup tarik pembaruan kode terbaru dan jalankan script kompilasi:
 ```bash
 git pull origin main
