@@ -456,7 +456,7 @@ impl MachineManager {
         let firmware_path = self.ensure_firmware().await?;
 
         let mut state = state_arc.write().await;
-        if state.info.status == "running" {
+        if state.pid.is_some() {
             return Ok(());
         }
 
