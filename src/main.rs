@@ -30,6 +30,7 @@ use zenocore::{Engine, Node, Scope, Value};
 use crate::db::DBManager;
 use crate::slots::{register_custom_slots, HttpResponseBuilder};
 
+#[derive(Clone)]
 struct MethodRouter {
     get: Option<Node>,
     post: Option<Node>,
@@ -2378,7 +2379,7 @@ async fn terminal_ws_handler(
 
 async fn handle_terminal_socket(
     socket: axum::extract::ws::WebSocket,
-    state: Arc<AppState>,
+    _state: Arc<AppState>,
     container_id: Option<String>,
     machine_name: Option<String>,
 ) {
