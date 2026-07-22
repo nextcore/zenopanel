@@ -167,7 +167,7 @@ export function loadZenoMachines() {
                                 <button class="btn btn-secondary btn-sm" onclick="openMachineConsoleModal('${m.name}')" title="Web Serial Console"><i class="fa-solid fa-terminal" style="color: #38bdf8;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openMachineProxyModal('${m.name}', '${m.ip_address}')" title="1-Click Expose via Reverse Proxy"><i class="fa-solid fa-network-wired" style="color: var(--accent-primary);"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openSnapshotManagerModal('${m.name}')" title="Snapshot Manager"><i class="fa-solid fa-camera" style="color: #a855f7;"></i></button>
-                                <button class="btn btn-secondary btn-sm" onclick="openResizeMachineModal('${m.name}', ${m.vcpus}, ${m.memory_mb})" title="Live Resize vCPU & RAM"><i class="fa-solid fa-sliders" style="color: #f59e0b;"></i></button>
+                                <button class="btn btn-secondary btn-sm" onclick="openResizeMachineModal('${m.name}', ${m.vcpus}, ${m.memory_mb}, ${m.disk_size_gb})" title="Live Resize vCPU & RAM"><i class="fa-solid fa-sliders" style="color: #f59e0b;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openMigrateMachineModal('${m.name}')" title="Live Migration"><i class="fa-solid fa-arrows-rotate" style="color: #8b5cf6;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="deleteMachine('${m.name}')" title="Delete Machine"><i class="fa-solid fa-trash" style="color: var(--text-muted);"></i></button>
                             </div>
@@ -267,13 +267,14 @@ export function submitCreateMachine() {
 
 // ─── Live Resize Handlers ────────────────────────────────────────────────
 
-export function openResizeMachineModal(name, vcpus, memory_mb) {
+export function openResizeMachineModal(name, vcpus, memory_mb, disk_size_gb) {
     const modal = document.getElementById("resize-machine-modal");
     if (modal) {
         document.getElementById("resize-machine-name").value = name;
         document.getElementById("resize-target-name").textContent = name;
         document.getElementById("resize-vcpu-input").value = vcpus || 2;
         document.getElementById("resize-ram-input").value = memory_mb || 1024;
+        document.getElementById("resize-disk-input").value = disk_size_gb || 10;
         modal.style.display = "flex";
     }
 }
@@ -289,6 +290,7 @@ export function submitResizeMachine() {
     const name = document.getElementById("resize-machine-name").value;
     const vcpus = parseInt(document.getElementById("resize-vcpu-input").value, 10);
     const memory_mb = parseInt(document.getElementById("resize-ram-input").value, 10);
+    const disk_size_gb = parseInt(document.getElementById("resize-disk-input").value, 10);
 
     const csrf = getCSRFToken();
     fetch("/api/machines/resize", {
@@ -297,7 +299,7 @@ export function submitResizeMachine() {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrf,
         },
-        body: JSON.stringify({ name, vcpus, memory_mb })
+        body: JSON.stringify({ name, vcpus, memory_mb, disk_size_gb })
     })
     .then(res => res.json())
     .then(res => {
