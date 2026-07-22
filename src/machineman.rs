@@ -386,7 +386,7 @@ impl MachineManager {
         let firmware_path = binary_dir.join("CLOUDHV.fd");
         if !firmware_path.exists() {
             println!("📥 Downloading Cloud-Hypervisor UEFI firmware CLOUDHV.fd...");
-            let url = "https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v42.0/CLOUDHV.fd";
+            let url = "https://github.com/cloud-hypervisor/edk2/releases/latest/download/CLOUDHV.fd";
             Self::download_file(url, &firmware_path.to_string_lossy()).await?;
             println!("✅ UEFI firmware CLOUDHV.fd successfully downloaded.");
         }
@@ -408,30 +408,41 @@ impl MachineManager {
         }
 
         // 2. Ensure sparse disk image file exists
-        let disk_path = &state.info.disk_path;
-        if !std::path::Path::new(disk_path).exists() {
-            if let Some(parent) = std::path::Path::new(disk_path).parent() {
+        let clean_name = name.trim().to_lowercase().replace(' ', "-");
+        let disk_path = if state.info.disk_path.contains("${name}") || state.info.disk_path.contains("${clean_name}") {
+            format!("/var/lib/zeno-container/machines/{}.img", clean_name)
+        } else {
+            state.info.disk_path.clone()
+        };
+        let socket_path = if state.info.socket_path.contains("${name}") || state.info.socket_path.contains("${clean_name}") {
+            format!("/run/zeno-machine/{}.sock", clean_name)
+        } else {
+            state.info.socket_path.clone()
+        };
+
+        if !std::path::Path::new(&disk_path).exists() {
+            if let Some(parent) = std::path::Path::new(&disk_path).parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let file = std::fs::File::create(disk_path)
+            let file = std::fs::File::create(&disk_path)
                 .map_err(|e| format!("Gagal membuat disk file: {}", e))?;
             file.set_len(state.info.disk_size_gb * 1024 * 1024 * 1024)
                 .map_err(|e| format!("Gagal menentukan kapasitas disk: {}", e))?;
         }
 
         // 3. Clean up socket files if they exist
-        let _ = std::fs::remove_file(&state.info.socket_path);
-        let serial_socket = format!("/run/zeno-machine/{}-serial.sock", name);
+        let _ = std::fs::remove_file(&socket_path);
+        let serial_socket = format!("/run/zeno-machine/{}-serial.sock", clean_name);
         let _ = std::fs::remove_file(&serial_socket);
 
         // 4. Construct cloud-hypervisor arguments
         let mut cmd = tokio::process::Command::new(&self.binary_path);
-        cmd.arg("--api-socket").arg(&state.info.socket_path);
+        cmd.arg("--api-socket").arg(&socket_path);
         cmd.arg("--firmware").arg(&firmware_path);
         cmd.arg("--cpus").arg(format!("boot={}", state.info.vcpus));
         cmd.arg("--memory").arg(format!("size={}M,shared=on", state.info.memory_mb));
         
-        let mut disks = format!("path={}", state.info.disk_path);
+        let mut disks = format!("path={}", disk_path);
         if !state.info.iso_path.is_empty() {
             disks.push_str(&format!(",path={}", state.info.iso_path));
         }
@@ -466,7 +477,12 @@ impl MachineManager {
                 .await;
             
             // Clean up socket files
-            let _ = std::fs::remove_file(&s.info.socket_path);
+            let socket_path_to_clean = if s.info.socket_path.contains("${name}") || s.info.socket_path.contains("${clean_name}") {
+                format!("/run/zeno-machine/{}.sock", name_clone)
+            } else {
+                s.info.socket_path.clone()
+            };
+            let _ = std::fs::remove_file(&socket_path_to_clean);
             let serial_socket = format!("/run/zeno-machine/{}-serial.sock", name_clone);
             let _ = std::fs::remove_file(&serial_socket);
         });

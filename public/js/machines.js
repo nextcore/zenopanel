@@ -1300,7 +1300,6 @@ window.closeMigrateMachineModal = closeMigrateMachineModal;
 window.submitMigrateMachine = submitMigrateMachine;
 window.openMachineConsoleModal = openMachineConsoleModal;
 window.closeMachineConsoleModal = closeMachineConsoleModal;
-window.handleMachineConsoleCommand = handleMachineConsoleCommand;
 window.openMachineProxyModal = openMachineProxyModal;
 window.closeMachineProxyModal = closeMachineProxyModal;
 window.submitMachineProxy = submitMachineProxy;

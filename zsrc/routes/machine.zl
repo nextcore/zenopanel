@@ -84,8 +84,8 @@ http.post: '/api/machines/create' {
             }
 
             var: $clean_name { val: $name }
-            var: $disk_path { val: "/var/lib/zeno-container/machines/${clean_name}.img" }
-            var: $socket_path { val: "/run/zeno-machine/${clean_name}.sock" }
+            var: $disk_path { val: "/var/lib/zeno-container/machines/${name}.img" }
+            var: $socket_path { val: "/run/zeno-machine/${name}.sock" }
 
             db.execute: "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?)" {
                 bind: [$clean_name, $os_type, $vcpus, $memory_mb, $disk_path, $disk_size_gb, $tap_device, $ip_address, $socket_path, $ssh_key, $root_password, $iso_path]
@@ -546,20 +546,20 @@ http.post: '/api/machines/migration-requests/accept' {
 
             if: $req_info {
                 then: {
-                    var: $clean_name { val: $req_info.machine_name }
-                    var: $disk_path { val: "/var/lib/zeno-container/machines/${clean_name}.img" }
-                    var: $socket_path { val: "/run/zeno-machine/${clean_name}.sock" }
+                    var: $m_name { val: $req_info.machine_name }
+                    var: $disk_path { val: "/var/lib/zeno-container/machines/${m_name}.img" }
+                    var: $socket_path { val: "/run/zeno-machine/${m_name}.sock" }
 
                     # Auto-register ke db_machines target sebagai running
                     db.execute: "INSERT OR IGNORE INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, status, socket_path) VALUES (?, ?, ?, ?, ?, 10, 'running', ?)" {
-                        bind: [$clean_name, $req_info.os_type, $req_info.vcpus, $req_info.memory_mb, $disk_path, $socket_path]
+                        bind: [$m_name, $req_info.os_type, $req_info.vcpus, $req_info.memory_mb, $disk_path, $socket_path]
                     }
 
                     db.execute: "UPDATE db_migration_requests SET status = 'accepted' WHERE id = ?" {
                         bind: [$id]
                     }
 
-                    http.ok: { success: true, message: "Live Migration Zeno Machine '${clean_name}' telah disetujui (ACCEPTED) & aktif di server ini!" }
+                    http.ok: { success: true, message: "Live Migration Zeno Machine '${m_name}' telah disetujui (ACCEPTED) & aktif di server ini!" }
                 }
                 else: {
                     http.bad_request: { success: false, message: "Permintaan migrasi tidak ditemukan" }
