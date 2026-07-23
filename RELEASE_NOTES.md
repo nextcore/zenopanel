@@ -4,9 +4,9 @@ Daftar rilis resmi fitur, perbaikan, dan peningkatan teknologi pada platform Zen
 
 ---
 
-## 🌟 Versi v1.7.12 (Rilis Terbaru)
+## 🌟 Versi v1.7.13 (Rilis Terbaru)
 
-Rilis **v1.7.12** berfokus pada penguatan stabilitas **sistem database dan koneksi pool**, perbaikan sintaksis **ZenoLang (zenocore)**, serta penanganan templat **Docker Compose** yang lebih tangguh untuk Named Volumes.
+Rilis **v1.7.13** berfokus pada penguatan stabilitas **sistem database dan koneksi pool**, perbaikan sintaksis **ZenoLang (zenocore)**, serta penanganan templat **Docker Compose** yang lebih tangguh untuk Named Volumes.
 
 ### 🗄️ 1. Perbaikan Deserialisasi YAML & Named Volumes
 Kami membenahi kompatibilitas penanganan direktori data kustom maupun Named Volumes saat mendeploy engine database:
