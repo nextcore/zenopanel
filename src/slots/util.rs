@@ -461,10 +461,7 @@ fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>)
 }
 
 fn resolve_expression_value(_engine: &Engine, s: &str, scope: &Arc<zenocore::Scope>) -> Value {
-    let mut s = s.trim();
-    if s.ends_with(',') {
-        s = s[..s.len() - 1].trim();
-    }
+    let s = s.trim();
     if s.starts_with('$') {
         let key = &s[1..];
         if key.contains('.') {
