@@ -5207,7 +5207,7 @@ dependencies = [
 
 [[package]]
 name = "zeno"
-version = "1.7.12"
+version = "1.7.13"
 dependencies = [
  "aho-corasick",
  "async-trait",
