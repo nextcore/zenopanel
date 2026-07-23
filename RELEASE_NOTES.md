@@ -4,7 +4,27 @@ Daftar rilis resmi fitur, perbaikan, dan peningkatan teknologi pada platform Zen
 
 ---
 
-## 🌟 Versi v1.7.11 (Rilis Terbaru)
+## 🌟 Versi v1.7.12 (Rilis Terbaru)
+
+Rilis **v1.7.12** berfokus pada penguatan stabilitas **sistem database dan koneksi pool**, perbaikan sintaksis **ZenoLang (zenocore)**, serta penanganan templat **Docker Compose** yang lebih tangguh untuk Named Volumes.
+
+### 🗄️ 1. Perbaikan Deserialisasi YAML & Named Volumes
+Kami membenahi kompatibilitas penanganan direktori data kustom maupun Named Volumes saat mendeploy engine database:
+- **Pemisah Baris Eksplisit**: Menyelesaikan error YAML parser (`mapping values are not allowed in this context`) dengan memisahkan `${limits_yaml}` dan `${volumes_block}` secara tegas menggunakan baris baru (`\n`) pada templat biner. Ini mencegah hilangnya pembatas baris yang sebelumnya terpotong akibat *newline stripping* di ZenoLang.
+- **Dukungan Penuh Volume Kustom**: Sukses mendeploy container MySQL 5.7/5.6 dengan Named Volumes (tanpa path `/`) langsung melalui antarmuka GUI.
+
+### ⚙️ 2. Peningkatan Toleransi Parser ZenoLang
+Untuk mengatasi batasan bawaan pada parser `zenocore v0.2`, kami menambahkan mekanisme penanganan sintaksis global di sisi ZenoPanel:
+- **Trailing Delimiter Stripper**: Backend Rust kini secara otomatis menyaring tanda koma buntut (`,`) dan spasi di ujung tanda kurung kurawal pada parameter ZenoLang sebelum mengevaluasi variabel.
+- **Penyempurnaan Blok Kondisional (`contains`)**: Mengubah penulisan parameter berisi koma pada blok `{ contains: ... }` menjadi string tunggal ter-quote, yang kemudian diuraikan secara dinamis di sisi Rust custom slot.
+
+### 🔌 3. Integrasi Live Status & Connection Pool (ProxySQL / PgBouncer)
+- **Status Database Presisi**: Halaman manajemen database kini menampilkan jumlah koneksi aktif, uptime server, dan versi mesin database secara real-time, menggantikan teks placeholder variabel mentah.
+- **ProxySQL Toggling**: Memperbaiki konkatenasi string biner pada penyusunan berkas konfigurasi `proxysql.cnf` untuk kelancaran pengaktifan *connection pool* MySQL.
+
+---
+
+## 🌟 Versi v1.7.11
 
 Rilis **v1.7.11** berfokus pada stabilitas, peningkatan pengalaman pengguna (*developer experience*), dan ketangguhan fitur virtualisasi pada **Zeno Machine (Cloud-Hypervisor MicroVM)**.
 
