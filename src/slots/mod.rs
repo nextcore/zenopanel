@@ -106,7 +106,10 @@ fn interpolate_string(s: &str, scope: &Arc<Scope>) -> String {
 
 pub(crate) fn resolve_node_value(engine: &Engine, node: &Node, scope: &Arc<Scope>) -> Value {
     let raw_val = if let Some(ref val_str) = node.value {
-        let val_str = val_str.trim();
+        let mut val_str = val_str.trim();
+        if val_str.ends_with(',') {
+            val_str = val_str[..val_str.len() - 1].trim();
+        }
         if val_str.starts_with('$') {
             let key = &val_str[1..];
             if key.contains('.') {

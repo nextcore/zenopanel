@@ -48,7 +48,7 @@ pub fn register(engine: &mut Engine) {
                 } else if child.name == "default" || child.name == "def" {
                     def = child_val;
                 } else if child.name == "as" {
-                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                    target = child.value.clone().unwrap_or_default().trim().trim_start_matches('$').trim().to_string();
                 }
             }
 
@@ -155,20 +155,85 @@ pub fn register(engine: &mut Engine) {
     engine.register(
         "if",
         Arc::new(|engine, ctx, node, scope| {
-            let cond_val = if let Some(ref val_str) = node.value {
-                evaluate_condition(engine, val_str, scope)
-            } else {
-                false
-            };
-
             let mut then_node = None;
             let mut else_node = None;
 
-            for child in &node.children {
-                if child.name == "then" {
-                    then_node = Some(child);
-                } else if child.name == "else" {
-                    else_node = Some(child);
+            let cond_val = if let Some(ref val_str) = node.value {
+                evaluate_condition(engine, val_str, scope)
+            } else {
+                if let Some(cond_node) = node.children.first() {
+                    for child in &cond_node.children {
+                        if child.name == "then" {
+                            then_node = Some(child);
+                        } else if child.name == "else" {
+                            else_node = Some(child);
+                        }
+                    }
+
+                    match cond_node.name.as_str() {
+                        "not_empty" => {
+                            let val_str = cond_node.value.as_deref().unwrap_or("").trim();
+                            let val = resolve_expression_value(engine, val_str, scope);
+                            match val {
+                                Value::Nil => false,
+                                Value::String(s) => !s.is_empty() && s != "nil" && s != "<nil>" && !s.starts_with('$'),
+                                Value::List(l) => !l.is_empty(),
+                                Value::Map(m) => !m.is_empty(),
+                                Value::Bool(b) => b,
+                                Value::Int(i) => i != 0,
+                                Value::Float(f) => f != 0.0,
+                            }
+                        }
+                        "is_empty" => {
+                            let val_str = cond_node.value.as_deref().unwrap_or("").trim();
+                            let val = resolve_expression_value(engine, val_str, scope);
+                            match val {
+                                Value::Nil => true,
+                                Value::String(s) => s.is_empty() || s == "nil" || s == "<nil>" || s.starts_with('$'),
+                                Value::List(l) => l.is_empty(),
+                                Value::Map(m) => m.is_empty(),
+                                Value::Bool(b) => !b,
+                                Value::Int(i) => i == 0,
+                                Value::Float(f) => f == 0.0,
+                            }
+                        }
+                        "contains" => {
+                            let val_str = cond_node.value.as_deref().unwrap_or("").trim();
+                            let parts: Vec<&str> = val_str.split(',').collect();
+                            if parts.len() >= 2 {
+                                let main_expr = parts[0].trim();
+                                let main_val = resolve_expression_value(engine, main_expr, scope).to_string_coerce();
+                                
+                                let mut search_val = String::new();
+                                let second_part = parts[1].trim();
+                                if second_part.contains(':') {
+                                    let sub_parts: Vec<&str> = second_part.splitn(2, ':').collect();
+                                    if sub_parts.len() == 2 {
+                                        search_val = resolve_expression_value(engine, sub_parts[1].trim(), scope).to_string_coerce();
+                                    }
+                                }
+                                main_val.contains(&search_val)
+                            } else {
+                                false
+                            }
+                        }
+                        _ => {
+                            eprintln!("[IF WARNING] Unknown block condition: {}", cond_node.name);
+                            false
+                        }
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if node.value.is_some() {
+                for child in &node.children {
+                    if child.name == "then" {
+                        then_node = Some(child);
+                    } else if child.name == "else" {
+                        else_node = Some(child);
+                    }
                 }
             }
 
@@ -396,7 +461,10 @@ fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>)
 }
 
 fn resolve_expression_value(_engine: &Engine, s: &str, scope: &Arc<zenocore::Scope>) -> Value {
-    let s = s.trim();
+    let mut s = s.trim();
+    if s.ends_with(',') {
+        s = s[..s.len() - 1].trim();
+    }
     if s.starts_with('$') {
         let key = &s[1..];
         if key.contains('.') {
@@ -420,3 +488,108 @@ fn resolve_expression_value(_engine: &Engine, s: &str, scope: &Arc<zenocore::Sco
     if let Ok(f) = s.parse::<f64>() { return Value::Float(f); }
     Value::String(s.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    fn run_code(code: &str, scope: &Arc<zenocore::Scope>) {
+        let mut engine = zenoengine::new_engine();
+        crate::slots::register_custom_slots(&mut engine);
+        let mut ctx = zenocore::Context::new();
+        let parsed = zenocore::parser::parse_string(code, "test.zl").unwrap();
+        engine.execute(&mut ctx, &parsed, scope).unwrap();
+    }
+
+    #[test]
+    fn test_custom_if_slots() {
+        let scope = zenocore::Scope::new(None);
+        scope.set("driver", Value::String("mysql".to_string()));
+        scope.set("q_connections", Value::String("SHOW STATUS".to_string()));
+        scope.set("entered_then", Value::Int(0));
+        scope.set("entered_else", Value::Int(0));
+
+        let code_contains = "
+        if: { contains: \"$driver, value: 'ys'\" } {
+            then: {
+                var: $entered_then { val: 1 }
+            }
+            else: {
+                var: $entered_else { val: 1 }
+            }
+        }
+        ";
+        run_code(code_contains, &scope);
+        assert_eq!(scope.get("entered_then").unwrap().to_int(), 1);
+        assert_eq!(scope.get("entered_else").unwrap().to_int(), 0);
+
+        // Test 4: contains evaluates to false (mysql does not contain postgres)
+        scope.set("driver", Value::String("mysql:5.6".to_string()));
+        scope.set("entered_then", Value::Int(0));
+        scope.set("entered_else", Value::Int(0));
+        let code_contains_false = "
+        if: { contains: \"$driver, value: 'postgres'\" } {
+            then: {
+                var: $entered_then { val: 1 }
+            }
+            else: {
+                var: $entered_else { val: 1 }
+            }
+        }
+        ";
+        run_code(code_contains_false, &scope);
+        assert_eq!(scope.get("entered_then").unwrap().to_int(), 0);
+        assert_eq!(scope.get("entered_else").unwrap().to_int(), 1);
+
+        // Test 5: string comparison evaluates to true
+        scope.set("driver", Value::String("mysql".to_string()));
+        scope.set("entered_then", Value::Int(0));
+        scope.set("entered_else", Value::Int(0));
+        let code_str = "
+        if: \"$driver == 'mysql'\" {
+            then: {
+                var: $entered_then { val: 1 }
+            }
+            else: {
+                var: $entered_else { val: 1 }
+            }
+        }
+        ";
+        run_code(code_str, &scope);
+        assert_eq!(scope.get("entered_then").unwrap().to_int(), 1);
+        assert_eq!(scope.get("entered_else").unwrap().to_int(), 0);
+    }
+
+    #[test]
+    fn test_coalesce_and_var() {
+        let mut engine = zenoengine::new_engine();
+        crate::slots::register_custom_slots(&mut engine);
+        let mut ctx = zenocore::Context::new();
+        let scope = zenocore::Scope::new(None);
+        
+        scope.set("driver", Value::String("mysql".to_string()));
+        
+        let code = "
+        var: $connections { val: 0 }
+        if: \"$driver == 'mysql'\" {
+            then: {
+                coalesce: $res_conn.Value {
+                    default: '0'
+                    as: $connections_str
+                }
+                var: $connections { val: $connections_str }
+            }
+        }
+        ";
+        let parsed = zenocore::parser::parse_string(code, "test.zl").unwrap();
+        println!("COALESCE TEST AST: {:#?}", parsed);
+        engine.execute(&mut ctx, &parsed, &scope).unwrap();
+        
+        let connections = scope.get("connections").unwrap().to_string_coerce();
+        println!("connections: {}", connections);
+        assert_eq!(connections, "0");
+    }
+}
+
+
+

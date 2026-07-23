@@ -1,0 +1,80 @@
+# ─── Unified Live Migration API: Pre-flight Check & Progress Tracking ─────────
+
+# Pre-flight Compatibility Check (Zeno Machine & Zeno Box)
+# Memeriksa RAM tersedia, versi kernel, dan latensi jaringan ke host tujuan
+http.post: '/api/migrate/preflight' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $target_host { val: $body.target_host }
+    var: $engine { val: $body.engine }
+    var: $required_ram { val: $body.required_ram_mb }
+
+    # Cek resource lokal
+    system.ram_info: { as: $ram }
+    system.kernel_version: { as: $local_kernel }
+
+    # Ping target host untuk latensi
+    system.ping_host: $target_host { timeout_ms: 3000, as: $ping }
+
+    var: $checks_ok { val: true }
+    var: $warnings { val: [] }
+    var: $errors { val: [] }
+
+    # Check 1: Target host reachable
+    if: !$ping.reachable {
+        then: {
+            var: $checks_ok { val: false }
+        }
+    }
+
+    # Check 2: Latency aman
+    if: $ping.latency_ms > 50 {
+        then: {
+            # Latensi tinggi — peringatan saja
+        }
+    }
+
+    http.ok: {
+        success: true
+        checks: {
+            target_reachable: $ping.reachable
+            latency_ms: $ping.latency_ms
+            local_kernel: $local_kernel
+            local_ram_available_mb: $ram.available_mb
+            overall_ok: $checks_ok
+        }
+    }
+}
+
+# Incoming Migration Status Update (dipanggil oleh target node saat menerima)
+http.post: '/api/migrate/progress-update' {
+    auth.guard
+    http.json_body: { as: $body }
+    var: $migration_id { val: $body.migration_id }
+    var: $percent { val: $body.percent }
+    var: $phase { val: $body.phase }
+    var: $engine { val: $body.engine }
+
+    db.execute: "INSERT INTO db_migration_requests (source_host, machine_name, os_type, vcpus, memory_mb, status)
+                 VALUES ('self', ?, ?, 1, 512, 'in_progress')
+                 ON CONFLICT DO NOTHING" {
+        bind: [$migration_id, $engine]
+    }
+
+    http.ok: { success: true, message: "Progress update recorded" }
+}
+
+# Stream progress Live Migration via SSE (untuk host sumber & tujuan)
+http.get: '/api/migrate/progress-stream' {
+    auth.guard
+    http.query: 'migration_id' { as: $migration_id }
+    http.query: 'engine' { as: $engine }
+
+    http.sse: {
+        db.select: "SELECT status, created_at FROM db_migration_requests WHERE machine_name = ? ORDER BY id DESC LIMIT 1" {
+            bind: [$migration_id]
+            as: $status_row
+        }
+        sse.send: { data: { migration_id: $migration_id, status: $status_row.status } }
+    }
+}

@@ -1,36 +1,27 @@
 import requests
 import re
 import json
-import time
 
 session = requests.Session()
-base_url = "http://127.0.0.1:8080"
 
-res = session.get(f"{base_url}/login")
-csrf_match = re.search(r"csrfToken = '([^']+)';", res.text)
-if not csrf_match:
-    csrf_match = re.search(r"const\s+csrfToken\s*=\s*'([^']+)';", res.text)
+# 1. Login
+res = session.get("http://127.0.0.1:8080/login")
+csrf_token = re.search(r"csrfToken = '([^']+)';", res.text).group(1)
 
-csrf_token = csrf_match.group(1)
-
-# Login
-session.post(
-    f"{base_url}/login",
+login_res = session.post(
+    "http://127.0.0.1:8080/login",
     headers={"X-CSRF-Token": csrf_token},
     json={"username": "admin", "password": "admin"}
 )
+print("Login status:", login_res.status_code)
 
-print("Waiting 10 seconds for database to finish initial startup...")
-time.sleep(10)
-
-# Check status
-res = session.get(
-    f"{base_url}/api/database/servers/status?name=mysql-test-57&driver=mysql",
-    headers={"X-CSRF-Token": csrf_token}
+# 2. Get Database Servers Status with query params
+status_res = session.get(
+    "http://127.0.0.1:8080/api/database/servers/status",
+    params={"name": "mysql-test-56", "driver": "mysql"}
 )
-
-print("Status code:", res.status_code)
+print("Status Response:")
 try:
-    print(json.dumps(res.json(), indent=2))
-except Exception:
-    print(res.text)
+    print(json.dumps(status_res.json(), indent=2))
+except Exception as e:
+    print(status_res.text)

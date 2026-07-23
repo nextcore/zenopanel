@@ -127,18 +127,41 @@ http.post: '/api/database/create' {
                     db.execute: $q_create_db { db: $server_name }
 
                     # 2. Create User and Grant Privileges
-                    if: "$access_type == 'local'" {
+                    db.select: "SELECT (VERSION() LIKE '5.%') as legacy" {
+                        db: $server_name
+                        first: true
+                        as: $ver_check
+                    }
+                    var: $is_legacy { val: $ver_check.legacy }
+
+                    if: "$is_legacy == 1" {
                         then: {
-                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
-                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost'" }
-                            db.execute: $q_create_user { db: $server_name }
-                            db.execute: $q_grant { db: $server_name }
+                            if: "$access_type == 'local'" {
+                                then: {
+                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                                    db.execute: $q_grant { db: $server_name }
+                                }
+                                else: {
+                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
+                                    db.execute: $q_grant { db: $server_name }
+                                }
+                            }
                         }
                         else: {
-                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
-                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" }
-                            db.execute: $q_create_user { db: $server_name }
-                            db.execute: $q_grant { db: $server_name }
+                            if: "$access_type == 'local'" {
+                                then: {
+                                    var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost'" }
+                                    db.execute: $q_create_user { db: $server_name }
+                                    db.execute: $q_grant { db: $server_name }
+                                }
+                                else: {
+                                    var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
+                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" }
+                                    db.execute: $q_create_user { db: $server_name }
+                                    db.execute: $q_grant { db: $server_name }
+                                }
+                            }
                         }
                     }
                     db.execute: "FLUSH PRIVILEGES" { db: $server_name }
@@ -163,7 +186,6 @@ http.post: '/api/database/create' {
             }
 
             # Record the primary user into db_users table too
-            db.select: "SELECT last_insert_rowid() as last_id" { as: $last_rows }
             var: $new_db_id { val: $db_last_id }
             db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, ?, 'ALL')" {
                 bind: [$new_db_id, $db_user, $db_password, $access_type]
@@ -434,18 +456,41 @@ http.post: '/api/database/users/add' {
 
             if: "$driver == 'mysql'" {
                 then: {
-                    if: "$access_type == 'local'" {
+                    db.select: "SELECT (VERSION() LIKE '5.%') as legacy" {
+                        db: $server_name
+                        first: true
+                        as: $ver_check
+                    }
+                    var: $is_legacy { val: $ver_check.legacy }
+
+                    if: "$is_legacy == 1" {
                         then: {
-                            var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'localhost' IDENTIFIED BY '${db_password}'" }
-                            var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'localhost'" }
-                            db.execute: $q_create { db: $server_name }
-                            db.execute: $q_grant  { db: $server_name }
+                            if: "$access_type == 'local'" {
+                                then: {
+                                    var: $q_grant { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                                    db.execute: $q_grant { db: $server_name }
+                                }
+                                else: {
+                                    var: $q_grant { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'%' IDENTIFIED BY '${db_password}'" }
+                                    db.execute: $q_grant { db: $server_name }
+                                }
+                            }
                         }
                         else: {
-                            var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'%' IDENTIFIED BY '${db_password}'" }
-                            var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'%'" }
-                            db.execute: $q_create { db: $server_name }
-                            db.execute: $q_grant  { db: $server_name }
+                            if: "$access_type == 'local'" {
+                                then: {
+                                    var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                                    var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'localhost'" }
+                                    db.execute: $q_create { db: $server_name }
+                                    db.execute: $q_grant  { db: $server_name }
+                                }
+                                else: {
+                                    var: $q_create { val: "CREATE USER IF NOT EXISTS '${db_username}'@'%' IDENTIFIED BY '${db_password}'" }
+                                    var: $q_grant  { val: "GRANT ${privileges} ON `${db_name}`.* TO '${db_username}'@'%'" }
+                                    db.execute: $q_create { db: $server_name }
+                                    db.execute: $q_grant  { db: $server_name }
+                                }
+                            }
                         }
                     }
                     db.execute: "FLUSH PRIVILEGES" { db: $server_name }
@@ -611,7 +656,7 @@ http.post: '/api/database/install-server' {
     # mariadb:* and mysql:* → driver 'mysql' (protocol-compatible)
     # postgres:* → driver 'postgres'
     var: $driver { val: 'mysql' }
-    if: { contains: $engine, value: 'postgres' } {
+    if: { contains: "$engine, value: 'postgres'" } {
         then: { var: $driver { val: 'postgres' } }
     }
 
@@ -649,18 +694,18 @@ http.post: '/api/database/install-server' {
     var: $limits_yaml { val: "    oom_score_adj: -1000\n" }
     if: "$mem_limit != ''" {
         then: {
-            var: $limits_yaml { val: $limits_yaml + '    mem_limit: ' + $mem_limit + '\n' }
+            var: $limits_yaml { val: "${limits_yaml}    mem_limit: ${mem_limit}\n" }
         }
     }
     if: "$cpus != ''" {
         then: {
-            var: $limits_yaml { val: $limits_yaml + '    cpus: ' + $cpus + '\n' }
+            var: $limits_yaml { val: "${limits_yaml}    cpus: ${cpus}\n" }
         }
     }
 
     # Check if data_dir is a Named Volume (contains no '/')
     var: $volumes_block { val: "" }
-    if: { contains: $data_dir, value: '/' } {
+    if: { contains: "$data_dir, value: '/'" } {
         else: {
             var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
         }
@@ -674,7 +719,7 @@ http.post: '/api/database/install-server' {
             var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n${limits_yaml}${volumes_block}" }
             if: "$pool_enabled == 1" {
                 then: {
-                    var: $compose_yaml { val: $compose_yaml + '\n  ' + $name + '-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ' + $name + '-pool\n    ports:\n      - \'' + $bind_prefix + ':' + $pool_port + ':6432\'\n    environment:\n      - DB_HOST=' + $name + '\n      - DB_PORT=5432\n      - DB_USER=' + $admin_user + '\n      - DB_PASSWORD=' + $root_password + '\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n' }
+                    var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${root_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
                 }
             }
         }
@@ -1232,12 +1277,12 @@ http.post: '/api/database/servers/toggle-pool' {
             var: $limits_yaml { val: "    oom_score_adj: -1000\n" }
             if: "$mem_limit != ''" {
                 then: {
-                    var: $limits_yaml { val: $limits_yaml + '    mem_limit: ' + $mem_limit + '\n' }
+                    var: $limits_yaml { val: "${limits_yaml}    mem_limit: ${mem_limit}\n" }
                 }
             }
             if: "$cpus != ''" {
                 then: {
-                    var: $limits_yaml { val: $limits_yaml + '    cpus: ' + $cpus + '\n' }
+                    var: $limits_yaml { val: "${limits_yaml}    cpus: ${cpus}\n" }
                 }
             }
 
@@ -1253,7 +1298,7 @@ http.post: '/api/database/servers/toggle-pool' {
                     }
 
                     var: $volumes_block { val: "" }
-                    if: { contains: $data_dir, value: '/' } {
+                    if: { contains: "$data_dir, value: '/'" } {
                         else: {
                             var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
                         }
@@ -1264,7 +1309,7 @@ http.post: '/api/database/servers/toggle-pool' {
 
                     if: "$pool_enabled == 1" {
                         then: {
-                            var: $compose_yaml { val: $compose_yaml + '\n  ' + $name + '-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ' + $name + '-pool\n    ports:\n      - \'' + $bind_prefix + ':' + $pool_port + ':6432\'\n    environment:\n      - DB_HOST=' + $name + '\n      - DB_PORT=5432\n      - DB_USER=' + $admin_user + '\n      - DB_PASSWORD=' + $admin_password + '\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n' }
+                            var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${admin_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
                         }
                     }
 
@@ -1294,7 +1339,7 @@ http.post: '/api/database/servers/toggle-pool' {
                     }
 
                     var: $volumes_block { val: "" }
-                    if: { contains: $data_dir, value: '/' } {
+                    if: { contains: "$data_dir, value: '/'" } {
                         else: {
                             var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
                         }
@@ -1318,7 +1363,7 @@ http.post: '/api/database/servers/toggle-pool' {
                                         users: $db_users
                                         path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
                                     }
-                                    var: $compose_yaml { val: $compose_yaml + "\n  " + $name + "-pool:\n    image: proxysql/proxysql:latest\n    container_name: " + $name + "-pool\n    ports:\n      - '" + $bind_prefix + ":" + $pool_port + ":6033'\n    volumes:\n      - /var/lib/zenopanel/db/" + $name + "_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
+                                    var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
                                 }
                             }
                         }
@@ -1497,17 +1542,44 @@ http.get: '/api/database/servers/status' {
 
             var: $connections { val: 0 }
             if: "$driver == 'mysql'" {
-                then: { coalesce: $res_conn.Value { default: '0', as: $connections_str } var: $connections { val: $connections_str } }
-                else: { coalesce: $res_conn.val { default: 0, as: $connections_int } var: $connections { val: $connections_int } }
+                then: {
+                    coalesce: $res_conn.Value {
+                        default: '0'
+                        as: $connections_str
+                    }
+                    var: $connections { val: $connections_str }
+                }
+                else: {
+                    coalesce: $res_conn.val {
+                        default: 0
+                        as: $connections_int
+                    }
+                    var: $connections { val: $connections_int }
+                }
             }
 
             var: $uptime { val: 0 }
             if: "$driver == 'mysql'" {
-                then: { coalesce: $res_upt.Value { default: '0', as: $uptime_str } var: $uptime { val: $uptime_str } }
-                else: { coalesce: $res_upt.val { default: 0, as: $uptime_float } var: $uptime { val: $uptime_float } }
+                then: {
+                    coalesce: $res_upt.Value {
+                        default: '0'
+                        as: $uptime_str
+                    }
+                    var: $uptime { val: $uptime_str }
+                }
+                else: {
+                    coalesce: $res_upt.val {
+                        default: 0
+                        as: $uptime_float
+                    }
+                    var: $uptime { val: $uptime_float }
+                }
             }
 
-            coalesce: $res_ver.val { default: 'Unknown', as: $version }
+            coalesce: $res_ver.val {
+                default: 'Unknown'
+                as: $version
+            }
 
             http.ok: {
                 success: true,

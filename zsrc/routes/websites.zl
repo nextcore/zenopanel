@@ -201,14 +201,29 @@ http.post: '/api/websites/create' {
                                                         }
                                                     }
 
-                                                    if: "$driver == 'mysql'" {
-                                                        then: {
-                                                            db.execute: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" { db: $server_name }
-                                                            db.execute: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" { db: $server_name }
-                                                            db.execute: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" { db: $server_name }
-                                                            db.execute: "FLUSH PRIVILEGES" { db: $server_name }
-                                                        }
-                                                    }
+                                                     if: "$driver == 'mysql'" {
+                                                         then: {
+                                                              db.select: "SELECT (VERSION() LIKE '5.%') as legacy" {
+                                                                  db: $server_name
+                                                                  first: true
+                                                                  as: $ver_check
+                                                              }
+                                                              var: $is_legacy { val: $ver_check.legacy }
+
+                                                             if: "$is_legacy == 1" {
+                                                                 then: {
+                                                                     db.execute: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" { db: $server_name }
+                                                                     db.execute: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%' IDENTIFIED BY '${db_password}'" { db: $server_name }
+                                                                 }
+                                                                 else: {
+                                                                     db.execute: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" { db: $server_name }
+                                                                     db.execute: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" { db: $server_name }
+                                                                     db.execute: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" { db: $server_name }
+                                                                 }
+                                                             }
+                                                             db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+                                                         }
+                                                     }
 
                                                     if: "$driver == 'postgres'" {
                                                         then: {
