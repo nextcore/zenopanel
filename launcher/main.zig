@@ -7,7 +7,7 @@ const PORT = "3001";
 const PANEL_URL = "http://localhost:3001/login";
 
 // Versi default yang diselaraskan dengan tag rilis
-const VERSION = "v1.7.12";
+const VERSION = "v1.7.13";
 
 // Win32 API declarations untuk target Windows
 const win = if (builtin.os.tag == .windows) struct {
