@@ -14,16 +14,16 @@ login_res = session.post(
 )
 print("Login status:", login_res.status_code)
 
-# 2. Register / Install MySQL 5.6 database server (pool_enabled = 0)
+# 2. Register / Install MySQL 5.7 database server with Named Volume (no slash)
 payload = {
-    "engine": "mysql:5.6",
-    "name": "mysql-test-56",
-    "port": 3312,
-    "root_password": "zenopanel-mysql56-pass",
-    "data_dir": "/var/lib/mysql-test-56",
+    "engine": "mysql:5.7",
+    "name": "mysql-test-57-vol2",
+    "port": 3316,
+    "root_password": "zenopanel-mysql57-pass",
+    "data_dir": "mysql-test-57-vol2",
     "is_remote": 0,
     "pool_enabled": 0,
-    "pool_port": 6036
+    "pool_port": 6040
 }
 
 install_res = session.post(
