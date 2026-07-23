@@ -24,7 +24,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 jsonwebtoken = "9.3.0"
 bcrypt = "0.15"
-zenocore = "0.2.0"
+zenocore = "0.2.1"
 zeno-blade = "0.2.0"
 zeno-std = "0.2.0"
 zenoengine = "0.2.0"

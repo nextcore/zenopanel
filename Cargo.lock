@@ -5291,9 +5291,9 @@ dependencies = [
 
 [[package]]
 name = "zenocore"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a833c64002204c33f4aa78f91fe4a001d7e833b5489dcc3946cc26eeaee6f9ed"
+checksum = "82866ed95bc4e4d6ba75208c0b13e6cbc6dd9f0662a1062e424f9f2757ff1fbe"
 dependencies = [
  "libloading",
 ]
