@@ -10,6 +10,9 @@
             </p>
         </div>
         <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="openDiskManagerModal()" style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-hard-drive" style="color: #10b981;"></i> Disk Manager
+            </button>
             <button class="btn btn-secondary" onclick="openIsoLibraryModal()" style="display: flex; align-items: center; gap: 8px;">
                 <i class="fa-solid fa-compact-disc" style="color: #ec4899;"></i> ISO Library
             </button>
@@ -131,22 +134,48 @@
                     </div>
 
                     <div id="machine-boot-source-oci-wrapper" style="display: none;">
-                        <div style="position: relative; margin-bottom: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;">
+                            <div>
+                                <label style="display: block; font-size: 0.76rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 500;">Distro Preset</label>
+                                <select id="machine-oci-distro-select" onchange="window.onOciDistroChange(this.value)" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; cursor: pointer; outline: none;">
+                                    <option value="library/alpine">🐧 Alpine Linux</option>
+                                    <option value="library/ubuntu">🟠 Ubuntu Linux</option>
+                                    <option value="library/debian">🌀 Debian GNU/Linux</option>
+                                    <option value="rockylinux/rockylinux">⛰️ Rocky Linux</option>
+                                    <option value="library/fedora">🎩 Fedora</option>
+                                    <option value="library/centos">🏢 CentOS</option>
+                                    <option value="almalinux/almalinux">❤️ AlmaLinux</option>
+                                    <option value="archlinux/archlinux">🏹 Arch Linux</option>
+                                    <option value="custom">⚙️ Custom / Manual Input...</option>
+                                </select>
+                            </div>
+                            <div id="machine-oci-version-wrapper">
+                                <label style="display: block; font-size: 0.76rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 500;">Version / Tag</label>
+                                <select id="machine-oci-version-select" style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; cursor: pointer; outline: none;">
+                                    <option value="latest">latest</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="machine-oci-custom-wrapper" style="display: none; position: relative; margin-bottom: 8px;">
                             <div style="display: flex; gap: 8px; align-items: center;">
                                 <div style="flex: 1; position: relative;">
-                                    <input type="text" id="machine-oci-image-input" autocomplete="off" placeholder="Ketik nama image, misalnya: ubuntu, nginx, alpine..." oninput="window.onOciImageSearch(this.value)" onfocus="window.onOciImageSearch(this.value)" style="width: 100%; box-sizing: border-box; padding: 10px 36px 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; font-family: var(--font-code);">
+                                    <input type="text" id="machine-oci-image-input" placeholder="e.g. nginx:alpine, python:3.11-alpine..." autocomplete="off" oninput="window.onOciImageSearch(this.value)" onfocus="window.onOciImageSearch(this.value)" style="width: 100%; box-sizing: border-box; padding: 10px 36px 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; font-family: var(--font-code);">
                                     <i id="machine-oci-search-icon" class="fa-brands fa-docker" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #2496ed; font-size: 1rem; opacity: 0.6;"></i>
                                 </div>
                             </div>
                             <div id="machine-oci-autocomplete" style="display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 999; max-height: 260px; overflow-y: auto; background: #1a2236; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0 0 8px 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);"></div>
                         </div>
-                        <div id="machine-oci-cached-images" style="margin-bottom: 6px;">
-                            <button type="button" class="btn-action" onclick="window.loadCachedOciImages()" style="font-size: 0.75rem; padding: 4px 10px;"><i class="fa-solid fa-layer-group"></i> Load cached images from Zeno Box</button>
+
+                        <div id="machine-oci-cached-images" style="margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px;">
+                            <div>
+                                <button type="button" class="btn-action" onclick="window.loadCachedOciImages()" style="font-size: 0.75rem; padding: 4px 10px;"><i class="fa-solid fa-layer-group"></i> Load cached images from Zeno Box</button>
+                            </div>
                         </div>
                         <div style="font-size: 0.72rem; color: var(--text-muted); line-height: 1.5;">
                             <i class="fa-solid fa-info-circle" style="color: var(--accent-primary);"></i>
-                            ZenoPanel akan pull image OCI, mengekstrak rootfs-nya ke disk VM, dan melakukan boot MicroVM langsung dari rootfs tersebut (tanpa ISO).
-                            <br><i class="fa-brands fa-docker" style="color: #2496ed;"></i> Ketik di atas untuk mencari image langsung dari Docker Hub.
+                            ZenoPanel menggunakan arsitektur <strong>Direct Kernel Boot (seperti Flintlock/Firecracker)</strong>. VM akan di-boot langsung menggunakan kernel mikro host dengan rootfs murni dari OCI image (kecepatan boot &lt; 20ms).
+                            <br><i class="fa-solid fa-compact-disc" style="color: #ec4899;"></i> <strong>Rekomendasi VM:</strong> Untuk instalasi OS penuh/standar (dengan bootloader GRUB/UEFI sendiri), disarankan menggunakan berkas ISO resmi melalui <strong>ISO Library</strong>.
                         </div>
                     </div>
                 </div>
@@ -499,6 +528,13 @@
             <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 6px;">URL</label>
             <input type="url" id="iso-download-url-input" placeholder="https://example.com/ubuntu-24.04.iso" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,23,42,0.8); color: var(--text-main); font-size: 0.85rem; outline: none;">
         </div>
+        <div style="margin-bottom: 14px;">
+            <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 6px;">Quick Presets</label>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" onclick="setIsoPreset('https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-virt-3.19.1-x86_64.iso', 'alpine-virt-3.19.1-x86_64.iso')" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">🐧 Alpine Linux Virt 3.19 (ISO)</button>
+                <button type="button" onclick="setIsoPreset('https://releases.ubuntu.com/24.04/ubuntu-24.04-live-server-amd64.iso', 'ubuntu-24.04-live-server-amd64.iso')" style="background: rgba(249, 115, 22, 0.15); border: 1px solid rgba(249, 115, 22, 0.4); color: #f97316; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">🟠 Ubuntu 24.04 Server (ISO)</button>
+            </div>
+        </div>
         <div style="margin-bottom: 18px;">
             <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: block; margin-bottom: 6px;">File Name (optional, auto-detected from URL)</label>
             <input type="text" id="iso-download-name-input" placeholder="ubuntu-24.04.iso" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: rgba(15,23,42,0.8); color: var(--text-main); font-size: 0.85rem; outline: none;">
@@ -637,4 +673,53 @@
         </div>
     </div>
 </div>
+
+<!-- Modal Disk Manager (Virtual Disks) -->
+<div id="disk-manager-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 820px; width: 95%; background: #1a1f2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: var(--text-main); overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.6);">
+        <div style="background: linear-gradient(135deg, #1e2538 0%, #252d40 100%); padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <i class="fa-solid fa-hard-drive" style="color: #10b981; font-size: 1rem;"></i>
+                <span style="font-weight: 700; font-size: 1rem; color: var(--text-main);">Local VM Disks (.img)</span>
+                <span style="font-size: 0.78rem; color: var(--text-muted); padding-left: 6px; border-left: 1px solid rgba(255,255,255,0.1);">Path: /var/lib/zeno-container/machines</span>
+            </div>
+            <button onclick="closeDiskManagerModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div style="padding: 10px 16px; background: rgba(15,20,35,0.5); border-bottom: 1px solid rgba(255,255,255,0.07); display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Manage VM disk files and identify orphaned disks to free up host storage.</span>
+            <button onclick="loadLocalDisksList()" class="btn btn-secondary btn-sm" style="padding: 4px 10px;">
+                <i class="fa-solid fa-rotate-right"></i> Refresh
+            </button>
+        </div>
+
+        <div style="max-height: 350px; overflow-y: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                <thead>
+                    <tr style="background: rgba(15,20,35,0.95); border-bottom: 2px solid rgba(255,255,255,0.08); color: var(--text-muted);">
+                        <th style="padding: 10px 14px; text-align: left;">File Name</th>
+                        <th style="padding: 10px 14px; text-align: left;">Status / Association</th>
+                        <th style="padding: 10px 14px; text-align: right; width: 110px;">Physical Size</th>
+                        <th style="padding: 10px 14px; text-align: right; width: 110px;">Virtual Size</th>
+                        <th style="padding: 10px 14px; text-align: right; width: 80px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="disk-manager-table-body">
+                    <tr>
+                        <td colspan="5" style="padding: 30px; text-align: center; color: var(--text-muted);">
+                            <i class="fa-solid fa-spinner fa-spin" style="margin-right: 8px;"></i> Loading VM Disks...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="padding: 12px 20px; background: rgba(15,20,35,0.6); border-top: 1px solid rgba(255,255,255,0.07); display: flex; justify-content: flex-end; gap: 10px;">
+            <button onclick="closeDiskManagerModal()" class="btn btn-secondary btn-sm">Close</button>
+        </div>
+    </div>
+</div>
+
 

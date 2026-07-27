@@ -238,6 +238,50 @@ export function toggleBootSource(type) {
 }
 window.toggleBootSource = toggleBootSource;
 
+export function onOciDistroChange(val) {
+    const customWrapper = document.getElementById("machine-oci-custom-wrapper");
+    const versionWrapper = document.getElementById("machine-oci-version-wrapper");
+    const versionSelect = document.getElementById("machine-oci-version-select");
+
+    if (val === "custom") {
+        if (customWrapper) customWrapper.style.display = "block";
+        if (versionWrapper) versionWrapper.style.display = "none";
+        const input = document.getElementById("machine-oci-image-input");
+        if (input) {
+            input.value = "";
+            input.focus();
+        }
+    } else {
+        if (customWrapper) customWrapper.style.display = "none";
+        if (versionWrapper) versionWrapper.style.display = "block";
+        
+        // Fetch versions from Docker Hub API
+        if (versionSelect) {
+            versionSelect.innerHTML = `<option value="">Loading versions...</option>`;
+            fetch(`/api/containers/docker-tags?repo=${encodeURIComponent(val)}`)
+                .then(res => res.json())
+                .then(res => {
+                    const tags = res.data || [];
+                    if (tags.length > 0) {
+                        let html = "";
+                        tags.forEach(tag => {
+                            if (tag.name && tag.name.length < 30 && !tag.name.includes("sha256")) {
+                                html += `<option value="${tag.name}">${tag.name}</option>`;
+                            }
+                        });
+                        versionSelect.innerHTML = html;
+                    } else {
+                        versionSelect.innerHTML = `<option value="latest">latest</option>`;
+                    }
+                })
+                .catch(() => {
+                    versionSelect.innerHTML = `<option value="latest">latest (Fetch failed)</option>`;
+                });
+        }
+    }
+}
+window.onOciDistroChange = onOciDistroChange;
+
 export function loadCachedOciImages() {
     const container = document.getElementById("machine-oci-cached-images");
     if (!container) return;
@@ -389,6 +433,12 @@ export function openCreateMachineModal() {
         if (isoRadio) isoRadio.checked = true;
         toggleBootSource("iso");
 
+        const ociDistroSelect = document.getElementById("machine-oci-distro-select");
+        if (ociDistroSelect) {
+            ociDistroSelect.value = "library/alpine";
+            onOciDistroChange("library/alpine");
+        }
+
         populateIsoSelectDropdown();
         modal.style.display = "flex";
     }
@@ -409,7 +459,15 @@ export function submitCreateMachine() {
     const bootSourceType = document.querySelector('input[name="machine-boot-source-type"]:checked')?.value || "iso";
     let iso_path = "";
     if (bootSourceType === "oci") {
-        const ociImg = document.getElementById("machine-oci-image-input")?.value.trim() || "";
+        const distro = document.getElementById("machine-oci-distro-select")?.value || "library/alpine";
+        let ociImg = "";
+        if (distro === "custom") {
+            ociImg = document.getElementById("machine-oci-image-input")?.value.trim() || "";
+        } else {
+            const version = document.getElementById("machine-oci-version-select")?.value || "latest";
+            const cleanRepo = distro.startsWith("library/") ? distro.substring(8) : distro;
+            ociImg = `${cleanRepo}:${version}`;
+        }
         if (!ociImg) {
             showToast("error", "Nama OCI Container image wajib diisi");
             return;
@@ -1085,6 +1143,16 @@ export function openIsoDownloadUrlDialog() {
     }
 }
 
+export function setIsoPreset(url, name) {
+    const urlInput = document.getElementById("iso-download-url-input");
+    const nameInput = document.getElementById("iso-download-name-input");
+    if (urlInput) urlInput.value = url;
+    if (nameInput) {
+        nameInput.value = name;
+        nameInput._userEdited = true;
+    }
+}
+
 export function closeIsoDownloadUrlDialog() {
     const dlg = document.getElementById("iso-url-dialog");
     if (dlg) dlg.style.display = "none";
@@ -1513,6 +1581,7 @@ window.detachIsoFromMachine = detachIsoFromMachine;
 window.deleteIso = deleteIso;
 window.deleteSelectedIso = deleteSelectedIso;
 window.selectIsoRow = selectIsoRow;
+window.setIsoPreset = setIsoPreset;
 window.openIsoDownloadUrlDialog = openIsoDownloadUrlDialog;
 window.closeIsoDownloadUrlDialog = closeIsoDownloadUrlDialog;
 window.submitIsoDownloadUrl = submitIsoDownloadUrl;
@@ -1528,6 +1597,111 @@ window.deleteSnapshot = deleteSnapshot;
 window.startMachine = startMachine;
 window.stopMachine = stopMachine;
 window.deleteMachine = deleteMachine;
+
+export function openDiskManagerModal() {
+    const modal = document.getElementById("disk-manager-modal");
+    if (modal) {
+        loadLocalDisksList();
+        modal.style.display = "flex";
+    }
+}
+
+export function closeDiskManagerModal() {
+    const modal = document.getElementById("disk-manager-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+export function loadLocalDisksList() {
+    const tbody = document.getElementById("disk-manager-table-body");
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="5" style="padding: 30px; text-align: center; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin" style="margin-right: 8px;"></i> Loading VM Disks...</td></tr>`;
+
+    const machinesPath = "/var/lib/zeno-container/machines";
+    
+    Promise.all([
+        fetch(`/api/files/list?path=${encodeURIComponent(machinesPath)}`).then(res => res.json()),
+        fetch("/api/machines/list").then(res => res.json())
+    ])
+    .then(([filesRes, machinesRes]) => {
+        const files = filesRes.data || [];
+        const machines = machinesRes.data || [];
+        
+        const imgFiles = files.filter(f => f.name && f.name.endsWith(".img"));
+
+        if (imgFiles.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" style="padding: 30px; text-align: center; color: var(--text-muted);">No VM disk files (.img) found in storage.</td></tr>`;
+            return;
+        }
+
+        let html = "";
+        imgFiles.forEach(file => {
+            const baseName = file.name.slice(0, -4);
+            const associatedMachine = machines.find(m => m.name === baseName);
+
+            let statusHtml = "";
+            let actionBtn = "";
+            
+            if (associatedMachine) {
+                const statusColor = associatedMachine.status === 'running' ? '#10b981' : '#f59e0b';
+                statusHtml = `<span style="color: ${statusColor}; font-weight: 600;"><i class="fa-solid fa-desktop"></i> Attached: ${associatedMachine.name} (${associatedMachine.status})</span>`;
+                actionBtn = `<button class="btn btn-secondary btn-sm" disabled style="opacity: 0.4; cursor: not-allowed;"><i class="fa-solid fa-trash"></i></button>`;
+            } else {
+                statusHtml = `<span style="color: #ef4444; font-weight: 600;"><i class="fa-solid fa-circle-question"></i> Orphaned (No VM associated)</span>`;
+                actionBtn = `<button onclick="deleteDiskFile('${file.path.replace(/'/g, "\\'")}', '${file.name.replace(/'/g, "\\'")}')" class="btn btn-secondary btn-sm" style="color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i></button>`;
+            }
+
+            const sizeFormatted = file.size_bytes ? formatBytes(file.size_bytes) : "-";
+
+            html += `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <td style="padding: 10px 14px; font-weight: 600; color: var(--text-main); font-family: monospace;">
+                        <i class="fa-solid fa-hard-drive" style="color: #10b981; margin-right: 6px;"></i> ${file.name}
+                    </td>
+                    <td style="padding: 10px 14px;">${statusHtml}</td>
+                    <td style="padding: 10px 14px; text-align: right; color: var(--text-muted); font-family: monospace;">-</td>
+                    <td style="padding: 10px 14px; text-align: right; color: var(--text-muted); font-family: monospace;">${sizeFormatted}</td>
+                    <td style="padding: 10px 14px; text-align: right;">${actionBtn}</td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+    })
+    .catch(err => {
+        console.error("[Disk Manager] Failed to load disks:", err);
+        tbody.innerHTML = `<tr><td colspan="5" style="padding: 30px; text-align: center; color: #ef4444;">Failed to load disk list. Check backend connectivity.</td></tr>`;
+    });
+}
+
+export function deleteDiskFile(path, name) {
+    if (!confirm(`Hapus file disk virtual '${name}' secara permanen? Tindakan ini tidak dapat dibatalkan.`)) return;
+
+    fetch("/api/files/delete", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": getCSRFToken()
+        },
+        body: JSON.stringify({ path })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.message) {
+            showToast("success", `File disk '${name}' berhasil dihapus!`);
+            loadLocalDisksList();
+        } else {
+            showToast("error", "Gagal menghapus file disk");
+        }
+    })
+    .catch(() => showToast("error", "Gagal menghubungi server"));
+}
+
+window.openDiskManagerModal = openDiskManagerModal;
+window.closeDiskManagerModal = closeDiskManagerModal;
+window.loadLocalDisksList = loadLocalDisksList;
+window.deleteDiskFile = deleteDiskFile;
 
 export function viewMachineBootLog(name) {
     const modal = document.getElementById("machine-boot-log-modal");

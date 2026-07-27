@@ -476,14 +476,45 @@ impl MachineManager {
         Ok(firmware_path.to_string_lossy().to_string())
     }
 
+    async fn ensure_microvm_kernel(&self) -> Result<String, String> {
+        let binary_dir = match std::env::current_exe() {
+            Ok(exe) => exe.parent().map(|p| p.join("bin")).unwrap_or_else(|| std::path::PathBuf::from("/opt/zenopanel/bin")),
+            Err(_) => std::path::PathBuf::from("/opt/zenopanel/bin"),
+        };
+        let _ = std::fs::create_dir_all(&binary_dir);
+        let kernel_path = binary_dir.join("vmlinuz-microvm");
+        if !kernel_path.exists() {
+            println!("📥 Downloading MicroVM Linux Kernel vmlinuz-microvm...");
+            // Use Cloud-Hypervisor official example minimal kernel
+            let url = "https://github.com/cloud-hypervisor/cloud-hypervisor/raw/main/resources/vmlinuz";
+            Self::download_file(url, &kernel_path.to_string_lossy()).await?;
+            println!("✅ MicroVM Linux Kernel vmlinuz-microvm successfully downloaded.");
+        }
+        Ok(kernel_path.to_string_lossy().to_string())
+    }
+
     pub async fn start_machine(&self, name: &str) -> Result<(), String> {
         let state_arc = {
             let machines = self.machines.read().await;
             machines.get(name).cloned().ok_or_else(|| format!("Zeno Machine '{}' tidak ditemukan", name))?
         };
 
-        // 1. Ensure UEFI firmware is available
-        let firmware_path = self.ensure_firmware().await?;
+        // 1. Determine boot source type and ensure resources
+        let is_oci = {
+            let s = state_arc.read().await;
+            s.info.iso_path.starts_with("oci://")
+        };
+
+        let kernel_path = if is_oci {
+            Some(self.ensure_microvm_kernel().await?)
+        } else {
+            None
+        };
+        let firmware_path = if !is_oci {
+            Some(self.ensure_firmware().await?)
+        } else {
+            None
+        };
 
         let mut state = state_arc.write().await;
         if state.pid.is_some() {
@@ -602,7 +633,18 @@ impl MachineManager {
         // 4. Construct cloud-hypervisor arguments
         let mut cmd = tokio::process::Command::new(&self.binary_path);
         cmd.arg("--api-socket").arg(&socket_path);
-        cmd.arg("--firmware").arg(&firmware_path);
+
+        if is_oci {
+            if let Some(ref kp) = kernel_path {
+                cmd.arg("--kernel").arg(kp);
+                cmd.arg("--cmdline").arg("root=/dev/vda rw console=hvc0 console=ttyS0 quiet");
+            }
+        } else {
+            if let Some(ref fp) = firmware_path {
+                cmd.arg("--firmware").arg(fp);
+            }
+        }
+
         cmd.arg("--cpus").arg(format!("boot={}", state.info.vcpus));
         cmd.arg("--memory").arg(format!("size={}M,shared=on", state.info.memory_mb));
         
@@ -916,6 +958,14 @@ impl MachineManager {
     pub async fn delete_machine(&self, name: &str) -> Result<(), String> {
         let _ = self.stop_machine(name).await;
 
+        let clean_name = name.trim().to_lowercase().replace(' ', "-");
+        let disk_path = format!("/var/lib/zeno-container/machines/{}.img", clean_name);
+        let cloud_init_dir = format!("/var/lib/zeno-container/machines/cloud-init/{}", clean_name);
+
+        // Physically delete files
+        let _ = std::fs::remove_file(&disk_path);
+        let _ = std::fs::remove_dir_all(&cloud_init_dir);
+
         sqlx::query("DELETE FROM db_machines WHERE name = ?")
             .bind(name)
             .execute(&self.pool)
@@ -1120,6 +1170,35 @@ impl MachineManager {
                     let _ = tokio::process::Command::new("umount").arg(&mnt_dir).status().await;
                     let _ = std::fs::remove_dir(&mnt_dir);
                     return Err(format!("Gagal menyalin layer OCI '{}' ke disk VM", layer));
+                }
+            }
+        }
+
+        // 5.5 Auto-configure DNS & Serial TTY configuration for Container RootFS images (e.g. Alpine Linux)
+        println!("[Zeno Machine] Configuring guest rootfs DNS and TTY console fallback...");
+
+        let resolv_path = format!("{}/etc/resolv.conf", mnt_dir);
+        let _ = std::fs::copy("/etc/resolv.conf", &resolv_path);
+
+        // Ensure serial console inittab for Alpine Linux
+        let inittab_path = format!("{}/etc/inittab", mnt_dir);
+        if std::path::Path::new(&inittab_path).exists() {
+            if let Ok(mut content) = std::fs::read_to_string(&inittab_path) {
+                if !content.contains("ttyS0") {
+                    content.push_str("\nttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100\n");
+                    content.push_str("hvc0::respawn:/sbin/getty -L hvc0 115200 vt100\n");
+                    let _ = std::fs::write(&inittab_path, content);
+                }
+            }
+        }
+
+        // Ensure securetty allows root login via ttyS0 & hvc0
+        let securetty_path = format!("{}/etc/securetty", mnt_dir);
+        if std::path::Path::new(&securetty_path).exists() {
+            if let Ok(mut content) = std::fs::read_to_string(&securetty_path) {
+                if !content.contains("ttyS0") {
+                    content.push_str("\nttyS0\nhvc0\n");
+                    let _ = std::fs::write(&securetty_path, content);
                 }
             }
         }
