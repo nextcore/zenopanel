@@ -1669,6 +1669,85 @@ pub fn register(engine: &mut Engine) {
         SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
 
+    // ── system.docker_search ─────────────────────────────────────────────
+    engine.register(
+        "system.docker_search",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut query = String::new();
+            let mut target = "results".to_string();
+            let mut limit: usize = 15;
+
+            for child in &node.children {
+                let val = engine.resolve_shorthand_value(child, scope);
+                match child.name.as_str() {
+                    "query" => query = val.to_string_coerce(),
+                    "limit" => limit = val.to_int() as usize,
+                    "as" => target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string(),
+                    _ => {}
+                }
+            }
+
+            if query.is_empty() {
+                scope.set(&target, Value::List(Vec::new()));
+                return Ok(());
+            }
+
+            let handle = tokio::runtime::Handle::current();
+            let url = format!(
+                "https://hub.docker.com/v2/search/repositories/?query={}&page_size={}",
+                urlencoding::encode(&query),
+                limit
+            );
+
+            let fetch_fut = async {
+                let client = reqwest::Client::builder()
+                    .user_agent("ZenoPanel-DockerSearch/1.0")
+                    .timeout(std::time::Duration::from_secs(8))
+                    .build()
+                    .unwrap_or_else(|_| reqwest::Client::new());
+
+                if let Ok(resp) = client.get(&url).send().await {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        return Some(json);
+                    }
+                }
+                None
+            };
+
+            let res = tokio::task::block_in_place(|| {
+                handle.block_on(fetch_fut)
+            });
+
+            let mut result_list = Vec::new();
+            if let Some(json) = res {
+                if let Some(results) = json.get("results").and_then(|r| r.as_array()) {
+                    for item in results {
+                        let mut m = HashMap::new();
+                        let name = item.get("repo_name").or_else(|| item.get("name"))
+                            .and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let description = item.get("short_description").or_else(|| item.get("description"))
+                            .and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let stars = item.get("star_count").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let is_official = item.get("is_official").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let is_automated = item.get("is_automated").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                        m.insert("name".to_string(), Value::String(name));
+                        m.insert("description".to_string(), Value::String(description));
+                        m.insert("stars".to_string(), Value::Int(stars));
+                        m.insert("is_official".to_string(), Value::Bool(is_official));
+                        m.insert("is_automated".to_string(), Value::Bool(is_automated));
+
+                        result_list.push(Value::Map(m));
+                    }
+                }
+            }
+
+            scope.set(&target, Value::List(result_list));
+            Ok(())
+        }),
+        SlotMeta { description: "".to_string(), example: "".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
+    );
+
     engine.register(
         "system.firewall_get_lockdown",
         Arc::new(|_engine, ctx, node, scope| {

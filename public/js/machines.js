@@ -238,6 +238,143 @@ export function toggleBootSource(type) {
 }
 window.toggleBootSource = toggleBootSource;
 
+export function loadCachedOciImages() {
+    const container = document.getElementById("machine-oci-cached-images");
+    if (!container) return;
+
+    container.innerHTML = '<span style="font-size: 0.78rem; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Memuat daftar image...</span>';
+
+    fetch("/api/containers/images")
+        .then(res => res.json())
+        .then(res => {
+            if (res.data && res.data.length > 0) {
+                container.innerHTML =
+                    '<div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 6px;">Cached images (klik untuk memilih):</div>' +
+                    '<div style="display: flex; flex-wrap: wrap; gap: 5px;">' +
+                    res.data.map(img =>
+                        `<button type="button" class="btn-action" onclick="window.selectOciImage('${img.replace(/'/g, "\\'")}')" style="font-size: 0.73rem; padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-cube" style="margin-right: 3px; opacity: 0.7;"></i>${img}</button>`
+                    ).join("") +
+                    '</div>';
+            } else {
+                container.innerHTML =
+                    '<div style="font-size: 0.78rem; color: var(--text-muted); padding: 6px 0;">' +
+                    '<i class="fa-solid fa-inbox" style="opacity: 0.5; margin-right: 4px;"></i>' +
+                    'Belum ada image yang di-cache. Pull image terlebih dahulu di tab Containers.' +
+                    '</div>' +
+                    '<button type="button" class="btn-action" onclick="window.loadCachedOciImages()" style="font-size: 0.73rem; padding: 3px 8px; margin-top: 4px;"><i class="fa-solid fa-rotate"></i> Refresh</button>';
+            }
+        })
+        .catch(() => {
+            container.innerHTML = '<span style="font-size: 0.78rem; color: var(--danger);"><i class="fa-solid fa-triangle-exclamation"></i> Gagal memuat daftar image.</span>';
+        });
+}
+window.loadCachedOciImages = loadCachedOciImages;
+
+export function selectOciImage(name) {
+    const input = document.getElementById("machine-oci-image-input");
+    if (input) {
+        input.value = name;
+        input.focus();
+    }
+}
+window.selectOciImage = selectOciImage;
+
+// ── Docker Hub Autocomplete Search ──────────────────────────────────
+let _ociSearchTimer = null;
+let _ociSearchAbort = null;
+
+export function onOciImageSearch(query) {
+    const dropdown = document.getElementById("machine-oci-autocomplete");
+    const icon = document.getElementById("machine-oci-search-icon");
+    if (!dropdown) return;
+
+    // Clear previous timer
+    if (_ociSearchTimer) clearTimeout(_ociSearchTimer);
+    if (_ociSearchAbort) _ociSearchAbort.abort();
+
+    const q = (query || "").trim();
+
+    // If query contains ":" (user is typing tag), hide autocomplete
+    if (q.includes(":") || q.length < 2) {
+        dropdown.style.display = "none";
+        return;
+    }
+
+    // Debounce 400ms
+    _ociSearchTimer = setTimeout(() => {
+        if (icon) {
+            icon.className = "fa-solid fa-spinner fa-spin";
+            icon.style.color = "var(--text-muted)";
+        }
+
+        _ociSearchAbort = new AbortController();
+        fetch(`/api/containers/docker-search?q=${encodeURIComponent(q)}`, { signal: _ociSearchAbort.signal })
+            .then(res => res.json())
+            .then(res => {
+                if (icon) {
+                    icon.className = "fa-brands fa-docker";
+                    icon.style.color = "#2496ed";
+                }
+
+                if (!res.data || res.data.length === 0) {
+                    dropdown.innerHTML = `<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 0.8rem;">
+                        <i class="fa-solid fa-search" style="opacity: 0.4;"></i> Tidak ditemukan image untuk "<strong>${q}</strong>"
+                    </div>`;
+                    dropdown.style.display = "block";
+                    return;
+                }
+
+                let html = "";
+                res.data.forEach(img => {
+                    const name = img.name || "";
+                    const desc = (img.description || "").substring(0, 80);
+                    const stars = img.stars || 0;
+                    const isOfficial = img.is_official || false;
+
+                    const officialBadge = isOfficial
+                        ? `<span style="background: #2496ed; color: white; font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; margin-left: 6px; font-weight: 600;">Official</span>`
+                        : "";
+                    const starBadge = stars > 0
+                        ? `<span style="color: #f59e0b; font-size: 0.72rem; margin-left: 6px;"><i class="fa-solid fa-star"></i> ${stars >= 1000 ? (stars / 1000).toFixed(1) + "k" : stars}</span>`
+                        : "";
+
+                    html += `<div class="oci-autocomplete-item" onclick="window.selectOciImage('${name.replace(/'/g, "\\'")}'); document.getElementById('machine-oci-autocomplete').style.display='none';"
+                        style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06); transition: background 0.15s;"
+                        onmouseenter="this.style.background='rgba(99,102,241,0.15)'"
+                        onmouseleave="this.style.background='transparent'">
+                        <div style="display: flex; align-items: center;">
+                            <i class="fa-brands fa-docker" style="color: #2496ed; margin-right: 8px; font-size: 0.9rem;"></i>
+                            <span style="color: var(--text-main); font-size: 0.84rem; font-weight: 500; font-family: var(--font-code);">${name}</span>
+                            ${officialBadge}${starBadge}
+                        </div>
+                        ${desc ? `<div style="color: var(--text-muted); font-size: 0.72rem; margin-top: 2px; margin-left: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</div>` : ""}
+                    </div>`;
+                });
+
+                dropdown.innerHTML = html;
+                dropdown.style.display = "block";
+            })
+            .catch(err => {
+                if (err.name === "AbortError") return;
+                if (icon) {
+                    icon.className = "fa-brands fa-docker";
+                    icon.style.color = "#2496ed";
+                }
+                dropdown.style.display = "none";
+            });
+    }, 400);
+}
+window.onOciImageSearch = onOciImageSearch;
+
+// Close autocomplete when clicking outside
+document.addEventListener("click", (e) => {
+    const dropdown = document.getElementById("machine-oci-autocomplete");
+    const input = document.getElementById("machine-oci-image-input");
+    if (dropdown && input && !input.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.style.display = "none";
+    }
+});
+
 export function openCreateMachineModal() {
     const modal = document.getElementById("create-machine-modal");
     if (modal) {

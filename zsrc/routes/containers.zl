@@ -16,6 +16,14 @@ http.get: '/api/containers/docker-tags' {
     http.ok: { data: $tags }
 }
 
+# ─── Search Docker Hub ───────────────────────────────────────────
+http.get: '/api/containers/docker-search' {
+    auth.guard
+    http.query: 'q' { as: $q }
+    system.docker_search: { query: $q, limit: 15, as: $results }
+    http.ok: { data: $results }
+}
+
 # ─── List Cached Images ──────────────────────────────────────────
 http.get: '/api/containers/images' {
     auth.guard

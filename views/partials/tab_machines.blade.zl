@@ -117,10 +117,10 @@
                     <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Boot Source</label>
                     <div style="display: flex; gap: 15px; margin-bottom: 10px;">
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-main); cursor: pointer;">
-                            <input type="radio" name="machine-boot-source-type" value="iso" checked onclick="window.toggleBootSource('iso')" style="cursor: pointer;"> ISO Image
+                            <input type="radio" name="machine-boot-source-type" value="iso" checked onchange="window.toggleBootSource('iso')" style="cursor: pointer;"> ISO Image
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-main); cursor: pointer;">
-                            <input type="radio" name="machine-boot-source-type" value="oci" onclick="window.toggleBootSource('oci')" style="cursor: pointer;"> OCI Container (Zeno Box)
+                            <input type="radio" name="machine-boot-source-type" value="oci" onchange="window.toggleBootSource('oci')" style="cursor: pointer;"> OCI Container (Zeno Box)
                         </label>
                     </div>
 
@@ -131,8 +131,23 @@
                     </div>
 
                     <div id="machine-boot-source-oci-wrapper" style="display: none;">
-                        <input type="text" id="machine-oci-image-input" placeholder="e.g. alpine:latest, debian:latest" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">ZenoPanel will pull this image via Zeno Box and extract it to the VM's disk.</div>
+                        <div style="position: relative; margin-bottom: 8px;">
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <div style="flex: 1; position: relative;">
+                                    <input type="text" id="machine-oci-image-input" autocomplete="off" placeholder="Ketik nama image, misalnya: ubuntu, nginx, alpine..." oninput="window.onOciImageSearch(this.value)" onfocus="window.onOciImageSearch(this.value)" style="width: 100%; box-sizing: border-box; padding: 10px 36px 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem; font-family: var(--font-code);">
+                                    <i id="machine-oci-search-icon" class="fa-brands fa-docker" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #2496ed; font-size: 1rem; opacity: 0.6;"></i>
+                                </div>
+                            </div>
+                            <div id="machine-oci-autocomplete" style="display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 999; max-height: 260px; overflow-y: auto; background: #1a2236; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0 0 8px 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);"></div>
+                        </div>
+                        <div id="machine-oci-cached-images" style="margin-bottom: 6px;">
+                            <button type="button" class="btn-action" onclick="window.loadCachedOciImages()" style="font-size: 0.75rem; padding: 4px 10px;"><i class="fa-solid fa-layer-group"></i> Load cached images from Zeno Box</button>
+                        </div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); line-height: 1.5;">
+                            <i class="fa-solid fa-info-circle" style="color: var(--accent-primary);"></i>
+                            ZenoPanel akan pull image OCI, mengekstrak rootfs-nya ke disk VM, dan melakukan boot MicroVM langsung dari rootfs tersebut (tanpa ISO).
+                            <br><i class="fa-brands fa-docker" style="color: #2496ed;"></i> Ketik di atas untuk mencari image langsung dari Docker Hub.
+                        </div>
                     </div>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
