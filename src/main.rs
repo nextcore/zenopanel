@@ -1472,21 +1472,212 @@ async fn wildcard_handler(
     State(state): State<Arc<AppState>>,
     req: axum::http::Request<axum::body::Body>,
 ) -> Response {
-    let (parts, req_body) = req.into_parts();
-    let method = parts.method;
-    let uri = parts.uri;
-    let headers: axum::http::HeaderMap = parts.headers;
+    let path_str = req.uri().path().to_string();
+    let path = path_str.as_str();
+    let host_header = req.headers().get("Host")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    let (host, request_port_opt) = proxyman::parse_host_port(host_header);
+    let request_port = request_port_opt.unwrap_or(80);
 
-    let path = uri.path();
-    let method_str = method.as_str();
+    // Check if request matches any proxy rule
+    if let Some(rule) = state.proxy_manager.match_rule(&host, request_port, path).await {
+        let is_upgrade = req.headers().get("Upgrade").is_some()
+            && req.headers().get("Connection")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_lowercase().contains("upgrade"))
+                .unwrap_or(false);
 
-    let query_params: HashMap<String, String> = uri.query()
-        .map(|q| {
-            url::form_urlencoded::parse(q.as_bytes())
-                .into_owned()
-                .collect()
-        })
-        .unwrap_or_default();
+        if is_upgrade && rule.rule_type != "static" {
+            let mut check_service_unavailable = false;
+            let mut app_status = "offline".to_string();
+            let app_name = rule.name.clone();
+
+            if let Some(ref proc_id) = rule.managed_process_id {
+                if !proc_id.is_empty() {
+                    if let Some(status) = state.process_manager.get_process_status(proc_id).await {
+                        app_status = status;
+                        if app_status != "running" {
+                            check_service_unavailable = true;
+                        }
+                    }
+                }
+            }
+
+            if check_service_unavailable {
+                let html = render_error_page(&state.engine, &app_status, &app_name, &format!("The linked process ({}) has status: {}", rule.managed_process_id.as_deref().unwrap_or(""), app_status));
+                return Response::builder()
+                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                    .header("Content-Type", "text/html")
+                    .body(axum::body::Body::from(html))
+                    .unwrap();
+            }
+
+            // WebSocket/Connection Upgrade Tunneling
+            let selected_target = state.proxy_manager.get_next_target(&rule.id, &rule.target).await;
+            
+            // Format path and query
+            let path_to_forward = if rule.strip_path {
+                let prefix = rule.path.trim_end_matches('/');
+                if !prefix.is_empty() {
+                    req.uri().path().strip_prefix(prefix).unwrap_or(req.uri().path())
+                } else {
+                    req.uri().path()
+                }
+            } else {
+                req.uri().path()
+            };
+
+            let mut target_path_and_query = path_to_forward.to_string();
+            if let Some(query) = req.uri().query() {
+                target_path_and_query.push('?');
+                target_path_and_query.push_str(query);
+            }
+
+            // Connect to upstream via TCP
+            let cleaned = selected_target.trim_start_matches("http://").trim_start_matches("https://");
+            let (t_host, t_port) = crate::proxyman::parse_host_port(cleaned);
+            let t_port = t_port.unwrap_or(80);
+            let addr_str = format!("{}:{}", t_host, t_port);
+
+            let mut upstream_stream = match tokio::net::TcpStream::connect(&addr_str).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(axum::body::Body::from(format!("Failed to connect to upstream: {}", e)))
+                        .unwrap();
+                }
+            };
+
+            // Format raw HTTP request to upstream
+            let mut request_bytes = format!("{} {} HTTP/1.1\r\n", req.method(), target_path_and_query);
+            for (name, value) in req.headers().iter() {
+                if let Ok(val_str) = value.to_str() {
+                    request_bytes.push_str(&format!("{}: {}\r\n", name.as_str(), val_str));
+                }
+            }
+            request_bytes.push_str("\r\n");
+
+            // Write request to upstream
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            if let Err(e) = upstream_stream.write_all(request_bytes.as_bytes()).await {
+                return Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .body(axum::body::Body::from(format!("Failed to send upgrade request: {}", e)))
+                    .unwrap();
+            }
+
+            // Read response from upstream
+            let mut response_bytes = Vec::new();
+            let mut buf = [0u8; 1024];
+            let mut header_end = None;
+            loop {
+                let n = match upstream_stream.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) => {
+                        return Response::builder()
+                            .status(StatusCode::BAD_GATEWAY)
+                            .body(axum::body::Body::from(format!("Failed to read handshake response from upstream: {}", e)))
+                            .unwrap();
+                    }
+                };
+                response_bytes.extend_from_slice(&buf[..n]);
+                if let Some(pos) = response_bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    header_end = Some(pos);
+                    break;
+                }
+                if response_bytes.len() > 65536 {
+                    return Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(axum::body::Body::from("Upstream headers too long"))
+                        .unwrap();
+                }
+            }
+
+            let pos = match header_end {
+                Some(p) => p,
+                None => {
+                    return Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(axum::body::Body::from("Invalid response from upstream"))
+                        .unwrap();
+                }
+            };
+
+            let header_part = &response_bytes[..pos];
+            let body_part = response_bytes[pos + 4..].to_vec();
+
+            let header_str = String::from_utf8_lossy(header_part);
+            let mut lines = header_str.lines();
+            let status_line = lines.next().unwrap_or("");
+            let mut parts = status_line.splitn(3, ' ');
+            let _proto = parts.next().unwrap_or("");
+            let status_code_str = parts.next().unwrap_or("");
+            let status_code = status_code_str.parse::<u16>().unwrap_or(502);
+
+            if status_code == 101 {
+                let mut resp_builder = Response::builder().status(101);
+                for line in lines {
+                    if let Some(colon_pos) = line.find(':') {
+                        let name = line[..colon_pos].trim().to_string();
+                        let value = line[colon_pos + 1..].trim().to_string();
+                        resp_builder = resp_builder.header(name, value);
+                    }
+                }
+
+                let on_upgrade = hyper::upgrade::on(req);
+                tokio::spawn(async move {
+                    match on_upgrade.await {
+                        Ok(upgraded_client) => {
+                            let mut client_io = hyper_util::rt::TokioIo::new(upgraded_client);
+                            let mut upstream_io = upstream_stream;
+                            if !body_part.is_empty() {
+                                if let Err(e) = client_io.write_all(&body_part).await {
+                                    eprintln!("Failed to write initial bytes to client: {}", e);
+                                    return;
+                                }
+                            }
+                            let _ = tokio::io::copy_bidirectional(&mut client_io, &mut upstream_io).await;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to upgrade client connection: {}", e);
+                        }
+                    }
+                });
+
+                return resp_builder.body(axum::body::Body::empty()).unwrap();
+            } else {
+                let mut resp_builder = Response::builder().status(status_code);
+                for line in lines {
+                    if let Some(colon_pos) = line.find(':') {
+                        let name = line[..colon_pos].trim().to_string();
+                        let value = line[colon_pos + 1..].trim().to_string();
+                        let name_lower = name.to_lowercase();
+                        if name_lower == "transfer-encoding" || name_lower == "content-length" {
+                            continue;
+                        }
+                        resp_builder = resp_builder.header(name, value);
+                    }
+                }
+
+                let mut full_body = body_part;
+                let mut rest_buf = [0u8; 4096];
+                while let Ok(n) = upstream_stream.read(&mut rest_buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    full_body.extend_from_slice(&rest_buf[..n]);
+                    if full_body.len() > 10 * 1024 * 1024 {
+                        break;
+                    }
+                }
+                resp_builder = resp_builder.header("content-length", full_body.len());
+                return resp_builder.body(axum::body::Body::from(full_body)).unwrap();
+            }
+        }
+    }
 
     // Intercept ACME HTTP-01 challenges
     if path.starts_with("/.well-known/acme-challenge/") {
@@ -1502,15 +1693,22 @@ async fn wildcard_handler(
         }
     }
 
-    // Extract Host header and port
-    let host_header = headers.get("Host")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-    let (host, request_port_opt) = proxyman::parse_host_port(host_header);
-    let request_port = request_port_opt.unwrap_or(80);
+    let (parts, req_body) = req.into_parts();
+    let method = parts.method;
+    let uri = parts.uri;
+    let headers: axum::http::HeaderMap = parts.headers;
+    let method_str = method.as_str();
 
-    // Check if request matches any proxy rule
-    if let Some(rule) = state.proxy_manager.match_rule(&host, request_port, path).await {
+    let query_params: HashMap<String, String> = uri.query()
+        .map(|q| {
+            url::form_urlencoded::parse(q.as_bytes())
+                .into_owned()
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Check if request matches any proxy rule again for routing
+    if let Some(rule) = state.proxy_manager.match_rule(&host, request_port, &path).await {
         let mut check_service_unavailable = false;
         let mut app_status = "offline".to_string();
         let app_name = rule.name.clone();
