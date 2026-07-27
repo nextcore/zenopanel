@@ -1115,6 +1115,13 @@ fn main() {
         .route("/api/managed/stream", axum::routing::get(managed_stream_handler))
         .route("/api/managed/logs/stream", axum::routing::get(managed_logs_stream_handler))
         .route("/api/terminal/ws", axum::routing::get(terminal_ws_handler))
+        // Link-Local HTTP Metadata Service endpoints
+        .route("/openstack/latest/user_data", axum::routing::get(metadata_user_data_handler))
+        .route("/openstack/latest/meta_data.json", axum::routing::get(metadata_meta_data_json_handler))
+        .route("/latest/meta-data", axum::routing::get(metadata_meta_data_text_handler))
+        .route("/latest/meta-data/", axum::routing::get(metadata_meta_data_text_handler))
+        .route("/latest/meta-data/*item", axum::routing::get(metadata_meta_data_item_handler))
+        .route("/latest/user-data", axum::routing::get(metadata_user_data_handler))
         .nest_service("/public", static_service)
         .fallback(any(wildcard_handler))
         .layer(axum::middleware::from_fn_with_state(state.clone(), waf::waf_middleware))
@@ -1135,8 +1142,9 @@ fn main() {
         .unwrap_or(8443);
 
     // Bind internal Axum server to localhost dynamic management port
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", mgmt_port)).await.unwrap();
-    println!("Internal Axum server running on http://127.0.0.1:{}", mgmt_port);
+    // We bind to 0.0.0.0 so we can also accept forwarded connections from virtual TAP/bridge networks
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", mgmt_port)).await.unwrap();
+    println!("Internal Axum server running on http://0.0.0.0:{}", mgmt_port);
 
     // Initialize shared certificate resolver
     let cert_resolver = Arc::new(sslman::ZenoCertResolver::new(proxy_manager.clone(), "./certs"));
@@ -1158,7 +1166,8 @@ fn main() {
     // Spawn the internal Axum server in the background
     let app_clone = app.clone();
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app_clone).await {
+        let service = app_clone.into_make_service_with_connect_info::<std::net::SocketAddr>();
+        if let Err(e) = axum::serve(listener, service).await {
             eprintln!("Internal Axum server error: {}", e);
         }
     });
@@ -2777,6 +2786,159 @@ async fn handle_terminal_socket(
     }
     
     let _ = child.kill();
+}
+
+async fn metadata_user_data_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+) -> Response {
+    let client_ip = addr.ip().to_string();
+    println!("[Metadata Service] Request for user-data from IP: {}", client_ip);
+
+    let pool = match state.db_manager.get_pool("default").await {
+        Some(crate::db::DbPool::Sqlite(pool)) => pool,
+        _ => return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(axum::body::Body::from("")).unwrap(),
+    };
+
+    let row_res: Result<Option<(String, String)>, _> = sqlx::query_as("SELECT ssh_key, root_password FROM db_machines WHERE ip_address = ?")
+        .bind(&client_ip)
+        .fetch_optional(&pool)
+        .await;
+
+    match row_res {
+        Ok(Some((ssh_key, root_password))) => {
+            let mut user_data = String::from("#cloud-config\n");
+            if !root_password.is_empty() {
+                user_data.push_str(&format!("password: {}\nchpasswd: {{ expire: False }}\nssh_pwauth: True\n", root_password));
+            }
+            if !ssh_key.is_empty() {
+                user_data.push_str(&format!("ssh_authorized_keys:\n  - {}\n", ssh_key.trim()));
+            }
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/yaml")
+                .body(axum::body::Body::from(user_data))
+                .unwrap()
+        }
+        _ => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(axum::body::Body::from("404 Not Found"))
+                .unwrap()
+        }
+    }
+}
+
+async fn metadata_meta_data_json_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+) -> Response {
+    let client_ip = addr.ip().to_string();
+    let pool = match state.db_manager.get_pool("default").await {
+        Some(crate::db::DbPool::Sqlite(pool)) => pool,
+        _ => return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(axum::body::Body::from("")).unwrap(),
+    };
+
+    let row_res: Result<Option<(String,)>, _> = sqlx::query_as("SELECT name FROM db_machines WHERE ip_address = ?")
+        .bind(&client_ip)
+        .fetch_optional(&pool)
+        .await;
+
+    match row_res {
+        Ok(Some((name,))) => {
+            let meta_json = serde_json::json!({
+                "uuid": name,
+                "hostname": name,
+                "local-hostname": name
+            });
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(meta_json.to_string()))
+                .unwrap()
+        }
+        _ => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(axum::body::Body::from("404 Not Found"))
+                .unwrap()
+        }
+    }
+}
+
+async fn metadata_meta_data_text_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+) -> Response {
+    let client_ip = addr.ip().to_string();
+    let pool = match state.db_manager.get_pool("default").await {
+        Some(crate::db::DbPool::Sqlite(pool)) => pool,
+        _ => return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(axum::body::Body::from("")).unwrap(),
+    };
+
+    let row_res: Result<Option<(String,)>, _> = sqlx::query_as("SELECT name FROM db_machines WHERE ip_address = ?")
+        .bind(&client_ip)
+        .fetch_optional(&pool)
+        .await;
+
+    match row_res {
+        Ok(Some(_)) => {
+            let keys = "instance-id\nhostname\nlocal-hostname\npublic-keys/\n";
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/plain")
+                .body(axum::body::Body::from(keys))
+                .unwrap()
+        }
+        _ => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(axum::body::Body::from("404 Not Found"))
+                .unwrap()
+        }
+    }
+}
+
+async fn metadata_meta_data_item_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    axum::extract::Path(item): axum::extract::Path<String>,
+) -> Response {
+    let client_ip = addr.ip().to_string();
+    let pool = match state.db_manager.get_pool("default").await {
+        Some(crate::db::DbPool::Sqlite(pool)) => pool,
+        _ => return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(axum::body::Body::from("")).unwrap(),
+    };
+
+    let row_res: Result<Option<(String, String)>, _> = sqlx::query_as("SELECT name, ssh_key FROM db_machines WHERE ip_address = ?")
+        .bind(&client_ip)
+        .fetch_optional(&pool)
+        .await;
+
+    match row_res {
+        Ok(Some((name, ssh_key))) => {
+            let val = match item.as_str() {
+                "instance-id" => name,
+                "hostname" => name,
+                "local-hostname" => name,
+                "public-keys" | "public-keys/" => "0/\n".to_string(),
+                "public-keys/0" | "public-keys/0/" => "openssh-key\n".to_string(),
+                "public-keys/0/openssh-key" => ssh_key,
+                _ => return Response::builder().status(StatusCode::NOT_FOUND).body(axum::body::Body::from("404 Not Found")).unwrap(),
+            };
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/plain")
+                .body(axum::body::Body::from(val))
+                .unwrap()
+        }
+        _ => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(axum::body::Body::from("404 Not Found"))
+                .unwrap()
+        }
+    }
 }
 
 

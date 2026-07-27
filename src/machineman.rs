@@ -291,6 +291,23 @@ impl MachineManager {
                         } else {
                             socket_path
                         };
+
+                        // Perform VMM Socket Ping Check to verify Cloud-Hypervisor liveness
+                        let is_socket_responding = if std::path::Path::new(&socket_path).exists() {
+                            if let Ok(stream) = tokio::net::UnixStream::connect(&socket_path).await {
+                                // Socket is open and readable/writable
+                                stream.peer_addr().is_ok()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if !is_socket_responding {
+                            println!("[Reconciler] WARNING: VM '{}' is running (PID exists) but its API socket '{}' is not responding!", name, socket_path);
+                        }
+
                         let target_len = disk_size_gb * 1024 * 1024 * 1024;
                         if let Ok(metadata) = std::fs::metadata(&disk_path) {
                             let current_len = metadata.len();
@@ -482,6 +499,15 @@ impl MachineManager {
                 .map_err(|e| format!("Gagal membuat disk file: {}", e))?;
             file.set_len(target_len)
                 .map_err(|e| format!("Gagal menentukan kapasitas disk: {}", e))?;
+
+            // If iso_path starts with oci://, pull and extract OCI layers to the disk using Zeno Box
+            if state.info.iso_path.starts_with("oci://") {
+                let image_name = state.info.iso_path.trim_start_matches("oci://").to_string();
+                if let Err(e) = self.extract_oci_image_to_disk(&image_name, &disk_path, &clean_name).await {
+                    let _ = std::fs::remove_file(&disk_path);
+                    return Err(format!("Gagal ekstraksi OCI image ke disk VM: {}", e));
+                }
+            }
         } else {
             if let Ok(metadata) = std::fs::metadata(&disk_path) {
                 let current_len = metadata.len();
@@ -499,6 +525,67 @@ impl MachineManager {
         let serial_socket = format!("/run/zeno-machine/{}-serial.sock", clean_name);
         let _ = std::fs::remove_file(&serial_socket);
 
+        // 3b. Setup tap network dynamically if tap_device is empty or does not exist
+        let mut tap_device = state.info.tap_device.clone();
+        if tap_device.is_empty() {
+            let mut tap_name = format!("ztap-{}", clean_name);
+            if tap_name.len() > 15 {
+                tap_name.truncate(15);
+            }
+            tap_device = tap_name;
+            state.info.tap_device = tap_device.clone();
+            
+            // Update database with the generated tap_device
+            let _ = sqlx::query("UPDATE db_machines SET tap_device = ? WHERE name = ?")
+                .bind(&tap_device)
+                .bind(name)
+                .execute(&self.pool)
+                .await;
+        }
+
+        if !tap_device.is_empty() {
+            let sys_path = format!("/sys/class/net/{}", tap_device);
+            if !std::path::Path::new(&sys_path).exists() {
+                println!("[Zeno Machine] Auto-creating TAP device '{}'", tap_device);
+                let status = tokio::process::Command::new("ip")
+                    .args(&["tuntap", "add", "dev", &tap_device, "mode", "tap"])
+                    .status()
+                    .await;
+                if let Ok(st) = status {
+                    if st.success() {
+                        let _ = tokio::process::Command::new("ip")
+                            .args(&["link", "set", "dev", &tap_device, "up"])
+                            .status()
+                            .await;
+
+                        // Attach to default bridge zenobr0 if it exists
+                        if std::path::Path::new("/sys/class/net/zenobr0").exists() {
+                            let _ = tokio::process::Command::new("ip")
+                                .args(&["link", "set", "dev", &tap_device, "master", "zenobr0"])
+                                .status()
+                                .await;
+                        }
+
+                        // Add iptables redirect rule for metadata service (169.254.169.254:80 -> mgmt_port)
+                        let mgmt_port = std::env::var("MGMT_PORT").unwrap_or_else(|_| "3002".to_string());
+                        let _ = tokio::process::Command::new("iptables")
+                            .args(&[
+                                "-t", "nat",
+                                "-I", "PREROUTING",
+                                "-i", &tap_device,
+                                "-d", "169.254.169.254",
+                                "-p", "tcp",
+                                "--dport", "80",
+                                "-j", "REDIRECT",
+                                "--to-ports", &mgmt_port
+                            ])
+                            .status()
+                            .await;
+                    }
+                }
+            }
+        }
+
         // 4. Construct cloud-hypervisor arguments
         let mut cmd = tokio::process::Command::new(&self.binary_path);
         cmd.arg("--api-socket").arg(&socket_path);
@@ -507,13 +594,13 @@ impl MachineManager {
         cmd.arg("--memory").arg(format!("size={}M,shared=on", state.info.memory_mb));
         
         let mut disks = format!("path={}", disk_path);
-        if !state.info.iso_path.is_empty() {
+        if !state.info.iso_path.is_empty() && !state.info.iso_path.starts_with("oci://") {
             disks.push_str(&format!(",path={}", state.info.iso_path));
         }
         cmd.arg("--disk").arg(disks);
 
-        if !state.info.tap_device.is_empty() {
-            cmd.arg("--net").arg(format!("tap={}", state.info.tap_device));
+        if !tap_device.is_empty() {
+            cmd.arg("--net").arg(format!("tap={}", tap_device));
         }
 
         cmd.arg("--serial").arg(format!("socket={}", serial_socket));
@@ -529,6 +616,7 @@ impl MachineManager {
         let name_clone = name.to_string();
         let state_arc_clone = state_arc.clone();
         let pool_clone = self.pool.clone();
+        let tap_device_clone = tap_device.clone();
         tokio::spawn(async move {
             let status = child.wait().await;
             println!("[Zeno Machine] MicroVM '{}' (PID {}) exited with status {:?}", name_clone, pid, status);
@@ -549,6 +637,33 @@ impl MachineManager {
             let _ = std::fs::remove_file(&socket_path_to_clean);
             let serial_socket = format!("/run/zeno-machine/{}-serial.sock", name_clone);
             let _ = std::fs::remove_file(&serial_socket);
+
+            // Clean up TAP network device if it exists
+            if !tap_device_clone.is_empty() {
+                let sys_path = format!("/sys/class/net/{}", tap_device_clone);
+                if std::path::Path::new(&sys_path).exists() {
+                    println!("[Zeno Machine] Auto-removing TAP device '{}' on exit", tap_device_clone);
+                    
+                    // Clean up iptables redirect rule
+                    let mgmt_port = std::env::var("MGMT_PORT").unwrap_or_else(|_| "3002".to_string());
+                    let _ = std::process::Command::new("iptables")
+                        .args(&[
+                            "-t", "nat",
+                            "-D", "PREROUTING",
+                            "-i", &tap_device_clone,
+                            "-d", "169.254.169.254",
+                            "-p", "tcp",
+                            "--dport", "80",
+                            "-j", "REDIRECT",
+                            "--to-ports", &mgmt_port
+                        ])
+                        .status();
+
+                    let _ = std::process::Command::new("ip")
+                        .args(&["link", "delete", &tap_device_clone])
+                        .status();
+                }
+            }
         });
 
         // 7. Update database status
@@ -571,6 +686,33 @@ impl MachineManager {
             let _ = std::process::Command::new("kill").args(&["-15", &pid.to_string()]).status();
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
             let _ = std::process::Command::new("kill").args(&["-9", &pid.to_string()]).status();
+        }
+
+        let tap_device = state.info.tap_device.clone();
+        if !tap_device.is_empty() {
+            let sys_path = format!("/sys/class/net/{}", tap_device);
+            if std::path::Path::new(&sys_path).exists() {
+                println!("[Zeno Machine] Auto-removing TAP device '{}' on stop", tap_device);
+                
+                // Clean up iptables redirect rule
+                let mgmt_port = std::env::var("MGMT_PORT").unwrap_or_else(|_| "3002".to_string());
+                let _ = std::process::Command::new("iptables")
+                    .args(&[
+                        "-t", "nat",
+                        "-D", "PREROUTING",
+                        "-i", &tap_device,
+                        "-d", "169.254.169.254",
+                        "-p", "tcp",
+                        "--dport", "80",
+                        "-j", "REDIRECT",
+                        "--to-ports", &mgmt_port
+                    ])
+                    .status();
+
+                let _ = std::process::Command::new("ip")
+                    .args(&["link", "delete", &tap_device])
+                    .status();
+            }
         }
 
         state.info.status = "stopped".to_string();
@@ -801,6 +943,89 @@ impl MachineManager {
                 downloading_ids_clone.lock().await.remove(&id);
             });
         }
+        Ok(())
+    }
+
+    async fn extract_oci_image_to_disk(&self, image_name: &str, disk_path: &str, name: &str) -> Result<(), String> {
+        // 1. Pull image using Zeno Box
+        println!("[Zeno Machine] Pulling OCI image '{}' via Zeno Box...", image_name);
+        crate::slots::zeno_box::image::pull_image_rust(image_name).await
+            .map_err(|e| format!("Gagal mendownload OCI image '{}': {}", image_name, e))?;
+
+        // 2. Format disk as ext4
+        println!("[Zeno Machine] Formatting sparse disk '{}' as ext4...", disk_path);
+        let mkfs_status = tokio::process::Command::new("mkfs.ext4")
+            .args(&["-F", disk_path])
+            .status()
+            .await;
+        if !mkfs_status.map(|s| s.success()).unwrap_or(false) {
+            return Err("Gagal memformat disk VM dengan ext4 (pastikan utilitas mkfs.ext4 terinstal)".to_string());
+        }
+
+        // 3. Create mount point
+        let mnt_dir = format!("/run/zeno-machine/mnt-{}", name);
+        let _ = std::fs::create_dir_all(&mnt_dir);
+
+        // 4. Mount disk loop
+        println!("[Zeno Machine] Mounting disk loop to '{}'...", mnt_dir);
+        let mount_status = tokio::process::Command::new("mount")
+            .args(&["-o", "loop", disk_path, &mnt_dir])
+            .status()
+            .await;
+        if !mount_status.map(|s| s.success()).unwrap_or(false) {
+            let _ = std::fs::remove_dir(&mnt_dir);
+            return Err("Gagal me-mount disk VM ke loop device (butuh hak akses root/sudo)".to_string());
+        }
+
+        // 5. Read layers from Zeno Box and copy
+        let data_dir = crate::slots::zeno_box::common::get_data_dir();
+        let img_ref = crate::slots::zeno_box::common::parse_image_ref(image_name);
+        let cache_dir_name = format!("{}_{}", img_ref.repository, img_ref.tag)
+            .replace('/', "_")
+            .replace(':', "_");
+        let layers_json_path = std::path::Path::new(&data_dir).join("images").join(&cache_dir_name).join("layers.json");
+
+        if !layers_json_path.exists() {
+            let _ = tokio::process::Command::new("umount").arg(&mnt_dir).status().await;
+            let _ = std::fs::remove_dir(&mnt_dir);
+            return Err("Metadata layers.json dari OCI image tidak ditemukan".to_string());
+        }
+
+        let file = std::fs::File::open(&layers_json_path)
+            .map_err(|e| format!("Gagal membaca layers.json: {}", e))?;
+        let layers: Vec<String> = serde_json::from_reader(file)
+            .map_err(|e| format!("Gagal parse layers.json: {}", e))?;
+
+        let layers_dir = std::path::Path::new(&data_dir).join("images").join("layers");
+        for layer in &layers {
+            let src_rootfs = layers_dir.join(layer).join("rootfs");
+            if src_rootfs.exists() {
+                println!("[Zeno Machine] Copying OCI layer '{}' to VM disk...", layer);
+                let cp_status = tokio::process::Command::new("cp")
+                    .args(&["-a", &format!("{}/.", src_rootfs.to_string_lossy()), &mnt_dir])
+                    .status()
+                    .await;
+                if !cp_status.map(|s| s.success()).unwrap_or(false) {
+                    let _ = tokio::process::Command::new("umount").arg(&mnt_dir).status().await;
+                    let _ = std::fs::remove_dir(&mnt_dir);
+                    return Err(format!("Gagal menyalin layer OCI '{}' ke disk VM", layer));
+                }
+            }
+        }
+
+        // 6. Unmount loop device
+        println!("[Zeno Machine] Unmounting disk loop from '{}'...", mnt_dir);
+        let umount_status = tokio::process::Command::new("umount")
+            .arg(&mnt_dir)
+            .status()
+            .await;
+        let _ = std::fs::remove_dir(&mnt_dir);
+
+        if !umount_status.map(|s| s.success()).unwrap_or(false) {
+            return Err("Gagal me-unmount disk VM setelah penyalinan selesai".to_string());
+        }
+
+        println!("[Zeno Machine] OCI image '{}' successfully extracted to disk '{}'", image_name, disk_path);
         Ok(())
     }
 
