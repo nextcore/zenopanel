@@ -43,7 +43,7 @@ fn is_realtime_request(req_header: &pingora::http::RequestHeader) -> bool {
     is_websocket || is_sse
 }
 
-fn configure_peer(peer: &mut HttpPeer, is_realtime: bool) {
+fn configure_peer(peer: &mut HttpPeer, is_realtime: bool, is_long_running: bool) {
     peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
     peer.options.idle_timeout = Some(std::time::Duration::from_secs(60));
     
@@ -51,8 +51,12 @@ fn configure_peer(peer: &mut HttpPeer, is_realtime: bool) {
         // Allow up to 1 hour of idle time for WebSockets and Server-Sent Events (SSE)
         peer.options.read_timeout = Some(std::time::Duration::from_secs(3600));
         peer.options.write_timeout = Some(std::time::Duration::from_secs(3600));
+    } else if is_long_running {
+        // Allow up to 10 minutes for slow operations like pulling images, compose up, backups, and machine setup
+        peer.options.read_timeout = Some(std::time::Duration::from_secs(600));
+        peer.options.write_timeout = Some(std::time::Duration::from_secs(600));
     } else {
-        // Allow up to 120 seconds for standard HTTP requests (needed for DB installs, backups, etc.)
+        // Allow up to 120 seconds for standard HTTP requests
         peer.options.read_timeout = Some(std::time::Duration::from_secs(120));
         peer.options.write_timeout = Some(std::time::Duration::from_secs(120));
     }
@@ -402,6 +406,12 @@ impl ProxyHttp for ZenoGateway {
         let path = req_header.uri.path();
 
         let is_realtime = is_realtime_request(req_header);
+        let is_long_running = path.starts_with("/api/containers/compose")
+            || path.starts_with("/api/containers/pull")
+            || path.starts_with("/api/database/install-server")
+            || path.starts_with("/api/database/backups")
+            || path.starts_with("/api/database/import")
+            || path.starts_with("/api/machines/create");
 
         if let Some(rule) = self.state.proxy_manager.match_rule(&host, request_port, path).await {
             if rule.rule_type == "static" {
@@ -414,7 +424,7 @@ impl ProxyHttp for ZenoGateway {
                     false,
                     String::new(),
                 );
-                configure_peer(&mut peer, is_realtime);
+                configure_peer(&mut peer, is_realtime, is_long_running);
                 return Ok(Box::new(peer));
             }
 
@@ -455,7 +465,7 @@ impl ProxyHttp for ZenoGateway {
                 is_https,
                 t_host.clone(),
             );
-            configure_peer(&mut peer, is_realtime);
+            configure_peer(&mut peer, is_realtime, is_long_running);
             Ok(Box::new(peer))
         } else {
             // Forward to local Axum instance
@@ -467,7 +477,7 @@ impl ProxyHttp for ZenoGateway {
                 false,
                 String::new(),
             );
-            configure_peer(&mut peer, is_realtime);
+            configure_peer(&mut peer, is_realtime, is_long_running);
             Ok(Box::new(peer))
         }
     }

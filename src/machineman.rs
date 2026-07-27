@@ -27,16 +27,25 @@ pub struct MachineState {
     pub info: MachineInfo,
     pub pid: Option<u32>,
     pub stop_requested: bool,
+    pub console_tx: Option<tokio::sync::broadcast::Sender<String>>,
+    pub console_write_tx: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
 }
 
 #[derive(Clone)]
 pub struct MachineManager {
-    pool: SqlitePool,
-    machines: Arc<RwLock<HashMap<String, Arc<RwLock<MachineState>>>>>,
+    pub(crate) pool: SqlitePool,
+    pub(crate) machines: Arc<RwLock<HashMap<String, Arc<RwLock<MachineState>>>>>,
     binary_path: String,
 }
 
 impl MachineManager {
+    pub async fn get_console_channels(&self, name: &str) -> Option<(tokio::sync::broadcast::Sender<String>, tokio::sync::mpsc::Sender<Vec<u8>>)> {
+        let machines = self.machines.read().await;
+        let state_arc = machines.get(name)?;
+        let state = state_arc.read().await;
+        Some((state.console_tx.clone()?, state.console_write_tx.clone()?))
+    }
+
     pub async fn new(pool: SqlitePool) -> Self {
         let create_table_query = "
             CREATE TABLE IF NOT EXISTS db_machines (
@@ -218,6 +227,8 @@ impl MachineManager {
                         info,
                         pid: None,
                         stop_requested: false,
+                        console_tx: None,
+                        console_write_tx: None,
                     })),
                 );
             }
@@ -441,6 +452,8 @@ impl MachineManager {
             info: info.clone(),
             pid: None,
             stop_requested: false,
+            console_tx: None,
+            console_write_tx: None,
         }));
 
         self.machines.write().await.insert(clean_name, state);
@@ -612,6 +625,100 @@ impl MachineManager {
         state.pid = Some(pid);
         state.info.status = "running".to_string();
 
+        let (console_tx, _) = tokio::sync::broadcast::channel::<String>(1000);
+        let (console_write_tx, mut console_write_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+        
+        state.console_tx = Some(console_tx.clone());
+        state.console_write_tx = Some(console_write_tx);
+
+        // Spawn background task to connect to VM's serial socket and stream logs + handle client writes
+        let serial_socket_path = serial_socket.clone();
+        let console_tx_clone = console_tx.clone();
+        let clean_name_clone = clean_name.clone();
+        
+        tokio::spawn(async move {
+            let mut stream = None;
+            for _ in 0..15 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                if let Ok(s) = tokio::net::UnixStream::connect(&serial_socket_path).await {
+                    stream = Some(s);
+                    break;
+                }
+            }
+            
+            let stream = match stream {
+                Some(s) => s,
+                None => {
+                    eprintln!("[Console Logger] Failed to connect to serial socket {}", serial_socket_path);
+                    return;
+                }
+            };
+            
+            let log_dir = "/var/log/zeno-machine";
+            let _ = std::fs::create_dir_all(log_dir);
+            let log_path = format!("{}/{}-boot.log", log_dir, clean_name_clone);
+            
+            let mut log_file = match std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&log_path) 
+            {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    eprintln!("[Console Logger] Failed to open boot log file: {}", e);
+                    None
+                }
+            };
+            
+            use tokio::io::AsyncReadExt;
+            use tokio::io::AsyncWriteExt;
+            let (mut reader, mut writer) = stream.into_split();
+            
+            let clean_name_c2 = clean_name_clone.clone();
+            let mut read_task = tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                let mut total_bytes = 0;
+                while let Ok(n) = reader.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = console_tx_clone.send(data);
+                    
+                    if let Some(ref mut f) = log_file {
+                        use std::io::Write;
+                        if total_bytes < 2 * 1024 * 1024 {
+                            if let Ok(_) = f.write_all(&buf[..n]) {
+                                let _ = f.flush();
+                                total_bytes += n;
+                            }
+                        }
+                    }
+                }
+                println!("[Console Logger] Read task for '{}' exited", clean_name_c2);
+            });
+            
+            let clean_name_c3 = clean_name_clone.clone();
+            let mut write_task = tokio::spawn(async move {
+                while let Some(data) = console_write_rx.recv().await {
+                    if writer.write_all(&data).await.is_err() {
+                        break;
+                    }
+                    let _ = writer.flush().await;
+                }
+                println!("[Console Logger] Write task for '{}' exited", clean_name_c3);
+            });
+            
+            tokio::select! {
+                _ = &mut read_task => {},
+                _ = &mut write_task => {},
+            }
+            read_task.abort();
+            write_task.abort();
+        });
+
         // 6. Spawn background monitor loop
         let name_clone = name.to_string();
         let state_arc_clone = state_arc.clone();
@@ -623,6 +730,8 @@ impl MachineManager {
             let mut s = state_arc_clone.write().await;
             s.pid = None;
             s.info.status = "stopped".to_string();
+            s.console_tx = None;
+            s.console_write_tx = None;
             let _ = sqlx::query("UPDATE db_machines SET status = 'stopped' WHERE name = ?")
                 .bind(&name_clone)
                 .execute(&pool_clone)
@@ -717,6 +826,8 @@ impl MachineManager {
 
         state.info.status = "stopped".to_string();
         state.pid = None;
+        state.console_tx = None;
+        state.console_write_tx = None;
 
         let _ = sqlx::query("UPDATE db_machines SET status = 'stopped' WHERE name = ?")
             .bind(name)

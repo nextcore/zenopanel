@@ -205,6 +205,19 @@ export function populateIsoSelectDropdown() {
         .catch(() => {});
 }
 
+export function toggleBootSource(type) {
+    const isoWrapper = document.getElementById("machine-boot-source-iso-wrapper");
+    const ociWrapper = document.getElementById("machine-boot-source-oci-wrapper");
+    if (type === "iso") {
+        if (isoWrapper) isoWrapper.style.display = "block";
+        if (ociWrapper) ociWrapper.style.display = "none";
+    } else {
+        if (isoWrapper) isoWrapper.style.display = "none";
+        if (ociWrapper) ociWrapper.style.display = "block";
+    }
+}
+window.toggleBootSource = toggleBootSource;
+
 export function openCreateMachineModal() {
     const modal = document.getElementById("create-machine-modal");
     if (modal) {
@@ -213,6 +226,12 @@ export function openCreateMachineModal() {
         if (sshInput) sshInput.value = "";
         const pwdInput = document.getElementById("machine-password-input");
         if (pwdInput) pwdInput.value = "";
+        
+        // Reset Boot Source to ISO
+        const isoRadio = document.querySelector('input[name="machine-boot-source-type"][value="iso"]');
+        if (isoRadio) isoRadio.checked = true;
+        toggleBootSource("iso");
+
         populateIsoSelectDropdown();
         modal.style.display = "flex";
     }
@@ -228,7 +247,21 @@ export function closeCreateMachineModal() {
 export function submitCreateMachine() {
     const name = document.getElementById("machine-name-input").value.trim();
     const os_type = document.getElementById("machine-os-input").value;
-    const iso_path = document.getElementById("machine-iso-input")?.value || "";
+    
+    // Determine boot source type (iso or oci)
+    const bootSourceType = document.querySelector('input[name="machine-boot-source-type"]:checked')?.value || "iso";
+    let iso_path = "";
+    if (bootSourceType === "oci") {
+        const ociImg = document.getElementById("machine-oci-image-input")?.value.trim() || "";
+        if (!ociImg) {
+            showToast("error", "Nama OCI Container image wajib diisi");
+            return;
+        }
+        iso_path = `oci://${ociImg}`;
+    } else {
+        iso_path = document.getElementById("machine-iso-input")?.value || "";
+    }
+
     const vcpus = parseInt(document.getElementById("machine-vcpu-input").value, 10);
     const memory_mb = parseInt(document.getElementById("machine-ram-input").value, 10);
     const disk_size_gb = parseInt(document.getElementById("machine-disk-input").value, 10);

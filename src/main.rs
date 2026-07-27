@@ -9,6 +9,7 @@ pub mod gateway;
 pub mod backupman;
 pub mod logman;
 pub mod machineman;
+pub mod dns;
 
 
 use axum::{
@@ -591,6 +592,15 @@ fn main() {
 
     let machine_manager = Arc::new(machineman::MachineManager::new(default_pool.clone()).await);
 
+    // Start dynamic DNS server in background
+    let dns_bind_addr = std::env::var("DNS_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:53".to_string());
+    let upstream_dns = std::env::var("UPSTREAM_DNS").unwrap_or_else(|_| "8.8.8.8:53".to_string());
+    let dns_pool = default_pool.clone();
+    tokio::spawn(async move {
+        let server = dns::DnsServer::new(dns_pool, dns_bind_addr, upstream_dns);
+        server.start().await;
+    });
+
     // Re-apply saved firewall rules on startup to survive reboots/panel restarts
     println!("🔥 Syncing firewall rules from database...");
     crate::slots::system::sync_firewall_rules(&default_pool);
@@ -1115,6 +1125,7 @@ fn main() {
         .route("/api/managed/stream", axum::routing::get(managed_stream_handler))
         .route("/api/managed/logs/stream", axum::routing::get(managed_logs_stream_handler))
         .route("/api/terminal/ws", axum::routing::get(terminal_ws_handler))
+        .route("/api/machines/logs/boot", axum::routing::get(machine_boot_log_handler))
         // Link-Local HTTP Metadata Service endpoints
         .route("/openstack/latest/user_data", axum::routing::get(metadata_user_data_handler))
         .route("/openstack/latest/meta_data.json", axum::routing::get(metadata_meta_data_json_handler))
@@ -2592,49 +2603,43 @@ async fn handle_terminal_socket(
 ) {
     if let Some(ref m_name) = machine_name {
         if !m_name.is_empty() {
-            let socket_path = format!("/run/zeno-machine/{}-serial.sock", m_name);
-            println!("[Console WS] Connecting to microVM serial socket: {}", socket_path);
-            
-            let stream = match tokio::net::UnixStream::connect(&socket_path).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("Failed to connect to machine serial socket (is the machine running?): {}", e);
+            let (console_tx, console_write_tx) = match _state.machine_manager.get_console_channels(m_name).await {
+                Some(channels) => channels,
+                None => {
+                    eprintln!("Failed to get console channels for {} (is the machine running?)", m_name);
                     return;
                 }
             };
-            
+
             use futures_util::StreamExt;
             use futures_util::SinkExt;
             let (mut ws_sender, mut ws_receiver) = socket.split();
-            let (mut stream_reader, mut stream_writer) = stream.into_split();
+            let mut rx = console_tx.subscribe();
             
-            // Read from VM serial and send to WS
+            // Read from broadcast channel and send to WS
             let ws_sender_task = tokio::spawn(async move {
-                use tokio::io::AsyncReadExt;
-                let mut buf = [0u8; 4096];
-                while let Ok(n) = stream_reader.read(&mut buf).await {
-                    if n == 0 {
-                        break;
-                    }
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                while let Ok(data) = rx.recv().await {
                     if ws_sender.send(axum::extract::ws::Message::Text(data)).await.is_err() {
                         break;
                     }
                 }
             });
             
-            // Read from WS and write to VM serial
+            // Read from WS and write to mpsc channel
             let ws_receiver_task = tokio::spawn(async move {
-                use tokio::io::AsyncWriteExt;
                 while let Some(Ok(msg)) = ws_receiver.next().await {
-                    if let axum::extract::ws::Message::Text(text) = msg {
-                        if stream_writer.write_all(text.as_bytes()).await.is_err() {
-                            break;
+                    match msg {
+                        axum::extract::ws::Message::Text(text) => {
+                            if console_write_tx.send(text.into_bytes()).await.is_err() {
+                                break;
+                            }
                         }
-                    } else if let axum::extract::ws::Message::Binary(bin) = msg {
-                        if stream_writer.write_all(&bin).await.is_err() {
-                            break;
+                        axum::extract::ws::Message::Binary(bin) => {
+                            if console_write_tx.send(bin).await.is_err() {
+                                break;
+                            }
                         }
+                        _ => {}
                     }
                 }
             });
@@ -2936,6 +2941,35 @@ async fn metadata_meta_data_item_handler(
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(axum::body::Body::from("404 Not Found"))
+                .unwrap()
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct BootLogQuery {
+    name: String,
+}
+
+async fn machine_boot_log_handler(
+    State(_state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<BootLogQuery>,
+) -> Response {
+    let clean_name = query.name.toLowerCase().replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "");
+    let log_path = format!("/var/log/zeno-machine/{}-boot.log", clean_name);
+    
+    match std::fs::read_to_string(&log_path) {
+        Ok(content) => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/plain; charset=utf-8")
+                .body(axum::body::Body::from(content))
+                .unwrap()
+        }
+        Err(_) => {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(axum::body::Body::from("Log file not found or empty"))
                 .unwrap()
         }
     }
