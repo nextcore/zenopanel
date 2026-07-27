@@ -92,9 +92,8 @@
         </div>
     </div>
 
-    <!-- Modal Create Zeno Machine -->
-    <div id="create-machine-modal" class="modal-backdrop" style="display: none;">
-        <div class="modal-content" style="max-width: 540px; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 24px; color: var(--text-main);">
+    <div id="create-machine-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center; overflow-y: auto; padding: 20px 0;">
+        <div class="modal-content" style="max-width: 540px; max-height: 90vh; overflow-y: auto; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 24px; color: var(--text-main);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h3 style="margin: 0; font-size: 1.2rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-server" style="color: var(--accent-primary);"></i> Create New Zeno Machine
@@ -141,11 +140,11 @@
                                     <option value="library/alpine">🐧 Alpine Linux</option>
                                     <option value="library/ubuntu">🟠 Ubuntu Linux</option>
                                     <option value="library/debian">🌀 Debian GNU/Linux</option>
-                                    <option value="rockylinux/rockylinux">⛰️ Rocky Linux</option>
+                                    <option value="library/rockylinux">⛰️ Rocky Linux</option>
                                     <option value="library/fedora">🎩 Fedora</option>
                                     <option value="library/centos">🏢 CentOS</option>
-                                    <option value="almalinux/almalinux">❤️ AlmaLinux</option>
-                                    <option value="archlinux/archlinux">🏹 Arch Linux</option>
+                                    <option value="library/almalinux">❤️ AlmaLinux</option>
+                                    <option value="library/archlinux">🏹 Arch Linux</option>
                                     <option value="custom">⚙️ Custom / Manual Input...</option>
                                 </select>
                             </div>

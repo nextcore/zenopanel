@@ -747,6 +747,7 @@ export function openMachineConsoleModal(name) {
 
     setTimeout(() => {
         if (consoleFitAddon) consoleFitAddon.fit();
+        if (consoleTerm) consoleTerm.focus();
     }, 100);
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -756,6 +757,12 @@ export function openMachineConsoleModal(name) {
 
     consoleSocket.onopen = () => {
         consoleTerm.write('📡 Connected to Zeno Machine Console. Booting OS...\r\n');
+        // Auto-initialize guest TTY line echo for minimal boots
+        setTimeout(() => {
+            if (consoleSocket && consoleSocket.readyState === WebSocket.OPEN) {
+                consoleSocket.send("stty echo\n");
+            }
+        }, 600);
     };
 
     consoleSocket.onmessage = (event) => {
@@ -778,6 +785,11 @@ export function openMachineConsoleModal(name) {
     });
 
     window.addEventListener('resize', fitConsoleTerminal);
+
+    // Click-to-focus: re-focus terminal when user clicks on the terminal area
+    container.addEventListener('mousedown', () => {
+        if (consoleTerm) consoleTerm.focus();
+    });
 }
 
 export function closeMachineConsoleModal() {
@@ -1640,6 +1652,7 @@ export function loadLocalDisksList() {
         imgFiles.forEach(file => {
             const baseName = file.name.slice(0, -4);
             const associatedMachine = machines.find(m => m.name === baseName);
+            const filePath = machinesPath + '/' + file.name;
 
             let statusHtml = "";
             let actionBtn = "";
@@ -1650,10 +1663,10 @@ export function loadLocalDisksList() {
                 actionBtn = `<button class="btn btn-secondary btn-sm" disabled style="opacity: 0.4; cursor: not-allowed;"><i class="fa-solid fa-trash"></i></button>`;
             } else {
                 statusHtml = `<span style="color: #ef4444; font-weight: 600;"><i class="fa-solid fa-circle-question"></i> Orphaned (No VM associated)</span>`;
-                actionBtn = `<button onclick="deleteDiskFile('${file.path.replace(/'/g, "\\'")}', '${file.name.replace(/'/g, "\\'")}')" class="btn btn-secondary btn-sm" style="color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i></button>`;
+                actionBtn = `<button onclick="deleteDiskFile('${filePath.replace(/'/g, "\\'")}', '${file.name.replace(/'/g, "\\'")}')" class="btn btn-secondary btn-sm" style="color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i></button>`;
             }
 
-            const sizeFormatted = file.size_bytes ? formatBytes(file.size_bytes) : "-";
+            const sizeFormatted = file.size ? formatBytes(file.size) : "-";
 
             html += `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">

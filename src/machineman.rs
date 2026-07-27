@@ -477,20 +477,41 @@ impl MachineManager {
     }
 
     async fn ensure_microvm_kernel(&self) -> Result<String, String> {
-        let binary_dir = match std::env::current_exe() {
-            Ok(exe) => exe.parent().map(|p| p.join("bin")).unwrap_or_else(|| std::path::PathBuf::from("/opt/zenopanel/bin")),
-            Err(_) => std::path::PathBuf::from("/opt/zenopanel/bin"),
-        };
-        let _ = std::fs::create_dir_all(&binary_dir);
-        let kernel_path = binary_dir.join("vmlinuz-microvm");
-        if !kernel_path.exists() {
-            println!("📥 Downloading MicroVM Linux Kernel vmlinuz-microvm...");
-            // Use Cloud-Hypervisor official example minimal kernel
-            let url = "https://github.com/cloud-hypervisor/cloud-hypervisor/raw/main/resources/vmlinuz";
-            Self::download_file(url, &kernel_path.to_string_lossy()).await?;
-            println!("✅ MicroVM Linux Kernel vmlinuz-microvm successfully downloaded.");
+        // 1. Try to find a local host kernel in common locations
+        let common_paths = [
+            "/vmlinuz",
+            "/boot/vmlinuz",
+            "/boot/vmlinuz-linux", // Arch Linux
+        ];
+        for path in &common_paths {
+            if std::path::Path::new(path).exists() {
+                println!("[Zeno Machine] Auto-detected host Linux kernel: {}", path);
+                return Ok(path.to_string());
+            }
         }
-        Ok(kernel_path.to_string_lossy().to_string())
+
+        // 2. Search for any vmlinuz-* files in /boot
+        if let Ok(entries) = std::fs::read_dir("/boot") {
+            let mut kernels: Vec<std::path::PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.starts_with("vmlinuz-"))
+                        .unwrap_or(false)
+                })
+                .collect();
+            // Sort to get the latest version
+            kernels.sort();
+            if let Some(latest_kernel) = kernels.last() {
+                let path_str = latest_kernel.to_string_lossy().to_string();
+                println!("[Zeno Machine] Auto-detected latest host Linux kernel: {}", path_str);
+                return Ok(path_str);
+            }
+        }
+
+        Err("Tidak dapat menemukan Linux kernel lokal di /boot. Zeno Machine membutuhkan kernel host untuk booting.".to_string())
     }
 
     pub async fn start_machine(&self, name: &str) -> Result<(), String> {
@@ -637,6 +658,33 @@ impl MachineManager {
         if is_oci {
             if let Some(ref kp) = kernel_path {
                 cmd.arg("--kernel").arg(kp);
+
+                // Dynamically pair host kernel with its corresponding initramfs/initrd
+                let mut initrd_path = None;
+                if kp.starts_with("/boot/vmlinuz-") {
+                    let version = kp.strip_prefix("/boot/vmlinuz-").unwrap();
+                    let possible_initrd = format!("/boot/initrd.img-{}", version);
+                    let possible_initramfs = format!("/boot/initramfs-{}.img", version);
+                    if std::path::Path::new(&possible_initrd).exists() {
+                        initrd_path = Some(possible_initrd);
+                    } else if std::path::Path::new(&possible_initramfs).exists() {
+                        initrd_path = Some(possible_initramfs);
+                    }
+                } else if kp == "/vmlinuz" {
+                    if std::path::Path::new("/initrd.img").exists() {
+                        initrd_path = Some("/initrd.img".to_string());
+                    }
+                } else if kp == "/boot/vmlinuz" {
+                    if std::path::Path::new("/boot/initrd.img").exists() {
+                        initrd_path = Some("/boot/initrd.img".to_string());
+                    }
+                }
+
+                if let Some(ip) = initrd_path {
+                    println!("[Zeno Machine] Auto-detected paired initramfs: {}", ip);
+                    cmd.arg("--initramfs").arg(ip);
+                }
+
                 cmd.arg("--cmdline").arg("root=/dev/vda rw console=hvc0 console=ttyS0 quiet");
             }
         } else {
@@ -1202,6 +1250,41 @@ impl MachineManager {
                 }
             }
         }
+
+        // For OCI VMs, back up original /sbin/init and replace with our interactive boot helper
+        let init_path = format!("{}/sbin/init", mnt_dir);
+        let backup_path = format!("{}/sbin/init.orig", mnt_dir);
+        if std::path::Path::new(&init_path).exists() && !std::path::Path::new(&backup_path).exists() {
+            let _ = std::fs::rename(&init_path, &backup_path);
+        }
+
+        let default_init = r#"#!/bin/sh
+# Redirect input/output to serial console ttyS0 or hvc0
+for tty in /dev/ttyS0 /dev/hvc0; do
+    if [ -c "$tty" ]; then
+        exec < "$tty" > "$tty" 2>&1
+        break
+    fi
+done
+
+echo "=========================================="
+echo " Welcome to Zeno MicroVM Boot System      "
+echo "=========================================="
+if [ -f /etc/os-release ]; then
+    cat /etc/os-release
+else
+    echo "OS: Unknown OCI Container"
+fi
+echo "=========================================="
+
+while true; do
+    echo "Starting interactive root shell..."
+    /bin/bash --login || /bin/sh
+    sleep 1
+done
+"#;
+        let _ = std::fs::write(&init_path, default_init);
+        let _ = std::fs::set_permissions(&init_path, std::os::unix::fs::PermissionsExt::from_mode(0o755));
 
         // 6. Unmount loop device
         println!("[Zeno Machine] Unmounting disk loop from '{}'...", mnt_dir);
