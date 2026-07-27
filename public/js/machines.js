@@ -781,6 +781,17 @@ export function openMachineConsoleModal(name) {
     consoleTerm.onData((data) => {
         if (consoleSocket && consoleSocket.readyState === WebSocket.OPEN) {
             consoleSocket.send(data);
+            
+            // Local Echo Fallback for raw serial TTYs
+            if (data.length === 1 && data !== '\r' && data !== '\n' && data !== '\x7f' && data.charCodeAt(0) >= 32) {
+                consoleTerm.write(data);
+            } else if (data === '\x7f') {
+                // Handle backspace visual feedback
+                consoleTerm.write('\b \b');
+            } else if (data === '\r') {
+                // Handle return key visual feedback
+                consoleTerm.write('\r\n');
+            }
         }
     });
 
