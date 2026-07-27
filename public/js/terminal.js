@@ -73,6 +73,17 @@ export function initTerminal() {
                 rows: dims.rows
             }));
         }
+
+        // If there is a pending directory, automatically cd into it
+        if (window.pendingTerminalCwd) {
+            // Delay slightly to let the shell prompt settle
+            setTimeout(() => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(`clear\ncd "${window.pendingTerminalCwd}"\n`);
+                    window.pendingTerminalCwd = null;
+                }
+            }, 300);
+        }
     };
     
     socket.onmessage = (event) => {

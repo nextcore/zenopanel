@@ -6,8 +6,34 @@ import { showToast } from "./toast.js";
 let activeProject = "default";
 let activeFile = "docker-compose.yml";
 
+let composeMonacoInstance = null;
+
+function getOrInitComposeMonaco(callback) {
+  if (window.monaco) {
+    callback();
+    return;
+  }
+  const loaderScript = document.createElement("script");
+  loaderScript.src = "/public/js/monaco/vs/loader.js";
+  loaderScript.onload = () => {
+    require.config({ paths: { vs: "/public/js/monaco/vs" } });
+    require(["vs/editor/editor.main"], () => {
+      callback();
+    });
+  };
+  document.head.appendChild(loaderScript);
+}
+
+function getComposeContent() {
+  if (composeMonacoInstance) {
+    return composeMonacoInstance.getValue();
+  }
+  const textarea = document.getElementById("compose-yaml-input");
+  return textarea ? textarea.value : "";
+}
+
 function composeExec(action) {
-  const yaml = document.getElementById("compose-yaml-input").value.trim();
+  const yaml = getComposeContent().trim();
   const projectName = activeProject || "default";
 
   const resultDiv = document.getElementById("compose-result");
@@ -76,6 +102,7 @@ export function composePs() {
 export function loadComposeYaml(projectName, fileName) {
   const name = projectName || activeProject || "default";
   const file = fileName || activeFile || "docker-compose.yml";
+  const language = file.endsWith(".yml") || file.endsWith(".yaml") ? "yaml" : "ini";
   
   fetch(`/api/containers/compose/yaml?project_name=${encodeURIComponent(name)}&file=${encodeURIComponent(file)}`)
     .then((res) => res.json())
@@ -83,6 +110,26 @@ export function loadComposeYaml(projectName, fileName) {
       const textarea = document.getElementById("compose-yaml-input");
       if (textarea) {
         textarea.value = res.yaml || "";
+      }
+
+      const container = document.getElementById("compose-monaco-container");
+      if (container) {
+        getOrInitComposeMonaco(() => {
+          if (!composeMonacoInstance) {
+            composeMonacoInstance = monaco.editor.create(container, {
+              value: res.yaml || "",
+              language: language,
+              theme: "vs-dark",
+              automaticLayout: true,
+              fontSize: 13,
+              fontFamily: "var(--font-code)",
+              minimap: { enabled: false }
+            });
+          } else {
+            composeMonacoInstance.setValue(res.yaml || "");
+            monaco.editor.setModelLanguage(composeMonacoInstance.getModel(), language);
+          }
+        });
       }
     })
     .catch((err) => console.error("Error loading compose YAML:", err));
@@ -742,10 +789,7 @@ export function submitCreateComposeProject() {
 }
 
 export function saveComposeYaml() {
-  const yamlTextarea = document.getElementById("compose-yaml-input");
-  if (!yamlTextarea) return;
-
-  const content = yamlTextarea.value;
+  const content = getComposeContent();
   const csrf = getCSRFToken();
 
   // Validate .env format if saving .env file
@@ -883,7 +927,7 @@ export function deleteComposeProject() {
 // ─── Proxy & Log Console Utilities ───────────────────────────────────
 
 export function exposeComposeViaProxy() {
-  const yamlText = document.getElementById("compose-yaml-input").value;
+  const yamlText = getComposeContent();
   
   // Regex to match port pattern - "8080:80" or - 3000:3000
   const portRegex = /-\s*["']?(\d+):(\d+)["']?/g;

@@ -1,7 +1,7 @@
 import { getCSRFToken, formatBytes, escapeHtml } from './utils.js';
 import { showToast } from './toast.js';
 
-export let currentFilePath = '.';
+export let currentFilePath = '/var/www';
 export let activeEditorPath = '';
 export let fmCurrentData = [];       // cached file list for re-sort
 export let fmSortKey   = 'name';     // active sort column
@@ -430,11 +430,44 @@ export function extractFile(path) {
     }
 }
 
+let monacoInstance = null;
+
+function getOrInitMonaco(container, callback) {
+    if (window.monaco) {
+        callback();
+        return;
+    }
+
+    const loaderScript = document.createElement('script');
+    loaderScript.src = '/public/js/monaco/vs/loader.js';
+    loaderScript.onload = () => {
+        require.config({ paths: { vs: '/public/js/monaco/vs' } });
+        require(['vs/editor/editor.main'], () => {
+            callback();
+        });
+    };
+    document.head.appendChild(loaderScript);
+}
+
 export function editFile(path) {
     activeEditorPath = path;
     const fnEl = document.getElementById('editor-modal-filename');
     if (fnEl) fnEl.innerText = 'Editing: ' + path;
     
+    // Detect language from file extension
+    const ext = path.split('.').pop().toLowerCase();
+    let language = 'plaintext';
+    if (ext === 'zl' || ext === 'html') language = 'html';
+    else if (ext === 'js' || ext === 'mjs') language = 'javascript';
+    else if (ext === 'css') language = 'css';
+    else if (ext === 'json') language = 'json';
+    else if (ext === 'sh' || ext === 'bash') language = 'shell';
+    else if (ext === 'go') language = 'go';
+    else if (ext === 'rs') language = 'rust';
+    else if (ext === 'py') language = 'python';
+    else if (ext === 'md') language = 'markdown';
+    else if (ext === 'yml' || ext === 'yaml') language = 'yaml';
+
     fetch('/api/files/read?path=' + encodeURIComponent(path))
         .then(res => {
             if (!res.ok) {
@@ -446,6 +479,27 @@ export function editFile(path) {
             if (res.success) {
                 const taEl = document.getElementById('editor-textarea-field');
                 if (taEl) taEl.value = res.content || '';
+                
+                const container = document.getElementById('monaco-editor-container');
+                if (container) {
+                    getOrInitMonaco(container, () => {
+                        if (!monacoInstance) {
+                            monacoInstance = monaco.editor.create(container, {
+                                value: res.content || '',
+                                language: language,
+                                theme: 'vs-dark',
+                                automaticLayout: true,
+                                fontSize: 13,
+                                fontFamily: 'var(--font-code)',
+                                minimap: { enabled: true }
+                            });
+                        } else {
+                            monacoInstance.setValue(res.content || '');
+                            monaco.editor.setModelLanguage(monacoInstance.getModel(), language);
+                        }
+                    });
+                }
+                
                 const modal = document.getElementById('editor-modal');
                 if (modal) modal.classList.add('active');
             } else {
@@ -470,8 +524,30 @@ export function editFile(path) {
             .then(wRes => wRes.json())
             .then(wRes => {
                 if (wRes.success) {
+                    const templateContent = '#!/bin/bash\n\n# Write your script commands below\n';
                     const taEl = document.getElementById('editor-textarea-field');
-                    if (taEl) taEl.value = '#!/bin/bash\n\n# Write your script commands below\n';
+                    if (taEl) taEl.value = templateContent;
+                    
+                    const container = document.getElementById('monaco-editor-container');
+                    if (container) {
+                        getOrInitMonaco(container, () => {
+                            if (!monacoInstance) {
+                                monacoInstance = monaco.editor.create(container, {
+                                    value: templateContent,
+                                    language: 'shell',
+                                    theme: 'vs-dark',
+                                    automaticLayout: true,
+                                    fontSize: 13,
+                                    fontFamily: 'var(--font-code)',
+                                    minimap: { enabled: true }
+                                });
+                            } else {
+                                monacoInstance.setValue(templateContent);
+                                monaco.editor.setModelLanguage(monacoInstance.getModel(), 'shell');
+                            }
+                        });
+                    }
+                    
                     const modal = document.getElementById('editor-modal');
                     if (modal) modal.classList.add('active');
                 } else {
@@ -488,11 +564,23 @@ export function closeEditorModal() {
     const modal = document.getElementById('editor-modal');
     if (modal) modal.classList.remove('active');
     activeEditorPath = '';
+    
+    // Dispose of Monaco editor instance to avoid DOM conflicts with HTMX swaps
+    if (monacoInstance) {
+        monacoInstance.dispose();
+        monacoInstance = null;
+    }
 }
 
 export function saveActiveFile() {
-    const taEl = document.getElementById('editor-textarea-field');
-    const content = taEl ? taEl.value : '';
+    let content = '';
+    if (monacoInstance) {
+        content = monacoInstance.getValue();
+    } else {
+        const taEl = document.getElementById('editor-textarea-field');
+        content = taEl ? taEl.value : '';
+    }
+    
     fetch('/api/files/write', {
         method: 'POST',
         headers: {
@@ -587,6 +675,38 @@ export function initFileManager() {
     if (fileUploadInput) {
         fileUploadInput.addEventListener('change', (e) => {
             handleFileUpload(e);
+        });
+    }
+
+    // Drag & Drop Upload
+    const tableContainer = document.querySelector('#tab-files .table-container');
+    if (tableContainer) {
+        tableContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            tableContainer.style.background = 'rgba(59, 130, 246, 0.08)';
+            tableContainer.style.border = '2px dashed var(--accent-primary)';
+        });
+        
+        tableContainer.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            tableContainer.style.background = 'transparent';
+            tableContainer.style.border = 'none';
+        });
+        
+        tableContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            tableContainer.style.background = 'transparent';
+            tableContainer.style.border = 'none';
+            
+            const files = e.dataTransfer.files;
+            if (files && files.length > 0) {
+                const uploadInput = document.getElementById('file-upload-input');
+                if (uploadInput) {
+                    uploadInput.files = files;
+                    const event = { target: { files: files } };
+                    handleFileUpload(event);
+                }
+            }
         });
     }
 }
@@ -824,3 +944,53 @@ export function pasteClipboard() {
         showToast('error', 'Failed to paste: ' + err.toString());
     });
 }
+
+export function filterFilesList(query) {
+    const q = query.toLowerCase().trim();
+    if (!q) {
+        renderFileRows(fmCurrentData);
+        return;
+    }
+    const filtered = fmCurrentData.filter(item => item.name.toLowerCase().includes(q));
+    renderFileRows(filtered);
+}
+
+window.filterFilesList = filterFilesList;
+window.goUpDirectory = goUpDirectory;
+window.createFilePrompt = createFilePrompt;
+window.createFolderPrompt = createFolderPrompt;
+window.triggerFileUpload = triggerFileUpload;
+window.handleFileUpload = handleFileUpload;
+window.loadFilesList = loadFilesList;
+window.setSortBy = setSortBy;
+window.toggleSelectAll = toggleSelectAll;
+window.onRowCheckChange = onRowCheckChange;
+window.bulkCopy = bulkCopy;
+window.bulkCut = bulkCut;
+window.bulkDelete = bulkDelete;
+window.bulkArchive = bulkArchive;
+window.clearSelection = clearSelection;
+window.pasteClipboard = pasteClipboard;
+window.editFile = editFile;
+window.downloadFile = downloadFile;
+window.archiveFile = archiveFile;
+window.extractFile = extractFile;
+window.changePermissionsPrompt = changePermissionsPrompt;
+window.closePermissionsModal = closePermissionsModal;
+window.submitChangePermissions = submitChangePermissions;
+window.updateOctalFromCheckboxes = updateOctalFromCheckboxes;
+window.updateCheckboxesFromOctal = updateCheckboxesFromOctal;
+window.saveActiveFile = saveActiveFile;
+window.closeEditorModal = closeEditorModal;
+
+export function openTerminalHere() {
+    window.pendingTerminalCwd = currentFilePath;
+    if (window.switchTab) {
+        window.switchTab("terminal");
+    } else {
+        const btn = document.querySelector(`.nav-item[data-tab="terminal"]`);
+        if (btn) btn.click();
+    }
+}
+
+window.openTerminalHere = openTerminalHere;

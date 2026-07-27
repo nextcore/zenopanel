@@ -527,14 +527,96 @@ export function openConsoleForDb(dbName) {
     }
 }
 
+let sqlMonacoInstance = null;
+let dbConfigMonacoInstance = null;
+
+function getOrInitDatabaseMonaco(callback) {
+    if (window.monaco) {
+        callback();
+        return;
+    }
+    const loaderScript = document.createElement('script');
+    loaderScript.src = '/public/js/monaco/vs/loader.js';
+    loaderScript.onload = () => {
+        require.config({ paths: { vs: '/public/js/monaco/vs' } });
+        require(['vs/editor/editor.main'], () => {
+            callback();
+        });
+    };
+    document.head.appendChild(loaderScript);
+}
+
+function getSqlContent() {
+    if (sqlMonacoInstance) {
+        return sqlMonacoInstance.getValue();
+    }
+    const textarea = document.getElementById('sql-query-input');
+    return textarea ? textarea.value : '';
+}
+
+function setSqlContent(val) {
+    const textarea = document.getElementById('sql-query-input');
+    if (textarea) textarea.value = val;
+    
+    const container = document.getElementById('sql-monaco-container');
+    if (container) {
+        getOrInitDatabaseMonaco(() => {
+            if (!sqlMonacoInstance) {
+                sqlMonacoInstance = monaco.editor.create(container, {
+                    value: val,
+                    language: 'sql',
+                    theme: 'vs-dark',
+                    automaticLayout: true,
+                    fontSize: 13,
+                    fontFamily: 'var(--font-code)',
+                    minimap: { enabled: false }
+                });
+            } else {
+                sqlMonacoInstance.setValue(val);
+            }
+        });
+    }
+}
+
+function getDbConfigContent() {
+    if (dbConfigMonacoInstance) {
+        return dbConfigMonacoInstance.getValue();
+    }
+    const textarea = document.getElementById('db-config-raw-content');
+    return textarea ? textarea.value : '';
+}
+
+function setDbConfigContent(val) {
+    const textarea = document.getElementById('db-config-raw-content');
+    if (textarea) textarea.value = val;
+
+    const container = document.getElementById('db-config-monaco-container');
+    if (container) {
+        getOrInitDatabaseMonaco(() => {
+            if (!dbConfigMonacoInstance) {
+                dbConfigMonacoInstance = monaco.editor.create(container, {
+                    value: val,
+                    language: 'ini',
+                    theme: 'vs-dark',
+                    automaticLayout: true,
+                    fontSize: 13,
+                    fontFamily: 'var(--font-code)',
+                    minimap: { enabled: false }
+                });
+            } else {
+                dbConfigMonacoInstance.setValue(val);
+            }
+        });
+    }
+}
+
 export function onConsoleConnectionChange() {
     loadDatabaseTables();
     const resultsContainer = document.getElementById('db-results-container');
     if (resultsContainer) {
         resultsContainer.innerHTML = '<div style="padding:32px; text-align:center; color:var(--text-muted); font-size:0.85rem;">Run a query above to see results.</div>';
     }
-    const sqlInput = document.getElementById('sql-query-input');
-    if (sqlInput) sqlInput.value = '';
+    setSqlContent('');
 }
 
 export function loadDatabaseTables() {
@@ -584,9 +666,8 @@ export function loadDatabaseTables() {
                     
                     div.onclick = () => {
                         const q = `SELECT * FROM ${tableName} LIMIT 10;`;
-                        const sqlQueryInput = document.getElementById('sql-query-input');
+                        setSqlContent(q);
                         const sqlIsSelect = document.getElementById('sql-is-select');
-                        if (sqlQueryInput) sqlQueryInput.value = q;
                         if (sqlIsSelect) sqlIsSelect.checked = true;
                     };
                     list.appendChild(div);
@@ -605,9 +686,8 @@ export function loadDatabaseTables() {
 export function runSqlQuery() {
     const select = document.getElementById('db-console-connection-select');
     const connection = select ? select.value : '';
-    const sqlInput = document.getElementById('sql-query-input');
     const isSelectInput = document.getElementById('sql-is-select');
-    const sql = sqlInput ? sqlInput.value : '';
+    const sql = getSqlContent();
     const isSelect = isSelectInput ? isSelectInput.checked : true;
 
     if (!connection) {
@@ -1430,7 +1510,7 @@ export function openDatabaseConfigModal(serverId, name, driver) {
     document.getElementById('db-config-max-connections').value = isPostgres ? '100' : '150';
     document.getElementById('db-config-buffer-pool').value = isPostgres ? '128MB' : '128M';
     document.getElementById('db-config-max-packet').value = isPostgres ? '4MB' : '16M';
-    document.getElementById('db-config-raw-content').value = '';
+    setDbConfigContent('');
 
     // Show loading indicators for live values
     document.getElementById('db-config-live-connections').innerText = '...';
@@ -1458,7 +1538,7 @@ export function openDatabaseConfigModal(serverId, name, driver) {
                     document.getElementById('db-config-max-packet').value = res.live_packet;
                 }
 
-                document.getElementById('db-config-raw-content').value = res.config;
+                setDbConfigContent(res.config || '');
             } else {
                 showToast('error', 'Gagal memuat konfigurasi server');
             }
@@ -1469,6 +1549,10 @@ export function openDatabaseConfigModal(serverId, name, driver) {
 export function closeDatabaseConfigModal() {
     document.getElementById('db-server-config-modal').classList.remove('active');
     activeConfigServerId = null;
+    if (dbConfigMonacoInstance) {
+        dbConfigMonacoInstance.dispose();
+        dbConfigMonacoInstance = null;
+    }
 }
 
 export function switchDbConfigTab(tabName) {
@@ -1500,7 +1584,7 @@ export function submitDatabaseConfig() {
     
     const rawBtn = document.getElementById('db-config-tab-raw-btn');
     const isRawActive = rawBtn && rawBtn.classList.contains('active');
-    const config = isRawActive ? document.getElementById('db-config-raw-content').value : '';
+    const config = isRawActive ? getDbConfigContent() : '';
 
     const btn = document.getElementById('db-config-save-btn');
     if (btn) {

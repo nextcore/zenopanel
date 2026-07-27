@@ -1,12 +1,13 @@
 <!-- Modal Code Editor Dialog -->
 <div class="modal-overlay" id="editor-modal">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width: 960px; width: 95%;">
         <div class="modal-header">
             <div class="modal-title" id="editor-modal-filename">Editing File</div>
             <div class="modal-close" onclick="closeEditorModal()">&times;</div>
         </div>
-        <div class="modal-body">
-            <textarea class="editor-textarea" id="editor-textarea-field" autocomplete="off"></textarea>
+        <div class="modal-body" style="padding: 10px;">
+            <div id="monaco-editor-container" style="width: 100%; height: 500px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; background: #05070c;"></div>
+            <textarea class="editor-textarea" id="editor-textarea-field" autocomplete="off" style="display: none;"></textarea>
         </div>
         <div class="modal-footer">
             <button class="btn-action" onclick="closeEditorModal()">Cancel</button>
@@ -748,7 +749,8 @@
             <div id="db-config-tab-raw" style="display:none;">
                 <div class="form-group">
                     <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Raw Config File Content</label>
-                    <textarea id="db-config-raw-content" style="width:100%; height:260px; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.6); color:#f8f8f2; font-family:var(--font-code); font-size:0.82rem; outline:none; resize:vertical; line-height:1.5;"></textarea>
+                    <div id="db-config-monaco-container" style="width:100%; height:280px; border-radius:6px; border:1px solid var(--card-border); overflow:hidden; background:#05070c;"></div>
+                    <textarea id="db-config-raw-content" style="display:none;"></textarea>
                     <div style="font-size:0.75rem; color:var(--text-muted); margin-top:5px;">Isi file konfigurasi kustom yang akan di-mount pada container database.</div>
                 </div>
             </div>

@@ -111,7 +111,7 @@ export function loadZenoMachines() {
             if (machines.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="6" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                        <td colspan="7" style="padding: 40px; text-align: center; color: var(--text-muted);">
                             <i class="fa-solid fa-server" style="font-size: 2rem; margin-bottom: 12px; opacity: 0.5;"></i>
                             <div>Belum ada Zeno Machine yang dibuat.</div>
                             <div style="font-size: 0.78rem; margin-top: 4px;">Klik "New Zeno Machine" untuk membuat MicroVM berbasis Cloud-Hypervisor pertama Anda.</div>
@@ -122,6 +122,8 @@ export function loadZenoMachines() {
             }
 
             let html = "";
+            window.allZenoMachines = machines;
+
             machines.forEach(m => {
                 const isRunning = m.status === "running";
                 const isPaused = m.status === "paused";
@@ -149,6 +151,9 @@ export function loadZenoMachines() {
                                 <i class="fa-solid fa-server" style="color: var(--accent-primary);"></i>
                                 ${m.name}
                             </div>
+                            <div style="font-size: 0.72rem; color: #10b981; margin-top: 4px; display: flex; align-items: center; gap: 4px;" title="DNS Internal VM">
+                                <i class="fa-solid fa-globe"></i> ${m.name}.zeno
+                            </div>
                             ${isoBadge}
                         </td>
                         <td style="padding: 14px 16px; color: var(--text-muted);">${osIcon}</td>
@@ -157,6 +162,20 @@ export function loadZenoMachines() {
                         </td>
                         <td style="padding: 14px 16px; color: var(--text-muted);">${m.disk_size_gb} GB</td>
                         <td style="padding: 14px 16px;">${statusBadge}</td>
+                        <td style="padding: 14px 16px;">
+                            ${isRunning ? `
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <div style="display:flex; flex-direction:column; align-items:center;">
+                                        <canvas id="sparkline-vm-cpu-${m.name}" width="60" height="20" style="width:60px; height:20px;" title="CPU Usage"></canvas>
+                                        <span style="font-size:0.6rem; color:var(--text-muted); margin-top:2px; font-weight:600; letter-spacing:0.5px;">CPU</span>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; align-items:center;">
+                                        <canvas id="sparkline-vm-ram-${m.name}" width="60" height="20" style="width:60px; height:20px;" title="RAM Usage"></canvas>
+                                        <span style="font-size:0.6rem; color:var(--text-muted); margin-top:2px; font-weight:600; letter-spacing:0.5px;">RAM</span>
+                                    </div>
+                                </div>
+                            ` : '<span style="font-size:0.75rem; color:var(--text-muted);">—</span>'}
+                        </td>
                         <td style="padding: 14px 20px; text-align: right;">
                             <div style="display: flex; justify-content: flex-end; gap: 6px;">
                                 ${
@@ -164,6 +183,7 @@ export function loadZenoMachines() {
                                         ? `<button class="btn btn-secondary btn-sm" onclick="stopMachine('${m.name}')" title="Stop Machine"><i class="fa-solid fa-stop" style="color: #ef4444;"></i></button>`
                                         : `<button class="btn btn-secondary btn-sm" onclick="startMachine('${m.name}')" title="Start Machine"><i class="fa-solid fa-play" style="color: #10b981;"></i></button>`
                                 }
+                                <button class="btn btn-secondary btn-sm" onclick="viewMachineBootLog('${m.name}')" title="View Boot Log"><i class="fa-solid fa-clock-rotate-left" style="color: #10b981;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openMachineConsoleModal('${m.name}')" title="Web Serial Console"><i class="fa-solid fa-terminal" style="color: #38bdf8;"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openMachineProxyModal('${m.name}', '${m.ip_address}')" title="1-Click Expose via Reverse Proxy"><i class="fa-solid fa-network-wired" style="color: var(--accent-primary);"></i></button>
                                 <button class="btn btn-secondary btn-sm" onclick="openSnapshotManagerModal('${m.name}')" title="Snapshot Manager"><i class="fa-solid fa-camera" style="color: #a855f7;"></i></button>
@@ -180,7 +200,7 @@ export function loadZenoMachines() {
         })
         .catch(err => {
             console.error("Error loading machines:", err);
-            tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: var(--danger);">Network error loading machines</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="padding: 20px; text-align: center; color: var(--danger);">Network error loading machines</td></tr>`;
         });
 }
 
@@ -1371,5 +1391,110 @@ window.deleteSnapshot = deleteSnapshot;
 window.startMachine = startMachine;
 window.stopMachine = stopMachine;
 window.deleteMachine = deleteMachine;
+
+export function viewMachineBootLog(name) {
+    const modal = document.getElementById("machine-boot-log-modal");
+    if (!modal) return;
+    
+    document.getElementById("machine-boot-log-title").textContent = name;
+    const textarea = document.getElementById("machine-boot-log-content");
+    textarea.value = "Loading boot logs...";
+    modal.style.display = "flex";
+    
+    fetch(`/api/machines/logs/boot?name=${encodeURIComponent(name)}`)
+        .then(res => {
+            if (!res.ok) {
+                throw new Error("Boot log is empty or machine has not booted yet");
+            }
+            return res.text();
+        })
+        .then(text => {
+            textarea.value = text;
+            textarea.scrollTop = textarea.scrollHeight;
+        })
+        .catch(err => {
+            textarea.value = err.message;
+        });
+}
+
+export function closeMachineBootLogModal() {
+    const modal = document.getElementById("machine-boot-log-modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+window.viewMachineBootLog = viewMachineBootLog;
+window.closeMachineBootLogModal = closeMachineBootLogModal;
+
+const machineStatsHistory = {};
+
+export function updateMachineSparklines(machinesMetrics) {
+  if (!window.allZenoMachines || window.allZenoMachines.length === 0) return;
+  
+  window.allZenoMachines.forEach(m => {
+    if (m.status !== 'running') return;
+    
+    const metric = machinesMetrics[m.name] || { cpu: 0, memory: 0 };
+    const cpuVal = metric.cpu;
+    const ramVal = metric.memory;
+    
+    if (!machineStatsHistory[m.name]) {
+      machineStatsHistory[m.name] = { cpu: [], ram: [] };
+    }
+    
+    const history = machineStatsHistory[m.name];
+    history.cpu.push(cpuVal);
+    history.ram.push(ramVal);
+    
+    if (history.cpu.length > 20) {
+      history.cpu.shift();
+      history.ram.shift();
+    }
+    
+    drawSparkline(`sparkline-vm-cpu-${m.name}`, history.cpu, '#f59e0b');
+    drawSparkline(`sparkline-vm-ram-${m.name}`, history.ram, '#8b5cf6');
+  });
+}
+window.updateMachineSparklines = updateMachineSparklines;
+
+function drawSparkline(canvasId, data, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  if (data.length < 2) return;
+  
+  const max = Math.max(...data, 1);
+  const min = 0;
+  const range = max - min;
+  
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  
+  const step = canvas.width / (data.length - 1);
+  data.forEach((val, i) => {
+    const x = i * step;
+    const y = canvas.height - ((val - min) / range) * (canvas.height - 4) - 2;
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  });
+  ctx.stroke();
+  
+  // Fill gradient
+  ctx.lineTo(canvas.width, canvas.height);
+  ctx.lineTo(0, canvas.height);
+  ctx.closePath();
+  ctx.fillStyle = color + '15'; // ~8% opacity
+  ctx.fill();
+}
 
 

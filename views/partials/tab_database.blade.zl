@@ -124,7 +124,8 @@
                             <i class="fa-solid fa-code" style="color:var(--accent-primary);"></i>
                             <span>SQL Query Editor</span>
                         </div>
-                        <textarea class="sql-textarea" id="sql-query-input" placeholder="SELECT * FROM my_table LIMIT 10;" style="width:100%; height:120px; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(15,23,42,0.6); color:#f8f8f2; font-family:var(--font-code); font-size:0.85rem; outline:none; resize:vertical; line-height:1.5;"></textarea>
+                        <div id="sql-monaco-container" style="width:100%; height:160px; border-radius:6px; border:1px solid var(--card-border); overflow:hidden; background:#05070c;"></div>
+                        <textarea class="sql-textarea" id="sql-query-input" placeholder="SELECT * FROM my_table LIMIT 10;" style="display:none;"></textarea>
                         <div class="db-actions" style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
                             <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer; user-select:none;">
                                 <input type="checkbox" id="sql-is-select" checked style="accent-color:var(--accent-primary); width:16px; height:16px; cursor:pointer;">

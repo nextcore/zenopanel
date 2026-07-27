@@ -20,15 +20,42 @@ import {
   loadContainers,
   startContainerPolling,
   stopContainerPolling,
+  updateContainerSparklines,
 } from "./containers.js";
 import { loadUsers } from "./users.js";
 import { loadSettings, loadSecuritySettings, loadFirewallRules } from "./settings.js";
 import { loadCronJobs } from "./cron.js";
 import { initWebsitesTab } from "./websites.js";
-import { loadZenoMachines } from "./machines.js";
+import { loadZenoMachines, updateMachineSparklines } from "./machines.js";
 
 // Tab Navigation state
 export let currentTab = "dashboard";
+let metricsPollingInterval = null;
+
+function startMetricsPolling() {
+  if (metricsPollingInterval) return;
+  metricsPollingInterval = setInterval(() => {
+    fetch('/api/metrics')
+      .then(res => res.json())
+      .then(res => {
+        if (!res.success) return;
+        if (res.containers && currentTab === 'containers') {
+          updateContainerSparklines(res.containers);
+        }
+        if (res.machines && currentTab === 'machines') {
+          updateMachineSparklines(res.machines);
+        }
+      })
+      .catch(() => {});
+  }, 3000);
+}
+
+function stopMetricsPolling() {
+  if (metricsPollingInterval) {
+    clearInterval(metricsPollingInterval);
+    metricsPollingInterval = null;
+  }
+}
 
 export function switchTab(tab) {
   // Update nav active button class
@@ -80,7 +107,7 @@ export function runTabInit(tab) {
 
   if (tab === "files") {
     initFileManager();
-    const path = window.currentFilePath || ".";
+    const path = window.currentFilePath || "/var/www";
     loadFilesList(path);
   }
 
@@ -109,6 +136,7 @@ export function runTabInit(tab) {
   if (tab === "containers") {
     loadContainers();
     startContainerPolling();
+    startMetricsPolling();
   } else {
     stopContainerPolling();
   }
@@ -139,6 +167,11 @@ export function runTabInit(tab) {
 
   if (tab === "machines") {
     loadZenoMachines();
+    startMetricsPolling();
+  }
+
+  if (tab !== "containers" && tab !== "machines") {
+    stopMetricsPolling();
   }
 
   // Expand or collapse Security sub-menu based on active tab
@@ -223,3 +256,6 @@ export function toggleSecuritySubmenu(event) {
     }
   }
 }
+
+window.switchTab = switchTab;
+window.toggleSecuritySubmenu = toggleSecuritySubmenu;

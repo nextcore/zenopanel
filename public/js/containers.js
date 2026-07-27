@@ -40,7 +40,7 @@ export function renderContainers(containers) {
   if (!containers || containers.length === 0) {
     tbody.innerHTML = `
             <tr>
-                <td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">
+                <td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">
                     <i class="fa-solid fa-cube" style="font-size:2rem; margin-bottom:10px; display:block; opacity:0.3;"></i>
                     No containers yet.
                     <div style="margin-top:10px;">
@@ -91,6 +91,20 @@ export function renderContainers(containers) {
             <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--accent-primary);">${escapeHtml(container.image)}</td>
             <td>${statusBadge}</td>
             <td style="font-family:var(--font-code); font-size:0.85rem;">${pidVal}</td>
+            <td>
+                ${container.status === 'running' && container.pid ? `
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <div style="display:flex; flex-direction:column; align-items:center;">
+                            <canvas id="sparkline-cpu-${container.id}" width="60" height="20" style="width:60px; height:20px;" title="CPU Usage"></canvas>
+                            <span style="font-size:0.6rem; color:var(--text-muted); margin-top:2px; font-weight:600; letter-spacing:0.5px;">CPU</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; align-items:center;">
+                            <canvas id="sparkline-ram-${container.id}" width="60" height="20" style="width:60px; height:20px;" title="RAM Usage"></canvas>
+                            <span style="font-size:0.6rem; color:var(--text-muted); margin-top:2px; font-weight:600; letter-spacing:0.5px;">RAM</span>
+                        </div>
+                    </div>
+                ` : '<span style="font-size:0.75rem; color:var(--text-muted);">—</span>'}
+            </td>
             <td style="font-family:var(--font-code); font-size:0.85rem; color:var(--warning);">${escapeHtml(portsVal)}</td>
             <td style="font-size:0.8rem; color:var(--text-muted);">${created}</td>
             <td style="text-align:right; overflow:visible;">
@@ -1266,5 +1280,75 @@ window.rejectContainerMigrationRequest = rejectContainerMigrationRequest;
 window.openMigrateContainerModal = openMigrateContainerModal;
 window.closeMigrateContainerModal = closeMigrateContainerModal;
 window.submitMigrateContainer = submitMigrateContainer;
+
+const containerStatsHistory = {};
+
+export function updateContainerSparklines(containersMetrics) {
+  if (!containerState.allContainers || containerState.allContainers.length === 0) return;
+  
+  containerState.allContainers.forEach(container => {
+    if (container.status !== 'running') return;
+    
+    const metric = containersMetrics[container.id] || { cpu: 0, memory: 0 };
+    const cpuVal = metric.cpu;
+    const ramVal = metric.memory;
+    
+    if (!containerStatsHistory[container.id]) {
+      containerStatsHistory[container.id] = { cpu: [], ram: [] };
+    }
+    
+    const history = containerStatsHistory[container.id];
+    history.cpu.push(cpuVal);
+    history.ram.push(ramVal);
+    
+    if (history.cpu.length > 20) {
+      history.cpu.shift();
+      history.ram.shift();
+    }
+    
+    drawSparkline(`sparkline-cpu-${container.id}`, history.cpu, '#3b82f6');
+    drawSparkline(`sparkline-ram-${container.id}`, history.ram, '#a855f7');
+  });
+}
+window.updateContainerSparklines = updateContainerSparklines;
+
+function drawSparkline(canvasId, data, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  if (data.length < 2) return;
+  
+  const max = Math.max(...data, 1);
+  const min = 0;
+  const range = max - min;
+  
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  
+  const step = canvas.width / (data.length - 1);
+  data.forEach((val, i) => {
+    const x = i * step;
+    const y = canvas.height - ((val - min) / range) * (canvas.height - 4) - 2;
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  });
+  ctx.stroke();
+  
+  // Fill gradient
+  ctx.lineTo(canvas.width, canvas.height);
+  ctx.lineTo(0, canvas.height);
+  ctx.closePath();
+  ctx.fillStyle = color + '15'; // ~8% opacity
+  ctx.fill();
+}
 
 

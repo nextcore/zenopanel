@@ -73,12 +73,13 @@
                         <th style="padding: 12px 16px;">Specs (vCPU / RAM)</th>
                         <th style="padding: 12px 16px;">Storage (Disk)</th>
                         <th style="padding: 12px 16px;">Status</th>
+                        <th style="padding: 12px 16px;">Usage History</th>
                         <th style="padding: 12px 20px; text-align: right;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="machines-table-body">
                     <tr>
-                        <td colspan="6" style="padding: 30px; text-align: center; color: var(--text-muted);">
+                        <td colspan="7" style="padding: 30px; text-align: center; color: var(--text-muted);">
                             <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 1.5rem; margin-bottom: 8px;"></i>
                             <div>Loading Zeno Machines...</div>
                         </td>
@@ -103,6 +104,7 @@
                 <div class="form-group" style="margin-bottom: 16px;">
                     <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">Machine Name</label>
                     <input type="text" id="machine-name-input" placeholder="e.g. app-vm-01" required style="width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.7); color: var(--text-main); font-size: 0.88rem;">
+                    <span style="display: block; font-size: 0.72rem; color: #10b981; margin-top: 4px;"><i class="fa-solid fa-circle-info"></i> DNS Internal: Mesin ini otomatis dapat diakses via <strong>[nama].zeno</strong></span>
                 </div>
                 <div class="form-group" style="margin-bottom: 16px;">
                     <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500;">OS Type / Preset</label>
@@ -320,6 +322,27 @@
         <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: var(--text-muted);">
             <span>Interactive microVM Serial Terminal Console (xterm.js)</span>
             <button onclick="closeMachineConsoleModal()" class="btn btn-secondary btn-sm">Close Console</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Zeno Machine Boot Log Viewer -->
+<div id="machine-boot-log-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center;">
+    <div class="modal-content" style="max-width: 800px; width: 95%; background: #090d16; border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 14px; padding: 20px; color: var(--text-main); display: flex; flex-direction: column; height: 500px; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+            <h3 style="margin: 0; font-size: 1.05rem; font-weight: 600; display: flex; align-items: center; gap: 8px; color: #10b981;">
+                <i class="fa-solid fa-clock-rotate-left"></i> Historical Boot Log: <span id="machine-boot-log-title" style="color: #fff;">Machine</span>
+            </h3>
+            <button onclick="closeMachineBootLogModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; background: #05070c; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); padding: 4px; overflow: hidden;">
+            <textarea id="machine-boot-log-content" readonly style="width: 100%; height: 100%; background: transparent; border: none; outline: none; color: #a3e635; font-family: 'Courier New', Courier, monospace; font-size: 0.82rem; resize: none; padding: 12px; box-sizing: border-box; line-height: 1.4; overflow-y: auto;"></textarea>
+        </div>
+        <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: var(--text-muted);">
+            <span>ReadOnly logs from serial console (/var/log/zeno-machine)</span>
+            <button onclick="closeMachineBootLogModal()" class="btn btn-secondary btn-sm">Close Logs</button>
         </div>
     </div>
 </div>

@@ -1122,6 +1122,7 @@ fn main() {
     let app = Router::new()
         .route("/api/stats/stream", axum::routing::get(stats_stream_handler))
         .route("/api/containers/stream", axum::routing::get(containers_stream_handler))
+        .route("/api/metrics", axum::routing::get(metrics_handler))
         .route("/api/managed/stream", axum::routing::get(managed_stream_handler))
         .route("/api/managed/logs/stream", axum::routing::get(managed_logs_stream_handler))
         .route("/api/terminal/ws", axum::routing::get(terminal_ws_handler))
@@ -2955,7 +2956,7 @@ async fn machine_boot_log_handler(
     State(_state): State<Arc<AppState>>,
     axum::extract::Query(query): axum::extract::Query<BootLogQuery>,
 ) -> Response {
-    let clean_name = query.name.toLowerCase().replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "");
+    let clean_name = query.name.to_lowercase().replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "");
     let log_path = format!("/var/log/zeno-machine/{}-boot.log", clean_name);
     
     match std::fs::read_to_string(&log_path) {
@@ -2973,6 +2974,65 @@ async fn machine_boot_log_handler(
                 .unwrap()
         }
     }
+}
+
+async fn metrics_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<axum::Json<serde_json::Value>, StatusCode> {
+    let token = auth::extract_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _claims = auth::verify_jwt(&token, &state.jwt_secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes();
+    // Second refresh needed for accurate CPU readings
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    sys.refresh_processes();
+
+    let mut containers_metrics = serde_json::Map::new();
+    let mut machines_metrics = serde_json::Map::new();
+
+    let data_dir = std::env::var("ZENO_CONTAINER_DATA_DIR")
+        .unwrap_or_else(|_| "/var/lib/zeno-container".to_string());
+    if let Ok(containers) = crate::slots::zeno_box::container_list_internal(&data_dir, false) {
+        for c in containers {
+            if c.status == "running" && c.pid > 0 {
+                let sys_pid = sysinfo::Pid::from(c.pid as usize);
+                if let Some(p) = sys.process(sys_pid) {
+                    let cpu = p.cpu_usage() as f64;
+                    let mem = (p.memory() as f64) / 1024.0 / 1024.0; // MB
+                    containers_metrics.insert(c.id.clone(), serde_json::json!({
+                        "cpu": cpu,
+                        "memory": mem
+                    }));
+                }
+            }
+        }
+    }
+
+    let machines = state.machine_manager.machines.read().await;
+    for (name, state_arc) in machines.iter() {
+        let machine_state = state_arc.read().await;
+        if machine_state.info.status == "running" {
+            if let Some(pid) = machine_state.pid {
+                let sys_pid = sysinfo::Pid::from(pid as usize);
+                if let Some(p) = sys.process(sys_pid) {
+                    let cpu = p.cpu_usage() as f64;
+                    let mem = (p.memory() as f64) / 1024.0 / 1024.0; // MB
+                    machines_metrics.insert(name.clone(), serde_json::json!({
+                        "cpu": cpu,
+                        "memory": mem
+                    }));
+                }
+            }
+        }
+    }
+
+    Ok(axum::Json(serde_json::json!({
+        "success": true,
+        "containers": containers_metrics,
+        "machines": machines_metrics
+    })))
 }
 
 
