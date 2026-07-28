@@ -403,7 +403,235 @@ pub fn register(engine: &mut Engine) {
         }),
         SlotMeta { description: "Sync local ISO files to database".to_string(), example: "util.sync_local_isos".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "".to_string() }
     );
+
+    engine.register(
+        "util.yaml_parse",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut yaml_str = String::new();
+            let mut target = "parsed_yaml".to_string();
+
+            if node.value.is_some() {
+                yaml_str = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+
+            for child in &node.children {
+                let child_val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "val" || child.name == "value" {
+                    yaml_str = child_val.to_string_coerce();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml_str).map_err(|e| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("util.yaml_parse failed: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("util.yaml_parse".to_string()),
+                }
+            })?;
+
+            fn serde_yaml_to_zeno(v: &serde_yaml::Value) -> Value {
+                match v {
+                    serde_yaml::Value::Null => Value::Nil,
+                    serde_yaml::Value::Bool(b) => Value::Bool(*b),
+                    serde_yaml::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            Value::Int(i)
+                        } else if let Some(f) = n.as_f64() {
+                            Value::Float(f)
+                        } else {
+                            Value::Nil
+                        }
+                    }
+                    serde_yaml::Value::String(s) => Value::String(s.clone()),
+                    serde_yaml::Value::Sequence(seq) => {
+                        Value::List(seq.iter().map(serde_yaml_to_zeno).collect())
+                    }
+                    serde_yaml::Value::Mapping(map) => {
+                        let mut m = HashMap::new();
+                        for (k, val) in map {
+                            let k_str = match k {
+                                serde_yaml::Value::String(s) => s.clone(),
+                                other => format!("{:?}", other),
+                            };
+                            m.insert(k_str, serde_yaml_to_zeno(val));
+                        }
+                        Value::Map(m)
+                    }
+                    _ => Value::Nil,
+                }
+            }
+
+            scope.set(&target, serde_yaml_to_zeno(&parsed));
+            Ok(())
+        }),
+        SlotMeta { description: "Parse YAML string into a Map/List".to_string(), example: "util.yaml_parse: $yaml { as: $map }".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "map".to_string() }
+    );
+
+    engine.register(
+        "util.yaml_stringify",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut val = Value::Nil;
+            let mut target = "yaml_string".to_string();
+
+            if node.value.is_some() {
+                val = resolve_node_value(engine, node, scope);
+            }
+
+            for child in &node.children {
+                let child_val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "val" || child.name == "value" {
+                    val = child_val;
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            fn zeno_to_serde_yaml(v: &Value) -> serde_yaml::Value {
+                match v {
+                    Value::Nil => serde_yaml::Value::Null,
+                    Value::Bool(b) => serde_yaml::Value::Bool(*b),
+                    Value::Int(i) => serde_yaml::Value::Number((*i).into()),
+                    Value::Float(f) => serde_yaml::Value::Number((*f).into()),
+                    Value::String(s) => serde_yaml::Value::String(s.clone()),
+                    Value::List(l) => {
+                        serde_yaml::Value::Sequence(l.iter().map(zeno_to_serde_yaml).collect())
+                    }
+                    Value::Map(m) => {
+                        let mut map = serde_yaml::Mapping::new();
+                        for (k, val) in m {
+                            map.insert(serde_yaml::Value::String(k.clone()), zeno_to_serde_yaml(val));
+                        }
+                        serde_yaml::Value::Mapping(map)
+                    }
+                }
+            }
+
+            let yaml_val = zeno_to_serde_yaml(&val);
+            let yaml_str = serde_yaml::to_string(&yaml_val).map_err(|e| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("util.yaml_stringify failed: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("util.yaml_stringify".to_string()),
+                }
+            })?;
+
+            scope.set(&target, Value::String(yaml_str));
+            Ok(())
+        }),
+        SlotMeta { description: "Serialize a Value/Map/List into a YAML string".to_string(), example: "util.yaml_stringify: $map { as: $yaml }".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "string".to_string() }
+    );
+
+    engine.register(
+        "util.json_parse",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut json_str = String::new();
+            let mut target = "parsed_json".to_string();
+
+            if node.value.is_some() {
+                json_str = resolve_node_value(engine, node, scope).to_string_coerce();
+            }
+
+            for child in &node.children {
+                let child_val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "val" || child.name == "value" {
+                    json_str = child_val.to_string_coerce();
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("util.json_parse failed: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("util.json_parse".to_string()),
+                }
+            })?;
+
+            fn serde_json_to_zeno(v: &serde_json::Value) -> Value {
+                match v {
+                    serde_json::Value::Null => Value::Nil,
+                    serde_json::Value::Bool(b) => Value::Bool(*b),
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            Value::Int(i)
+                        } else if let Some(f) = n.as_f64() {
+                            Value::Float(f)
+                        } else {
+                            Value::Nil
+                        }
+                    }
+                    serde_json::Value::String(s) => Value::String(s.clone()),
+                    serde_json::Value::Array(arr) => {
+                        Value::List(arr.iter().map(serde_json_to_zeno).collect())
+                    }
+                    serde_json::Value::Object(obj) => {
+                        let mut m = HashMap::new();
+                        for (k, val) in obj {
+                            m.insert(k.clone(), serde_json_to_zeno(val));
+                        }
+                        Value::Map(m)
+                    }
+                }
+            }
+
+            scope.set(&target, serde_json_to_zeno(&parsed));
+            Ok(())
+        }),
+        SlotMeta { description: "Parse JSON string into a Map/List".to_string(), example: "util.json_parse: $json { as: $map }".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "map".to_string() }
+    );
+
+    engine.register(
+        "util.json_stringify",
+        Arc::new(|engine, _ctx, node, scope| {
+            let mut val = Value::Nil;
+            let mut target = "json_string".to_string();
+
+            if node.value.is_some() {
+                val = resolve_node_value(engine, node, scope);
+            }
+
+            for child in &node.children {
+                let child_val = engine.resolve_shorthand_value(child, scope);
+                if child.name == "val" || child.name == "value" {
+                    val = child_val;
+                } else if child.name == "as" {
+                    target = child.value.clone().unwrap_or_default().trim_start_matches('$').to_string();
+                }
+            }
+
+            let json_val = super::value_to_serde_json(&val);
+            let json_str = serde_json::to_string(&json_val).map_err(|e| {
+                Diagnostic {
+                    r#type: "error".to_string(),
+                    message: format!("util.json_stringify failed: {}", e),
+                    filename: node.filename.clone(),
+                    line: node.line,
+                    col: node.col,
+                    slot: Some("util.json_stringify".to_string()),
+                }
+            })?;
+
+            scope.set(&target, Value::String(json_str));
+            Ok(())
+        }),
+        SlotMeta { description: "Stringify Zeno Value into JSON string".to_string(), example: "util.json_stringify: $val { as: $json }".to_string(), inputs: HashMap::new(), required_blocks: Vec::new(), value_type: "string".to_string() }
+    );
+    // NOTE: Slot `try/catch` kini disediakan oleh zenocore >= 0.2.3
+    // dan tidak perlu didefinisikan ulang di sini.
 }
+
 
 fn evaluate_condition(engine: &Engine, expr: &str, scope: &Arc<zenocore::Scope>) -> bool {
     let mut expr = expr.trim();
