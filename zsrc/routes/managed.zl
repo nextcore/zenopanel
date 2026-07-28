@@ -1,8 +1,15 @@
 # 16. Managed Processes API
 http.get: '/api/managed/list' {
     auth.guard
-    proc.list: { as: $procs }
-    http.ok: { data: $procs }
+    try: {
+        run: {
+            proc.list: { as: $procs }
+            http.ok: { data: $procs }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil daftar proses managed: ${error}" }
+        }
+    }
 }
 
 http.post: '/api/managed/add' {
@@ -17,17 +24,24 @@ http.post: '/api/managed/add' {
         as: $clean_auto_restart
     }
 
-    proc.add: $body.name {
-        command: $body.command
-        cwd: $body.cwd
-        env: $clean_env
-        auto_restart: $clean_auto_restart
-        port: $body.port
-        as: $id
-    }
-    http.ok: {
-        id: $id
-        message: "Proses managed berhasil ditambahkan"
+    try: {
+        run: {
+            proc.add: $body.name {
+                command: $body.command
+                cwd: $body.cwd
+                env: $clean_env
+                auto_restart: $clean_auto_restart
+                port: $body.port
+                as: $id
+            }
+            http.ok: {
+                id: $id
+                message: "Proses managed berhasil ditambahkan"
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menambahkan proses managed: ${error}" }
+        }
     }
 }
 
@@ -43,21 +57,28 @@ http.post: '/api/managed/update' {
         as: $clean_auto_restart
     }
 
-    proc.update: $body.id {
-        name: $body.name
-        command: $body.command
-        cwd: $body.cwd
-        env: $clean_env
-        auto_restart: $clean_auto_restart
-        port: $body.port
-        as: $success
-    }
-    if: $success {
-        then: {
-            http.ok: { message: "Proses managed berhasil diperbarui" }
+    try: {
+        run: {
+            proc.update: $body.id {
+                name: $body.name
+                command: $body.command
+                cwd: $body.cwd
+                env: $clean_env
+                auto_restart: $clean_auto_restart
+                port: $body.port
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { message: "Proses managed berhasil diperbarui" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal memperbarui proses managed" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal memperbarui proses managed: ${error}" }
         }
     }
 }
@@ -65,13 +86,20 @@ http.post: '/api/managed/update' {
 http.post: '/api/managed/start' {
     auth.guard
     http.json_body: { as: $body }
-    proc.start: $body.id { as: $success }
-    if: $success {
-        then: {
-            http.ok: { message: "Proses managed berhasil dijalankan" }
+    try: {
+        run: {
+            proc.start: $body.id { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Proses managed berhasil dijalankan" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal menjalankan proses managed" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menjalankan proses managed: ${error}" }
         }
     }
 }
@@ -79,13 +107,20 @@ http.post: '/api/managed/start' {
 http.post: '/api/managed/stop' {
     auth.guard
     http.json_body: { as: $body }
-    proc.stop: $body.id { as: $success }
-    if: $success {
-        then: {
-            http.ok: { message: "Proses managed berhasil dihentikan" }
+    try: {
+        run: {
+            proc.stop: $body.id { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Proses managed berhasil dihentikan" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal menghentikan proses managed" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menghentikan proses managed: ${error}" }
         }
     }
 }
@@ -93,13 +128,20 @@ http.post: '/api/managed/stop' {
 http.post: '/api/managed/restart' {
     auth.guard
     http.json_body: { as: $body }
-    proc.restart: $body.id { as: $success }
-    if: $success {
-        then: {
-            http.ok: { message: "Proses managed berhasil direstart" }
+    try: {
+        run: {
+            proc.restart: $body.id { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Proses managed berhasil direstart" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal merestart proses managed" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal merestart proses managed: ${error}" }
         }
     }
 }
@@ -107,13 +149,20 @@ http.post: '/api/managed/restart' {
 http.post: '/api/managed/delete' {
     auth.guard
     http.json_body: { as: $body }
-    proc.delete: $body.id { as: $success }
-    if: $success {
-        then: {
-            http.ok: { message: "Proses managed berhasil dihapus" }
+    try: {
+        run: {
+            proc.delete: $body.id { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Proses managed berhasil dihapus" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal menghapus proses managed" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menghapus proses managed: ${error}" }
         }
     }
 }
@@ -126,42 +175,63 @@ http.get: '/api/managed/logs' {
         default: '100'
         as: $lines_str
     }
-    cast.to_int: $lines_str { as: $lines }
-    proc.logs: $proc_id {
-        lines: $lines
-        as: $logs
+    try: {
+        run: {
+            cast.to_int: $lines_str { as: $lines }
+            proc.logs: $proc_id {
+                lines: $lines
+                as: $logs
+            }
+            http.ok: { data: $logs }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil log proses managed: ${error}" }
+        }
     }
-    http.ok: { data: $logs }
 }
 
 # Get Git Settings for Native Managed Process
 http.get: '/api/managed/git' {
     auth.guard
     http.query: 'cwd' { as: $cwd }
-    proc.git_get: {
-        cwd: $cwd
-        as: $result
+    try: {
+        run: {
+            proc.git_get: {
+                cwd: $cwd
+                as: $result
+            }
+            http.ok: { data: $result }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil pengaturan Git: ${error}" }
+        }
     }
-    http.ok: { data: $result }
 }
 
 # Save Git Settings for Native Managed Process
 http.post: '/api/managed/git' {
     auth.guard
     http.json_body: { as: $body }
-    proc.git_save: {
-        cwd: $body.cwd
-        repo_url: $body.repo_url
-        branch: $body.branch
-        webhook_token: $body.webhook_token
-        as: $success
-    }
-    if: $success {
-        then: {
-            http.ok: { message: "Git settings saved successfully" }
+    try: {
+        run: {
+            proc.git_save: {
+                cwd: $body.cwd
+                repo_url: $body.repo_url
+                branch: $body.branch
+                webhook_token: $body.webhook_token
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { message: "Git settings saved successfully" }
+                }
+                else: {
+                    http.bad_request: { message: "Failed to save Git settings" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: "Failed to save Git settings" }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menyimpan pengaturan Git: ${error}" }
         }
     }
 }
@@ -170,19 +240,26 @@ http.post: '/api/managed/git' {
 http.post: '/api/managed/git/sync' {
     auth.guard
     http.json_body: { as: $body }
-    proc.git_sync: {
-        id: $body.id
-        as: $result
-    }
-    if: $result.success {
-        then: {
-            http.ok: { output: $result.stdout }
-        }
-        else: {
-            http.bad_request: {
-                message: "Git sync failed"
-                error: $result.stderr
+    try: {
+        run: {
+            proc.git_sync: {
+                id: $body.id
+                as: $result
             }
+            if: $result.success {
+                then: {
+                    http.ok: { output: $result.stdout }
+                }
+                else: {
+                    http.bad_request: {
+                        message: "Git sync failed"
+                        error: $result.stderr
+                    }
+                }
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menyelaraskan Git: ${error}" }
         }
     }
 }
@@ -191,19 +268,25 @@ http.post: '/api/managed/git/sync' {
 http.post: '/api/deploy/native' {
     http.query: 'id' { as: $proc_id }
     http.query: 'token' { as: $token_query }
+    try: {
+        run: {
+            proc.git_sync: {
+                id: $proc_id
+                token: $token_query
+                as: $sync_res
+            }
 
-    proc.git_sync: {
-        id: $proc_id
-        token: $token_query
-        as: $sync_res
-    }
-
-    if: $sync_res.success {
-        then: {
-            http.ok: { message: "Auto-deployment triggered successfully via webhook", output: $sync_res.stdout }
+            if: $sync_res.success {
+                then: {
+                    http.ok: { message: "Auto-deployment triggered successfully via webhook", output: $sync_res.stdout }
+                }
+                else: {
+                    http.bad_request: { message: "Webhook sync failed", error: $sync_res.stderr }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: "Webhook sync failed", error: $sync_res.stderr }
+        catch: {
+            http.bad_request: { success: false, message: "Webhook deployment error: ${error}" }
         }
     }
 }

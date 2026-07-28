@@ -1,8 +1,15 @@
 # 17. Reverse Proxy API
 http.get: '/api/proxy/list' {
     auth.guard
-    proxy.list: { as: $proxies }
-    http.ok: { data: $proxies }
+    try: {
+        run: {
+            proxy.list: { as: $proxies }
+            http.ok: { data: $proxies }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil daftar proxy: ${error}" }
+        }
+    }
 }
 
 http.post: '/api/proxy/add' {
@@ -49,23 +56,30 @@ http.post: '/api/proxy/add' {
         as: $clean_max_body_size
     }
 
-    proxy.add: $body.name {
-        domain: $clean_domain
-        alternative_domain: $clean_alternative_domain
-        path: $clean_path
-        target: $body.target
-        strip_path: $clean_strip_path
-        enabled: $clean_enabled
-        ssl_enabled: $clean_ssl_enabled
-        managed_process_id: $clean_process_id
-        rule_type: $clean_rule_type
-        waf_enabled: $clean_waf_enabled
-        max_body_size: $clean_max_body_size
-        as: $id
-    }
-    http.ok: {
-        id: $id
-        message: "Proxy rule berhasil ditambahkan"
+    try: {
+        run: {
+            proxy.add: $body.name {
+                domain: $clean_domain
+                alternative_domain: $clean_alternative_domain
+                path: $clean_path
+                target: $body.target
+                strip_path: $clean_strip_path
+                enabled: $clean_enabled
+                ssl_enabled: $clean_ssl_enabled
+                managed_process_id: $clean_process_id
+                rule_type: $clean_rule_type
+                waf_enabled: $clean_waf_enabled
+                max_body_size: $clean_max_body_size
+                as: $id
+            }
+            http.ok: {
+                id: $id
+                message: "Proxy rule berhasil ditambahkan"
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menambahkan proxy rule: ${error}" }
+        }
     }
 }
 
@@ -121,29 +135,36 @@ http.post: '/api/proxy/update' {
         as: $clean_ip_blacklist
     }
 
-    proxy.update: $body.id {
-        name: $body.name
-        domain: $clean_domain
-        alternative_domain: $clean_alternative_domain
-        path: $clean_path
-        target: $body.target
-        strip_path: $clean_strip_path
-        enabled: $clean_enabled
-        ssl_enabled: $clean_ssl_enabled
-        managed_process_id: $clean_process_id
-        rule_type: $clean_rule_type
-        waf_enabled: $clean_waf_enabled
-        max_body_size: $clean_max_body_size
-        ip_whitelist: $clean_ip_whitelist
-        ip_blacklist: $clean_ip_blacklist
-        as: $success
-    }
-    if: $success {
-        then: {
-            http.ok: { message: "Proxy rule berhasil diperbarui" }
+    try: {
+        run: {
+            proxy.update: $body.id {
+                name: $body.name
+                domain: $clean_domain
+                alternative_domain: $clean_alternative_domain
+                path: $clean_path
+                target: $body.target
+                strip_path: $clean_strip_path
+                enabled: $clean_enabled
+                ssl_enabled: $clean_ssl_enabled
+                managed_process_id: $clean_process_id
+                rule_type: $clean_rule_type
+                waf_enabled: $clean_waf_enabled
+                max_body_size: $clean_max_body_size
+                ip_whitelist: $clean_ip_whitelist
+                ip_blacklist: $clean_ip_blacklist
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { message: "Proxy rule berhasil diperbarui" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal memperbarui proxy rule" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal memperbarui proxy rule: ${error}" }
         }
     }
 }
@@ -151,13 +172,20 @@ http.post: '/api/proxy/update' {
 http.post: '/api/proxy/delete' {
     auth.guard
     http.json_body: { as: $body }
-    proxy.delete: $body.id { as: $success }
-    if: $success {
-        then: {
-            http.ok: { message: "Proxy rule berhasil dihapus" }
+    try: {
+        run: {
+            proxy.delete: $body.id { as: $success }
+            if: $success {
+                then: {
+                    http.ok: { message: "Proxy rule berhasil dihapus" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal menghapus proxy rule" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menghapus proxy rule: ${error}" }
         }
     }
 }
@@ -165,16 +193,23 @@ http.post: '/api/proxy/delete' {
 http.post: '/api/proxy/toggle' {
     auth.guard
     http.json_body: { as: $body }
-    proxy.toggle: $body.id {
-        enabled: $body.enabled
-        as: $success
-    }
-    if: $success {
-        then: {
-            http.ok: { message: "Status proxy rule berhasil diubah" }
+    try: {
+        run: {
+            proxy.toggle: $body.id {
+                enabled: $body.enabled
+                as: $success
+            }
+            if: $success {
+                then: {
+                    http.ok: { message: "Status proxy rule berhasil diubah" }
+                }
+                else: {
+                    http.bad_request: { message: "Gagal mengubah status proxy rule" }
+                }
+            }
         }
-        else: {
-            http.bad_request: { message: $error }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengubah status proxy rule: ${error}" }
         }
     }
 }

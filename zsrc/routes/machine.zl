@@ -5,35 +5,42 @@
 # List all Zeno Machines
 http.get: '/api/machines/list' {
     auth.guard
-    db.select: "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path, created_at FROM db_machines ORDER BY id ASC" {
-        as: $machines
-    }
-    
-    db.select: "SELECT COUNT(*) as total, SUM(vcpus) as total_vcpus, SUM(memory_mb) as total_ram FROM db_machines WHERE status = 'running'" {
-        first: true
-        as: $stats_running
-    }
+    try: {
+        run: {
+            db.select: "SELECT id, name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path, created_at FROM db_machines ORDER BY id ASC" {
+                as: $machines
+            }
+            
+            db.select: "SELECT COUNT(*) as total, SUM(vcpus) as total_vcpus, SUM(memory_mb) as total_ram FROM db_machines WHERE status = 'running'" {
+                first: true
+                as: $stats_running
+            }
 
-    coalesce: $stats_running.total {
-        default: 0
-        as: $running_count
-    }
-    coalesce: $stats_running.total_vcpus {
-        default: 0
-        as: $running_vcpus
-    }
-    coalesce: $stats_running.total_ram {
-        default: 0
-        as: $running_ram
-    }
+            coalesce: $stats_running.total {
+                default: 0
+                as: $running_count
+            }
+            coalesce: $stats_running.total_vcpus {
+                default: 0
+                as: $running_vcpus
+            }
+            coalesce: $stats_running.total_ram {
+                default: 0
+                as: $running_ram
+            }
 
-    http.ok: {
-        success: true
-        data: $machines
-        stats: {
-            running_count: $running_count
-            running_vcpus: $running_vcpus
-            running_ram: $running_ram
+            http.ok: {
+                success: true
+                data: $machines
+                stats: {
+                    running_count: $running_count
+                    running_vcpus: $running_vcpus
+                    running_ram: $running_ram
+                }
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil daftar VM: ${error}" }
         }
     }
 }
@@ -87,13 +94,20 @@ http.post: '/api/machines/create' {
             var: $disk_path { val: "/var/lib/zeno-container/machines/${name}.img" }
             var: $socket_path { val: "/run/zeno-machine/${name}.sock" }
 
-            db.execute: "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?)" {
-                bind: [$clean_name, $os_type, $vcpus, $memory_mb, $disk_path, $disk_size_gb, $tap_device, $ip_address, $socket_path, $ssh_key, $root_password, $iso_path]
-            }
+            try: {
+                run: {
+                    db.execute: "INSERT INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, tap_device, ip_address, status, socket_path, ssh_key, root_password, iso_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?)" {
+                        bind: [$clean_name, $os_type, $vcpus, $memory_mb, $disk_path, $disk_size_gb, $tap_device, $ip_address, $socket_path, $ssh_key, $root_password, $iso_path]
+                    }
 
-            http.created: {
-                success: true
-                message: "Zeno Machine '${name}' berhasil dibuat"
+                    http.created: {
+                        success: true
+                        message: "Zeno Machine '${name}' berhasil dibuat"
+                    }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal membuat VM: ${error}" }
+                }
             }
         }
         else: {
@@ -110,10 +124,17 @@ http.post: '/api/machines/start' {
         then: {
             http.json_body: { as: $body }
             var: $name { val: $body.name }
-            db.execute: "UPDATE db_machines SET status = 'running' WHERE name = ?" {
-                bind: [$name]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_machines SET status = 'running' WHERE name = ?" {
+                        bind: [$name]
+                    }
+                    http.ok: { message: "Zeno Machine '${name}' berhasil dinyalakan" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal menyalakan VM: ${error}" }
+                }
             }
-            http.ok: { message: "Zeno Machine '${name}' berhasil dinyalakan" }
         }
     }
 }
@@ -126,10 +147,17 @@ http.post: '/api/machines/stop' {
         then: {
             http.json_body: { as: $body }
             var: $name { val: $body.name }
-            db.execute: "UPDATE db_machines SET status = 'stopped' WHERE name = ?" {
-                bind: [$name]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_machines SET status = 'stopped' WHERE name = ?" {
+                        bind: [$name]
+                    }
+                    http.ok: { message: "Zeno Machine '${name}' dimatikan" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal mematikan VM: ${error}" }
+                }
             }
-            http.ok: { message: "Zeno Machine '${name}' dimatikan" }
         }
     }
 }
@@ -142,10 +170,17 @@ http.post: '/api/machines/pause' {
         then: {
             http.json_body: { as: $body }
             var: $name { val: $body.name }
-            db.execute: "UPDATE db_machines SET status = 'paused' WHERE name = ?" {
-                bind: [$name]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_machines SET status = 'paused' WHERE name = ?" {
+                        bind: [$name]
+                    }
+                    http.ok: { message: "Zeno Machine '${name}' ditangguhkan (paused)" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal menangguhkan VM: ${error}" }
+                }
             }
-            http.ok: { message: "Zeno Machine '${name}' ditangguhkan (paused)" }
         }
     }
 }
@@ -158,10 +193,17 @@ http.post: '/api/machines/resume' {
         then: {
             http.json_body: { as: $body }
             var: $name { val: $body.name }
-            db.execute: "UPDATE db_machines SET status = 'running' WHERE name = ?" {
-                bind: [$name]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_machines SET status = 'running' WHERE name = ?" {
+                        bind: [$name]
+                    }
+                    http.ok: { message: "Zeno Machine '${name}' dilanjutkan" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal melanjutkan VM: ${error}" }
+                }
             }
-            http.ok: { message: "Zeno Machine '${name}' dilanjutkan" }
         }
     }
 }
@@ -178,10 +220,17 @@ http.post: '/api/machines/resize' {
             var: $memory_mb { val: $body.memory_mb }
             var: $disk_size_gb { val: $body.disk_size_gb }
 
-            db.execute: "UPDATE db_machines SET vcpus = ?, memory_mb = ?, disk_size_gb = ? WHERE name = ?" {
-                bind: [$vcpus, $memory_mb, $disk_size_gb, $name]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_machines SET vcpus = ?, memory_mb = ?, disk_size_gb = ? WHERE name = ?" {
+                        bind: [$vcpus, $memory_mb, $disk_size_gb, $name]
+                    }
+                    http.ok: { message: "Spesifikasi Zeno Machine '${name}' berhasil diperbarui" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal meresize VM: ${error}" }
+                }
             }
-            http.ok: { message: "Spesifikasi Zeno Machine '${name}' berhasil diperbarui" }
         }
     }
 }
@@ -194,10 +243,17 @@ http.post: '/api/machines/delete' {
         then: {
             http.json_body: { as: $body }
             var: $name { val: $body.name }
-            db.execute: "DELETE FROM db_machines WHERE name = ?" {
-                bind: [$name]
+            try: {
+                run: {
+                    db.execute: "DELETE FROM db_machines WHERE name = ?" {
+                        bind: [$name]
+                    }
+                    http.ok: { message: "Zeno Machine '${name}' berhasil dihapus" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal menghapus VM: ${error}" }
+                }
             }
-            http.ok: { message: "Zeno Machine '${name}' berhasil dihapus" }
         }
     }
 }
@@ -209,11 +265,18 @@ http.post: '/api/machines/delete' {
 # List all registered ISOs
 http.get: '/api/machines/isos/list' {
     auth.guard
-    util.sync_local_isos
-    db.select: "SELECT i.id, i.name, i.size_bytes, i.path, i.source_url, i.status, i.created_at, (SELECT COUNT(*) FROM db_machines m WHERE m.iso_path = i.path OR m.iso_path = i.name) as attached_count FROM db_isos i ORDER BY i.id DESC" {
-        as: $isos
+    try: {
+        run: {
+            util.sync_local_isos
+            db.select: "SELECT i.id, i.name, i.size_bytes, i.path, i.source_url, i.status, i.created_at, (SELECT COUNT(*) FROM db_machines m WHERE m.iso_path = i.path OR m.iso_path = i.name) as attached_count FROM db_isos i ORDER BY i.id DESC" {
+                as: $isos
+            }
+            http.ok: { success: true, data: $isos }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil daftar ISO: ${error}" }
+        }
     }
-    http.ok: { success: true, data: $isos }
 }
 
 # Register / Add ISO Image
@@ -247,31 +310,38 @@ http.post: '/api/machines/isos/add' {
                 }
             }
 
-            util.is_download_url: $source_url { as: $is_download }
-            if: $is_download {
-                then: {
-                    db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, 0, ?, ?, 'downloading')" {
-                        bind: [$name, $final_path, $source_url]
-                    }
-                    http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan. Proses download dimulai di background." }
-                }
-                else: {
-                    io.exists: $final_path { as: $exists }
-                    if: $exists {
+            try: {
+                run: {
+                    util.is_download_url: $source_url { as: $is_download }
+                    if: $is_download {
                         then: {
-                            io.file.size: $final_path { as: $size }
-                            db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, ?, ?, ?, 'ready')" {
-                                bind: [$name, $size, $final_path, $source_url]
-                            }
-                            http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan ke Library" }
-                        }
-                        else: {
-                            db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, 0, ?, ?, 'error')" {
+                            db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, 0, ?, ?, 'downloading')" {
                                 bind: [$name, $final_path, $source_url]
                             }
-                            http.created: { success: true, message: "ISO '${name}' terdaftar dengan status ERROR (file tidak ditemukan di lokal)" }
+                            http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan. Proses download dimulai di background." }
+                        }
+                        else: {
+                            io.exists: $final_path { as: $exists }
+                            if: $exists {
+                                then: {
+                                    io.file.size: $final_path { as: $size }
+                                    db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, ?, ?, ?, 'ready')" {
+                                        bind: [$name, $size, $final_path, $source_url]
+                                    }
+                                    http.created: { success: true, message: "ISO '${name}' berhasil didaftarkan ke Library" }
+                                }
+                                else: {
+                                    db.execute: "INSERT OR REPLACE INTO db_isos (name, size_bytes, path, source_url, status) VALUES (?, 0, ?, ?, 'error')" {
+                                        bind: [$name, $final_path, $source_url]
+                                    }
+                                    http.created: { success: true, message: "ISO '${name}' terdaftar dengan status ERROR (file tidak ditemukan di lokal)" }
+                                }
+                            }
                         }
                     }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal mendaftarkan ISO: ${error}" }
                 }
             }
         }
@@ -307,32 +377,38 @@ http.post: '/api/machines/isos/edit' {
                 as: $status
             }
 
-            util.is_download_url: $source_url { as: $is_download }
-            if: $is_download {
-                then: {
-                    db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = 0, status = 'downloading' WHERE id = ?" {
-                        bind: [$name, $path, $source_url, $id]
-                    }
-                }
-                else: {
-                    io.exists: $path { as: $exists }
-                    if: $exists {
+            try: {
+                run: {
+                    util.is_download_url: $source_url { as: $is_download }
+                    if: $is_download {
                         then: {
-                            io.file.size: $path { as: $size }
-                            db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = ?, status = ? WHERE id = ?" {
-                                bind: [$name, $path, $source_url, $size, $status, $id]
-                            }
-                        }
-                        else: {
-                            db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = 0, status = 'error' WHERE id = ?" {
+                            db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = 0, status = 'downloading' WHERE id = ?" {
                                 bind: [$name, $path, $source_url, $id]
                             }
                         }
+                        else: {
+                            io.exists: $path { as: $exists }
+                            if: $exists {
+                                then: {
+                                    io.file.size: $path { as: $size }
+                                    db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = ?, status = ? WHERE id = ?" {
+                                        bind: [$name, $path, $source_url, $size, $status, $id]
+                                    }
+                                }
+                                else: {
+                                    db.execute: "UPDATE db_isos SET name = ?, path = ?, source_url = ?, size_bytes = 0, status = 'error' WHERE id = ?" {
+                                        bind: [$name, $path, $source_url, $id]
+                                    }
+                                }
+                            }
+                        }
                     }
+                    http.ok: { success: true, message: "ISO Image '${name}' berhasil diperbarui" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal memperbarui ISO: ${error}" }
                 }
             }
-
-            http.ok: { success: true, message: "ISO Image '${name}' berhasil diperbarui" }
         }
         else: {
             http.forbidden: { success: false, message: "Forbidden: Akses ditolak" }
@@ -349,33 +425,40 @@ http.post: '/api/machines/isos/delete' {
             http.json_body: { as: $body }
             var: $id { val: $body.id }
 
-            db.select: "SELECT COUNT(*) as attached_count FROM db_machines WHERE iso_path = (SELECT path FROM db_isos WHERE id = ?) OR iso_path = (SELECT name FROM db_isos WHERE id = ?)" {
-                bind: [$id, $id]
-                first: true
-                as: $check
-            }
-
-            if: $check.attached_count > 0 {
-                then: {
-                    http.bad_request: { success: false, message: "ISO tidak dapat dihapus karena masih terpasang pada Zeno Machine" }
-                }
-                else: {
-                    db.select: "SELECT path FROM db_isos WHERE id = ?" {
-                        bind: [$id]
+            try: {
+                run: {
+                    db.select: "SELECT COUNT(*) as attached_count FROM db_machines WHERE iso_path = (SELECT path FROM db_isos WHERE id = ?) OR iso_path = (SELECT name FROM db_isos WHERE id = ?)" {
+                        bind: [$id, $id]
                         first: true
-                        as: $iso_info
+                        as: $check
                     }
-                    if: $iso_info {
+
+                    if: $check.attached_count > 0 {
                         then: {
-                            var: $iso_path { val: $iso_info.path }
-                            io.file.delete: $iso_path
+                            http.bad_request: { success: false, message: "ISO tidak dapat dihapus karena masih terpasang pada Zeno Machine" }
+                        }
+                        else: {
+                            db.select: "SELECT path FROM db_isos WHERE id = ?" {
+                                bind: [$id]
+                                first: true
+                                as: $iso_info
+                            }
+                            if: $iso_info {
+                                then: {
+                                    var: $iso_path { val: $iso_info.path }
+                                    io.file.delete: $iso_path
+                                }
+                            }
+
+                            db.execute: "DELETE FROM db_isos WHERE id = ?" {
+                                bind: [$id]
+                            }
+                            http.ok: { success: true, message: "ISO Image berhasil dihapus dari Library" }
                         }
                     }
-
-                    db.execute: "DELETE FROM db_isos WHERE id = ?" {
-                        bind: [$id]
-                    }
-                    http.ok: { success: true, message: "ISO Image berhasil dihapus dari Library" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal menghapus ISO: ${error}" }
                 }
             }
         }
@@ -392,10 +475,17 @@ http.post: '/api/machines/isos/attach' {
             var: $name { val: $body.name }
             var: $iso_path { val: $body.iso_path }
 
-            db.execute: "UPDATE db_machines SET iso_path = ? WHERE name = ?" {
-                bind: [$iso_path, $name]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_machines SET iso_path = ? WHERE name = ?" {
+                        bind: [$iso_path, $name]
+                    }
+                    http.ok: { success: true, message: "ISO '${iso_path}' berhasil dipasang (attached) ke Zeno Machine '${name}'" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal memasang ISO: ${error}" }
+                }
             }
-            http.ok: { success: true, message: "ISO '${iso_path}' berhasil dipasang (attached) ke Zeno Machine '${name}'" }
         }
     }
 }
@@ -409,10 +499,17 @@ http.post: '/api/machines/isos/detach' {
             http.json_body: { as: $body }
             var: $name { val: $body.name }
 
-            db.execute: "UPDATE db_machines SET iso_path = '' WHERE name = ?" {
-                bind: [$name]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_machines SET iso_path = '' WHERE name = ?" {
+                        bind: [$name]
+                    }
+                    http.ok: { success: true, message: "ISO Image berhasil dilepas (detached) dari Zeno Machine '${name}'" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal melepas ISO: ${error}" }
+                }
             }
-            http.ok: { success: true, message: "ISO Image berhasil dilepas (detached) dari Zeno Machine '${name}'" }
         }
     }
 }
@@ -424,10 +521,17 @@ http.post: '/api/machines/isos/detach' {
 # List Snapshots for a Machine (or all)
 http.get: '/api/machines/snapshots/list' {
     auth.guard
-    db.select: "SELECT id, machine_name, snapshot_name, description, file_path, size_bytes, created_at FROM db_snapshots ORDER BY id DESC" {
-        as: $snapshots
+    try: {
+        run: {
+            db.select: "SELECT id, machine_name, snapshot_name, description, file_path, size_bytes, created_at FROM db_snapshots ORDER BY id DESC" {
+                as: $snapshots
+            }
+            http.ok: { success: true, data: $snapshots }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil daftar snapshot: ${error}" }
+        }
     }
-    http.ok: { success: true, data: $snapshots }
 }
 
 # Create Named Snapshot with Description
@@ -449,11 +553,17 @@ http.post: '/api/machines/snapshots/create' {
 
             var: $snap_file { val: "/var/lib/zeno-container/machines/snapshots/${machine_name}/${snapshot_name}.snap" }
 
-            db.execute: "INSERT INTO db_snapshots (machine_name, snapshot_name, description, file_path, size_bytes) VALUES (?, ?, ?, ?, 10485760)" {
-                bind: [$machine_name, $snapshot_name, $description, $snap_file]
+            try: {
+                run: {
+                    db.execute: "INSERT INTO db_snapshots (machine_name, snapshot_name, description, file_path, size_bytes) VALUES (?, ?, ?, ?, 10485760)" {
+                        bind: [$machine_name, $snapshot_name, $description, $snap_file]
+                    }
+                    http.created: { success: true, message: "Snapshot '${snapshot_name}' untuk Zeno Machine '${machine_name}' berhasil dibuat!" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal membuat snapshot: ${error}" }
+                }
             }
-
-            http.created: { success: true, message: "Snapshot '${snapshot_name}' untuk Zeno Machine '${machine_name}' berhasil dibuat!" }
         }
     }
 }
@@ -468,13 +578,19 @@ http.post: '/api/machines/snapshots/restore' {
             var: $id { val: $body.id }
             var: $machine_name { val: $body.machine_name }
 
-            db.select: "SELECT snapshot_name FROM db_snapshots WHERE id = ?" {
-                bind: [$id]
-                first: true
-                as: $snap
+            try: {
+                run: {
+                    db.select: "SELECT snapshot_name FROM db_snapshots WHERE id = ?" {
+                        bind: [$id]
+                        first: true
+                        as: $snap
+                    }
+                    http.ok: { success: true, message: "Zeno Machine '${machine_name}' berhasil di-restore ke Snapshot!" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal merestore snapshot: ${error}" }
+                }
             }
-
-            http.ok: { success: true, message: "Zeno Machine '${machine_name}' berhasil di-restore ke Snapshot!" }
         }
     }
 }
@@ -488,10 +604,17 @@ http.post: '/api/machines/snapshots/delete' {
             http.json_body: { as: $body }
             var: $id { val: $body.id }
 
-            db.execute: "DELETE FROM db_snapshots WHERE id = ?" {
-                bind: [$id]
+            try: {
+                run: {
+                    db.execute: "DELETE FROM db_snapshots WHERE id = ?" {
+                        bind: [$id]
+                    }
+                    http.ok: { success: true, message: "Snapshot berhasil dihapus" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal menghapus snapshot: ${error}" }
+                }
             }
-            http.ok: { success: true, message: "Snapshot berhasil dihapus" }
         }
     }
 }
@@ -511,12 +634,18 @@ http.post: '/api/machines/migrate' {
                 as: $target_port
             }
 
-            # Buat record permohonan migrasi di target / lokal
-            db.execute: "INSERT INTO db_migration_requests (source_host, machine_name, status) VALUES (?, ?, 'pending')" {
-                bind: [$target_host, $name]
+            try: {
+                run: {
+                    # Buat record permohonan migrasi di target / lokal
+                    db.execute: "INSERT INTO db_migration_requests (source_host, machine_name, status) VALUES (?, ?, 'pending')" {
+                        bind: [$target_host, $name]
+                    }
+                    http.ok: { success: true, message: "Permintaan Live Migration '${name}' ke ${target_host} dikirim. Menunggu konfirmasi Manual Approval Admin target." }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal memigrasi VM: ${error}" }
+                }
             }
-
-            http.ok: { success: true, message: "Permintaan Live Migration '${name}' ke ${target_host} dikirim. Menunggu konfirmasi Manual Approval Admin target." }
         }
     }
 }
@@ -524,10 +653,17 @@ http.post: '/api/machines/migrate' {
 # List Incoming Migration Requests for Target Node
 http.get: '/api/machines/migration-requests' {
     auth.guard
-    db.select: "SELECT id, source_host, machine_name, os_type, vcpus, memory_mb, status, created_at FROM db_migration_requests WHERE status = 'pending' ORDER BY id DESC" {
-        as: $requests
+    try: {
+        run: {
+            db.select: "SELECT id, source_host, machine_name, os_type, vcpus, memory_mb, status, created_at FROM db_migration_requests WHERE status = 'pending' ORDER BY id DESC" {
+                as: $requests
+            }
+            http.ok: { success: true, data: $requests }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mendapatkan daftar permohonan migrasi: ${error}" }
+        }
     }
-    http.ok: { success: true, data: $requests }
 }
 
 # Accept Migration Request (Manual Approval)
@@ -539,31 +675,38 @@ http.post: '/api/machines/migration-requests/accept' {
             http.json_body: { as: $body }
             var: $id { val: $body.id }
 
-            db.select: "SELECT source_host, machine_name, os_type, vcpus, memory_mb FROM db_migration_requests WHERE id = ?" {
-                bind: [$id]
-                first: true
-                as: $req_info
-            }
-
-            if: $req_info {
-                then: {
-                    var: $m_name { val: $req_info.machine_name }
-                    var: $disk_path { val: "/var/lib/zeno-container/machines/${m_name}.img" }
-                    var: $socket_path { val: "/run/zeno-machine/${m_name}.sock" }
-
-                    # Auto-register ke db_machines target sebagai running
-                    db.execute: "INSERT OR IGNORE INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, status, socket_path) VALUES (?, ?, ?, ?, ?, 10, 'running', ?)" {
-                        bind: [$m_name, $req_info.os_type, $req_info.vcpus, $req_info.memory_mb, $disk_path, $socket_path]
-                    }
-
-                    db.execute: "UPDATE db_migration_requests SET status = 'accepted' WHERE id = ?" {
+            try: {
+                run: {
+                    db.select: "SELECT source_host, machine_name, os_type, vcpus, memory_mb FROM db_migration_requests WHERE id = ?" {
                         bind: [$id]
+                        first: true
+                        as: $req_info
                     }
 
-                    http.ok: { success: true, message: "Live Migration Zeno Machine '${m_name}' telah disetujui (ACCEPTED) & aktif di server ini!" }
+                    if: $req_info {
+                        then: {
+                            var: $m_name { val: $req_info.machine_name }
+                            var: $disk_path { val: "/var/lib/zeno-container/machines/${m_name}.img" }
+                            var: $socket_path { val: "/run/zeno-machine/${m_name}.sock" }
+
+                            # Auto-register ke db_machines target sebagai running
+                            db.execute: "INSERT OR IGNORE INTO db_machines (name, os_type, vcpus, memory_mb, disk_path, disk_size_gb, status, socket_path) VALUES (?, ?, ?, ?, ?, 10, 'running', ?)" {
+                                bind: [$m_name, $req_info.os_type, $req_info.vcpus, $req_info.memory_mb, $disk_path, $socket_path]
+                            }
+
+                            db.execute: "UPDATE db_migration_requests SET status = 'accepted' WHERE id = ?" {
+                                bind: [$id]
+                            }
+
+                            http.ok: { success: true, message: "Live Migration Zeno Machine '${m_name}' telah disetujui (ACCEPTED) & aktif di server ini!" }
+                        }
+                        else: {
+                            http.bad_request: { success: false, message: "Permintaan migrasi tidak ditemukan" }
+                        }
+                    }
                 }
-                else: {
-                    http.bad_request: { success: false, message: "Permintaan migrasi tidak ditemukan" }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal memproses persetujuan migrasi VM: ${error}" }
                 }
             }
         }
@@ -579,12 +722,17 @@ http.post: '/api/machines/migration-requests/reject' {
             http.json_body: { as: $body }
             var: $id { val: $body.id }
 
-            db.execute: "UPDATE db_migration_requests SET status = 'rejected' WHERE id = ?" {
-                bind: [$id]
+            try: {
+                run: {
+                    db.execute: "UPDATE db_migration_requests SET status = 'rejected' WHERE id = ?" {
+                        bind: [$id]
+                    }
+                    http.ok: { success: true, message: "Permintaan Live Migration telah ditolak (REJECTED)" }
+                }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal menolak migrasi VM: ${error}" }
+                }
             }
-            http.ok: { success: true, message: "Permintaan Live Migration telah ditolak (REJECTED)" }
         }
     }
 }
-
-

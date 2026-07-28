@@ -108,104 +108,114 @@ http.post: '/api/database/create' {
         as: $collation
     }
 
-    # Fetch Server details
-    db.select: "SELECT name, driver FROM db_servers WHERE id = ?" {
-        bind: [$server_id]
-        first: true
-        as: $server
-    }
+    try: {
+        run: {
+            # Fetch Server details
+            db.select: "SELECT name, driver FROM db_servers WHERE id = ?" {
+                bind: [$server_id]
+                first: true
+                as: $server
+            }
 
-    if: $server {
-        then: {
-            var: $driver { val: $server.driver }
-            var: $server_name { val: $server.name }
-
-            if: "$driver == 'mysql'" {
+            if: $server {
                 then: {
-                    # 1. Create Schema with charset/collation
-                    var: $q_create_db { val: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET ${charset} COLLATE ${collation}" }
-                    db.execute: $q_create_db { db: $server_name }
+                    var: $driver { val: $server.driver }
+                    var: $server_name { val: $server.name }
 
-                    # 2. Create User and Grant Privileges
-                    db.select: "SELECT (VERSION() LIKE '5.%') as legacy" {
-                        db: $server_name
-                        first: true
-                        as: $ver_check
-                    }
-                    var: $is_legacy { val: $ver_check.legacy }
-
-                    if: "$is_legacy == 1" {
+                    if: "$driver == 'mysql'" {
                         then: {
-                            if: "$access_type == 'local'" {
+                            # 1. Create Schema with charset/collation
+                            var: $q_create_db { val: "CREATE DATABASE IF NOT EXISTS `${db_name}` CHARACTER SET ${charset} COLLATE ${collation}" }
+                            db.execute: $q_create_db { db: $server_name }
+
+                            # 2. Create User and Grant Privileges
+                            db.select: "SELECT (VERSION() LIKE '5.%') as legacy" {
+                                db: $server_name
+                                first: true
+                                as: $ver_check
+                            }
+                            var: $is_legacy { val: $ver_check.legacy }
+
+                            if: "$is_legacy == 1" {
                                 then: {
-                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
-                                    db.execute: $q_grant { db: $server_name }
+                                    if: "$access_type == 'local'" {
+                                        then: {
+                                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                                            db.execute: $q_grant { db: $server_name }
+                                        }
+                                        else: {
+                                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
+                                            db.execute: $q_grant { db: $server_name }
+                                        }
+                                    }
                                 }
                                 else: {
-                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
-                                    db.execute: $q_grant { db: $server_name }
+                                    if: "$access_type == 'local'" {
+                                        then: {
+                                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
+                                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost'" }
+                                            db.execute: $q_create_user { db: $server_name }
+                                            db.execute: $q_grant { db: $server_name }
+                                        }
+                                        else: {
+                                            var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
+                                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" }
+                                            db.execute: $q_create_user { db: $server_name }
+                                            db.execute: $q_grant { db: $server_name }
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        else: {
-                            if: "$access_type == 'local'" {
-                                then: {
-                                    var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'localhost' IDENTIFIED BY '${db_password}'" }
-                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'localhost'" }
-                                    db.execute: $q_create_user { db: $server_name }
-                                    db.execute: $q_grant { db: $server_name }
-                                }
-                                else: {
-                                    var: $q_create_user { val: "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_password}'" }
-                                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON `${db_name}`.* TO '${db_user}'@'%'" }
-                                    db.execute: $q_create_user { db: $server_name }
-                                    db.execute: $q_grant { db: $server_name }
-                                }
-                            }
+                            db.execute: "FLUSH PRIVILEGES" { db: $server_name }
                         }
                     }
-                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+
+                    if: "$driver == 'postgres'" {
+                        then: {
+                            var: $q_create_db { val: "CREATE DATABASE \"${db_name}\" ENCODING '${charset}'" }
+                            var: $q_create_user { val: "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}'" }
+                            var: $q_grant { val: "GRANT ALL PRIVILEGES ON DATABASE \"${db_name}\" TO \"${db_user}\"" }
+
+                            db.execute: $q_create_db { db: $server_name }
+                            db.execute: $q_create_user { db: $server_name }
+                            db.execute: $q_grant { db: $server_name }
+                        }
+                    }
+
+                    # Save info to ZenoPanel local DB
+                    db.execute: "INSERT INTO db_databases (server_id, db_name, db_user, db_password, access_type, charset, collation, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)" {
+                        bind: [$server_id, $db_name, $db_user, $db_password, $access_type, $charset, $collation, $description]
+                    }
+
+                    # Record the primary user into db_users table too
+                    var: $new_db_id { val: $db_last_id }
+                    db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, ?, 'ALL')" {
+                        bind: [$new_db_id, $db_user, $db_password, $access_type]
+                    }
+
+                    # Add dynamic connection pool specifically for this user database
+                    db.connect: {
+                        name: $db_name
+                        driver: $driver
+                        host: $body.host_ip
+                        port: $body.host_port
+                        user: $db_user
+                        password: $db_password
+                        database: $db_name
+                    }
+
+                    http.created: { message: "Database and User created successfully" }
+                }
+                else: {
+                    http.bad_request: { message: "Target database server not found" }
                 }
             }
-
-            if: "$driver == 'postgres'" {
-                then: {
-                    var: $q_create_db { val: "CREATE DATABASE \"${db_name}\" ENCODING '${charset}'" }
-                    var: $q_create_user { val: "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}'" }
-                    var: $q_grant { val: "GRANT ALL PRIVILEGES ON DATABASE \"${db_name}\" TO \"${db_user}\"" }
-
-                    db.execute: $q_create_db { db: $server_name }
-                    db.execute: $q_create_user { db: $server_name }
-                    db.execute: $q_grant { db: $server_name }
-                }
-            }
-
-            # Save info to ZenoPanel local DB
-            db.execute: "INSERT INTO db_databases (server_id, db_name, db_user, db_password, access_type, charset, collation, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)" {
-                bind: [$server_id, $db_name, $db_user, $db_password, $access_type, $charset, $collation, $description]
-            }
-
-            # Record the primary user into db_users table too
-            var: $new_db_id { val: $db_last_id }
-            db.execute: "INSERT INTO db_users (database_id, db_username, db_password, access_type, privileges) VALUES (?, ?, ?, ?, 'ALL')" {
-                bind: [$new_db_id, $db_user, $db_password, $access_type]
-            }
-
-            # Add dynamic connection pool specifically for this user database
-            db.connect: {
-                name: $db_name
-                driver: $driver
-                host: $body.host_ip
-                port: $body.host_port
-                user: $db_user
-                password: $db_password
-                database: $db_name
-            }
-
-            http.created: { message: "Database and User created successfully" }
         }
-        else: {
-            http.bad_request: { message: "Target database server not found" }
+        catch: {
+            http.bad_request: {
+                success: false
+                message: "Gagal membuat database/user: ${error}"
+            }
         }
     }
 }
@@ -267,53 +277,63 @@ http.post: '/api/database/delete' {
     http.json_body: { as: $body }
     var: $id { val: $body.id }
 
-    db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
-        bind: [$id]
-        first: true
-        as: $db_info
-    }
+    try: {
+        run: {
+            db.select: "SELECT d.id, d.db_name, d.db_user, d.access_type, s.name as server_name, s.driver as server_driver FROM db_databases d JOIN db_servers s ON d.server_id = s.id WHERE d.id = ?" {
+                bind: [$id]
+                first: true
+                as: $db_info
+            }
 
-    if: $db_info {
-        then: {
-            var: $driver { val: $db_info.server_driver }
-            var: $server_name { val: $db_info.server_name }
-            var: $db_name { val: $db_info.db_name }
-            var: $db_user { val: $db_info.db_user }
-
-            if: "$driver == 'mysql'" {
+            if: $db_info {
                 then: {
-                    var: $q_drop_db { val: "DROP DATABASE IF EXISTS `${db_name}`" }
-                    db.execute: $q_drop_db { db: $server_name }
+                    var: $driver { val: $db_info.server_driver }
+                    var: $server_name { val: $db_info.server_name }
+                    var: $db_name { val: $db_info.db_name }
+                    var: $db_user { val: $db_info.db_user }
 
-                    if: "$db_info.access_type == 'local'" {
+                    if: "$driver == 'mysql'" {
                         then: {
-                            var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'localhost'" }
-                            db.execute: $q_drop_user { db: $server_name }
+                            var: $q_drop_db { val: "DROP DATABASE IF EXISTS `${db_name}`" }
+                            db.execute: $q_drop_db { db: $server_name }
+
+                            if: "$db_info.access_type == 'local'" {
+                                then: {
+                                    var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'localhost'" }
+                                    db.execute: $q_drop_user { db: $server_name }
+                                }
+                                else: {
+                                    var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'%'" }
+                                    db.execute: $q_drop_user { db: $server_name }
+                                }
+                            }
+                            db.execute: "FLUSH PRIVILEGES" { db: $server_name }
                         }
-                        else: {
-                            var: $q_drop_user { val: "DROP USER IF EXISTS '${db_user}'@'%'" }
+                    }
+
+                    if: "$driver == 'postgres'" {
+                        then: {
+                            var: $q_drop_db { val: "DROP DATABASE IF EXISTS \"${db_name}\"" }
+                            var: $q_drop_user { val: "DROP USER IF EXISTS \"${db_user}\"" }
+                            db.execute: $q_drop_db { db: $server_name }
                             db.execute: $q_drop_user { db: $server_name }
                         }
                     }
-                    db.execute: "FLUSH PRIVILEGES" { db: $server_name }
+
+                    db.execute: "DELETE FROM db_databases WHERE id = ?" { bind: [$id] }
+                    db.disconnect: $db_name
+                    http.ok: { message: "Database and associated user deleted successfully" }
+                }
+                else: {
+                    http.bad_request: { message: "Database record not found" }
                 }
             }
-
-            if: "$driver == 'postgres'" {
-                then: {
-                    var: $q_drop_db { val: "DROP DATABASE IF EXISTS \"${db_name}\"" }
-                    var: $q_drop_user { val: "DROP USER IF EXISTS \"${db_user}\"" }
-                    db.execute: $q_drop_db { db: $server_name }
-                    db.execute: $q_drop_user { db: $server_name }
-                }
-            }
-
-            db.execute: "DELETE FROM db_databases WHERE id = ?" { bind: [$id] }
-            db.disconnect: $db_name
-            http.ok: { message: "Database and associated user deleted successfully" }
         }
-        else: {
-            http.bad_request: { message: "Database record not found" }
+        catch: {
+            http.bad_request: {
+                success: false
+                message: "Gagal menghapus database: ${error}"
+            }
         }
     }
 }
@@ -716,15 +736,9 @@ http.post: '/api/database/install-server' {
 
     # Build Postgres compose body (only populated if postgres)
     var: $postgres_body { val: "" }
-    var: $pool_yaml { val: "" }
     if: "$driver == 'postgres'" {
         then: {
             var: $postgres_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - 'POSTGRES_PASSWORD=${root_password}'\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n    ${limits_part}" }
-            if: "$pool_enabled == 1" {
-                then: {
-                    var: $pool_yaml { val: "\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - 'DB_HOST=${name}'\n      - 'DB_PORT=5432'\n      - 'DB_USER=${admin_user}'\n      - 'DB_PASSWORD=${root_password}'\n      - 'AUTH_TYPE=trust'\n      - 'POOL_MODE=transaction'\n      - 'MAX_CLIENT_CONN=150'\n      - 'DEFAULT_POOL_SIZE=30'\n    restart: unless-stopped\n" }
-                }
-            }
         }
     }
 
@@ -737,17 +751,39 @@ http.post: '/api/database/install-server' {
     }
 
     # Final combined YAML string — NO self-referential variables!
-    var: $compose_yaml { val: "${compose_body}\n${pool_yaml}${volumes_block}" }
-
-    # Deploy container via compose
-    box.compose: 'up' {
-        yaml: $compose_yaml
-        project_name: $name
-        as: $compose_result
+    var: $compose_yaml { val: "${compose_body}\n${volumes_block}" }
+    if: "$pool_enabled == 1" {
+        then: {
+            if: "$driver == 'postgres'" {
+                then: {
+                    var: $compose_yaml { val: "${postgres_body}\n\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - 'DB_HOST=${name}'\n      - 'DB_PORT=5432'\n      - 'DB_USER=${admin_user}'\n      - 'DB_PASSWORD=${root_password}'\n      - 'AUTH_TYPE=trust'\n      - 'POOL_MODE=transaction'\n      - 'MAX_CLIENT_CONN=150'\n      - 'DEFAULT_POOL_SIZE=30'\n    restart: unless-stopped\n${volumes_block}" }
+                }
+            }
+        }
     }
 
-    if: $compose_result.success {
-        then: {
+    # Deploy container via compose and register using try/catch
+    try: {
+        run: {
+            box.compose: 'up' {
+                yaml: $compose_yaml
+                project_name: $name
+                as: $compose_result
+            }
+
+            if: "$compose_result.success == 0" {
+                then: {
+                    # If compose up returns success false but doesn't throw a diagnostic, throw a manual error message
+                    var: $err_msg { val: $compose_result.stderr }
+                    coalesce: $err_msg { default: "Zeno Box failed to deploy the database server container", as: $err_msg }
+                    # Trigger a bad request response
+                    http.bad_request: {
+                        success: false
+                        message: $err_msg
+                    }
+                }
+            }
+
             # Wait a moment for DB to initialize, then test connection
             db.connect: {
                 name: $name
@@ -759,7 +795,6 @@ http.post: '/api/database/install-server' {
                 as: $test_conn
             }
 
-            # Register the server regardless (it may need a few seconds; user can verify)
             db.execute: "INSERT OR IGNORE INTO db_servers (name, driver, host, port, admin_user, admin_password, is_remote, pool_enabled, pool_port, engine, data_dir, mem_limit, cpus) VALUES (?, ?, '127.0.0.1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" {
                 bind: [$name, $driver, $port, $admin_user, $root_password, $is_remote, $pool_enabled, $pool_port, $engine, $data_dir, $mem_limit, $cpus]
             }
@@ -767,6 +802,7 @@ http.post: '/api/database/install-server' {
             db.select: "SELECT id, name, driver, host, port, admin_user, is_remote, pool_enabled, pool_port FROM db_servers" { as: $debug_servers }
 
             http.created: {
+                success: true
                 message: "Database engine deployed and registered successfully"
                 server_name: $name
                 driver: $driver
@@ -774,10 +810,10 @@ http.post: '/api/database/install-server' {
                 debug_servers: $debug_servers
             }
         }
-        else: {
+        catch: {
             http.bad_request: {
-                message: "Failed to deploy database container"
-                error: $compose_result.stderr
+                success: false
+                message: "Gagal men-deploy container database: ${error}"
             }
         }
     }
@@ -1165,89 +1201,158 @@ http.post: '/api/database/servers/toggle-remote' {
     var: $id { val: $body.id }
     var: $is_remote { val: $body.is_remote }
 
-    db.select: "SELECT name, driver, host, port, admin_user, admin_password FROM db_servers WHERE id = ?" {
-        bind: [$id]
-        first: true
-        as: $server
-    }
-
-    if: $server {
-        then: {
-            var: $name { val: $server.name }
-            var: $port { val: $server.port }
-            var: $driver { val: $server.driver }
-            var: $admin_password { val: $server.admin_password }
-
-            # Retrieve current compose config
-            box.compose_get_yaml: {
-                project_name: $name
-                as: $yaml_res
+    try: {
+        run: {
+            db.select: "SELECT name, driver, host, port, admin_user, admin_password, engine, data_dir, mem_limit, cpus, pool_enabled, pool_port FROM db_servers WHERE id = ?" {
+                bind: [$id]
+                first: true
+                as: $server
             }
-            var: $old_yaml { val: $yaml_res.yaml }
 
-            if: { not_empty: $old_yaml } {
+            if: $server {
                 then: {
-                    var: $db_port_internal { val: 3306 }
-                    var: $data_volume { val: '/var/lib/mysql' }
-                    var: $env_var_name { val: 'MYSQL_ROOT_PASSWORD' }
-                    var: $engine_image { val: 'mysql:latest' }
+                    var: $name { val: $server.name }
+                    var: $port { val: $server.port }
+                    var: $driver { val: $server.driver }
+                    var: $admin_password { val: $server.admin_password }
+                    var: $engine { val: $server.engine }
+                    var: $data_dir { val: $server.data_dir }
+                    var: $mem_limit { val: $server.mem_limit }
+                    var: $cpus { val: $server.cpus }
+                    var: $pool_enabled { val: $server.pool_enabled }
+                    var: $pool_port { val: $server.pool_port }
+                    var: $admin_user { val: $server.admin_user }
 
-                    if: "$driver == 'postgres'" {
+                    # Retrieve current compose config
+                    box.compose_get_yaml: {
+                        project_name: $name
+                        as: $yaml_res
+                    }
+                    var: $old_yaml { val: $yaml_res.yaml }
+
+                    if: { not_empty: $old_yaml } {
                         then: {
-                            var: $db_port_internal { val: 5432 }
-                            var: $data_volume { val: '/var/lib/postgresql/data' }
-                            var: $env_var_name { val: 'POSTGRES_PASSWORD' }
-                            var: $engine_image { val: 'postgres:latest' }
+                            coalesce: $engine { default: 'mysql:latest', as: $engine }
+                            if: "$driver == 'postgres'" {
+                                then: {
+                                    coalesce: $engine { default: 'postgres:latest', as: $engine }
+                                }
+                            }
+                            coalesce: $data_dir { default: "/var/lib/zenopanel/volumes/${name}", as: $data_dir }
+
+                            var: $bind_prefix { val: '127.0.0.1' }
+                            if: "$is_remote == 1" {
+                                then: {
+                                    var: $bind_prefix { val: '0.0.0.0' }
+                                }
+                            }
+
+                            var: $limits_part { val: "" }
+                            if: "$mem_limit != ''" {
+                                then: {
+                                    var: $limits_part { val: "${limits_part}\n    mem_limit: ${mem_limit}" }
+                                }
+                            }
+                            if: "$cpus != ''" {
+                                then: {
+                                    var: $limits_part { val: "${limits_part}\n    cpus: ${cpus}" }
+                                }
+                            }
+
+                            var: $volumes_block { val: "" }
+                            if: { contains: "$data_dir, value: '/'" } {
+                                else: {
+                                    var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
+                                }
+                            }
+
+                            # Reconstruct compose YAML based on driver
+                            var: $new_compose { val: "" }
+                            if: "$driver == 'postgres'" {
+                                then: {
+                                    var: $postgres_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:5432'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n    ${limits_part}" }
+
+                                    var: $new_compose { val: "${postgres_body}\n${volumes_block}" }
+                                    if: "$pool_enabled == 1" {
+                                        then: {
+                                            var: $new_compose { val: "${postgres_body}\n\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${admin_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n${volumes_block}" }
+                                        }
+                                    }
+                                }
+                            }
+                            if: "$driver == 'mysql'" {
+                                then: {
+                                    var: $mysql_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:3306'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n    ${limits_part}" }
+
+                                    var: $new_compose { val: "${mysql_body}\n${volumes_block}" }
+                                    if: "$pool_enabled == 1" {
+                                        then: {
+                                            # For MySQL pool, we must also read the db users list to configure ProxySQL
+                                            db.select: "SELECT db_user, db_password FROM db_databases WHERE server_id = ?" {
+                                                bind: [$id]
+                                                as: $db_users
+                                            }
+                                            db.generate_proxysql_config: {
+                                                server_name: $name
+                                                admin_user: $admin_user
+                                                admin_password: $admin_password
+                                                users: $db_users
+                                                path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
+                                            }
+                                            var: $new_compose { val: "${mysql_body}\n\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n${volumes_block}" }
+                                        }
+                                    }
+                                }
+                            }
+
+                            box.compose: 'up' {
+                                yaml: $new_compose
+                                project_name: $name
+                                as: $rebuild_res
+                            }
                         }
                     }
 
-                    var: $bind_prefix { val: '127.0.0.1' }
+                    # Update Host Firewall iptables Rules
                     if: "$is_remote == 1" {
                         then: {
-                            var: $bind_prefix { val: '0.0.0.0' }
+                            system.firewall_rule_add: {
+                                name: "DB Server: ${name}"
+                                port: $port
+                                protocol: "tcp"
+                                action: "ACCEPT"
+                            }
+                        }
+                        else: {
+                            system.firewall_rule_delete: {
+                                name: "DB Server: ${name}"
+                                port: $port
+                                protocol: "tcp"
+                                action: "ACCEPT"
+                            }
                         }
                     }
 
-                    # Reconstruct compose YAML with new bind prefix
-                    var: $new_compose { val: "services:\n  ${name}:\n    image: ${engine_image}\n    container_name: ${name}\n    environment:\n      - ${env_var_name}=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - /var/lib/zenopanel/volumes/${name}:${data_volume}\n    restart: unless-stopped\n" }
-
-                    box.compose: 'up' {
-                        yaml: $new_compose
-                        project_name: $name
-                        as: $rebuild_res
+                    # Update SQLite state
+                    db.execute: "UPDATE db_servers SET is_remote = ? WHERE id = ?" {
+                        bind: [$is_remote, $id]
                     }
-                }
-            }
 
-            # Update Host Firewall iptables Rules
-            if: "$is_remote == 1" {
-                then: {
-                    system.firewall_rule_add: {
-                        name: "DB Server: ${name}"
-                        port: $port
-                        protocol: "tcp"
-                        action: "ACCEPT"
+                    http.ok: {
+                        success: true
+                        message: "Akses remote server database berhasil diperbarui."
                     }
                 }
                 else: {
-                    system.firewall_rule_delete: {
-                        name: "DB Server: ${name}"
-                        port: $port
-                        protocol: "tcp"
-                        action: "ACCEPT"
-                    }
+                    http.bad_request: { success: false, message: "Server database tidak ditemukan." }
                 }
             }
-
-            # Update SQLite state
-            db.execute: "UPDATE db_servers SET is_remote = ? WHERE id = ?" {
-                bind: [$is_remote, $id]
-            }
-
-            http.ok: { success: true, message: "Akses remote server database berhasil diperbarui." }
         }
-        else: {
-            http.bad_request: { success: false, message: "Server database tidak ditemukan." }
+    }
+    catch: {
+        http.bad_request: {
+            success: false
+            message: "Gagal mengubah konfigurasi remote: ${error}"
         }
     }
 }
@@ -1259,152 +1364,172 @@ http.post: '/api/database/servers/toggle-pool' {
     var: $id { val: $body.id }
     var: $pool_enabled { val: $body.pool_enabled }
 
-    db.select: "SELECT name, driver, host, port, admin_user, admin_password, is_remote, pool_port, engine, data_dir, mem_limit, cpus FROM db_servers WHERE id = ?" {
-        bind: [$id]
-        first: true
-        as: $server
-    }
-
-    if: $server {
-        then: {
-            var: $name { val: $server.name }
-            var: $driver { val: $server.driver }
-
-            var: $port { val: $server.port }
-            var: $admin_user { val: $server.admin_user }
-            var: $admin_password { val: $server.admin_password }
-            var: $is_remote { val: $server.is_remote }
-            var: $pool_port { val: $server.pool_port }
-            var: $engine { val: $server.engine }
-            var: $data_dir { val: $server.data_dir }
-            var: $mem_limit { val: $server.mem_limit }
-            var: $cpus { val: $server.cpus }
-
-            var: $bind_prefix { val: '127.0.0.1' }
-            if: "$is_remote == 1" {
-                then: {
-                    var: $bind_prefix { val: '0.0.0.0' }
-                }
+    try: {
+        run: {
+            db.select: "SELECT name, driver, host, port, admin_user, admin_password, is_remote, pool_port, engine, data_dir, mem_limit, cpus FROM db_servers WHERE id = ?" {
+                bind: [$id]
+                first: true
+                as: $server
             }
 
-            # Build resource limits YAML block (trim-proof)
-            var: $limits_part { val: "oom_score_adj: -1000" }
-            if: "$mem_limit != ''" {
+            if: $server {
                 then: {
-                    var: $limits_part { val: "${limits_part}\n    mem_limit: ${mem_limit}" }
-                }
-            }
-            if: "$cpus != ''" {
-                then: {
-                    var: $limits_part { val: "${limits_part}\n    cpus: ${cpus}" }
-                }
-            }
+                    var: $name { val: $server.name }
+                    var: $driver { val: $server.driver }
 
-            if: "$driver == 'postgres'" {
-                then: {
-                    coalesce: $engine { default: 'postgres:latest', as: $engine }
-                    coalesce: $data_dir { default: "/var/lib/zenopanel/volumes/${name}", as: $data_dir }
+                    var: $port { val: $server.port }
+                    var: $admin_user { val: $server.admin_user }
+                    var: $admin_password { val: $server.admin_password }
+                    var: $is_remote { val: $server.is_remote }
+                    var: $pool_port { val: $server.pool_port }
+                    var: $engine { val: $server.engine }
+                    var: $data_dir { val: $server.data_dir }
+                    var: $mem_limit { val: $server.mem_limit }
+                    var: $cpus { val: $server.cpus }
 
-                    if: "$pool_port == 0" {
+                    var: $bind_prefix { val: '127.0.0.1' }
+                    if: "$is_remote == 1" {
                         then: {
-                            var: $pool_port { val: 6432 }
+                            var: $bind_prefix { val: '0.0.0.0' }
                         }
                     }
 
-                    var: $volumes_block { val: "" }
-                    if: { contains: "$data_dir, value: '/'" } {
-                        else: {
-                            var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
-                        }
-                    }
-
-                    # Build Postgres compose body
-                    var: $postgres_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:5432'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n    ${limits_part}" }
-
-                    var: $pool_yaml { val: "" }
-                    if: "$pool_enabled == 1" {
+                    # Build resource limits YAML block (trim-proof)
+                    var: $limits_part { val: "oom_score_adj: -1000" }
+                    if: "$mem_limit != ''" {
                         then: {
-                            var: $pool_yaml { val: "\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${admin_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
+                            var: $limits_part { val: "${limits_part}\n    mem_limit: ${mem_limit}" }
                         }
                     }
-
-                    var: $compose_yaml { val: "${postgres_body}\n${pool_yaml}${volumes_block}" }
-
-                    box.compose: 'up' {
-                        yaml: $compose_yaml
-                        project_name: $name
-                        as: $rebuild_res
-                    }
-
-                    db.execute: "UPDATE db_servers SET pool_enabled = ?, pool_port = ? WHERE id = ?" {
-                        bind: [$pool_enabled, $pool_port, $id]
-                    }
-
-                    http.ok: { success: true, message: "Connection pool (PgBouncer) configuration updated successfully." }
-                }
-            }
-
-            if: "$driver == 'mysql'" {
-                then: {
-                    coalesce: $engine { default: 'mysql:latest', as: $engine }
-                    coalesce: $data_dir { default: "/var/lib/zenopanel/volumes/${name}", as: $data_dir }
-
-                    if: "$pool_port == 0" {
+                    if: "$cpus != ''" {
                         then: {
-                            var: $pool_port { val: 6033 }
+                            var: $limits_part { val: "${limits_part}\n    cpus: ${cpus}" }
                         }
                     }
 
-                    var: $volumes_block { val: "" }
-                    if: { contains: "$data_dir, value: '/'" } {
-                        else: {
-                            var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
-                        }
-                    }
-
-                    # Build MySQL compose body
-                    var: $mysql_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:3306'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n    ${limits_part}" }
-
-                    var: $pool_yaml { val: "" }
-                    if: "$pool_enabled == 1" {
+                    if: "$driver == 'postgres'" {
                         then: {
-                            if: "$name != ''" {
+                            coalesce: $engine { default: 'postgres:latest', as: $engine }
+                            coalesce: $data_dir { default: "/var/lib/zenopanel/volumes/${name}", as: $data_dir }
+
+                            if: "$pool_port == 0" {
                                 then: {
-                                    db.select: "SELECT db_user, db_password FROM db_databases WHERE server_id = ?" {
-                                        bind: [$id]
-                                        as: $db_users
-                                    }
-                                    db.generate_proxysql_config: {
-                                        server_name: $name
-                                        admin_user: $admin_user
-                                        admin_password: $admin_password
-                                        users: $db_users
-                                        path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
-                                    }
-                                    var: $pool_yaml { val: "\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
+                                    var: $pool_port { val: 6432 }
                                 }
+                            }
+
+                            var: $volumes_block { val: "" }
+                            if: { contains: "$data_dir, value: '/'" } {
+                                else: {
+                                    var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
+                                }
+                            }
+
+                            # Build Postgres compose body
+                            var: $postgres_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:5432'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n    ${limits_part}" }
+
+                            var: $compose_yaml { val: "${postgres_body}\n${volumes_block}" }
+                             if: "$pool_enabled == 1" {
+                                then: {
+                                    var: $compose_yaml { val: "${postgres_body}\n\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${admin_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n${volumes_block}" }
+                                }
+                                else: {
+                                    box.stop: "${name}-pool" { as: $stop_pool_res }
+                                    box.delete: "${name}-pool" { as: $del_pool_res }
+                                }
+                            }
+
+                            box.compose: 'up' {
+                                yaml: $compose_yaml
+                                project_name: $name
+                                as: $rebuild_res
+                            }
+
+                            db.execute: "UPDATE db_servers SET pool_enabled = ?, pool_port = ? WHERE id = ?" {
+                                bind: [$pool_enabled, $pool_port, $id]
+                            }
+
+                            http.ok: {
+                                success: true
+                                message: "Connection pool (PgBouncer) configuration updated successfully."
                             }
                         }
                     }
 
-                    var: $compose_yaml { val: "${mysql_body}\n${pool_yaml}${volumes_block}" }
+                    if: "$driver == 'mysql'" {
+                        then: {
+                            coalesce: $engine { default: 'mysql:latest', as: $engine }
+                            coalesce: $data_dir { default: "/var/lib/zenopanel/volumes/${name}", as: $data_dir }
 
-                    box.compose: 'up' {
-                        yaml: $compose_yaml
-                        project_name: $name
-                        as: $rebuild_res
+                            if: "$pool_port == 0" {
+                                then: {
+                                    var: $pool_port { val: 6033 }
+                                }
+                            }
+
+                            var: $volumes_block { val: "" }
+                            if: { contains: "$data_dir, value: '/'" } {
+                                else: {
+                                    var: $volumes_block { val: "\nvolumes:\n  ${data_dir}:\n" }
+                                }
+                            }
+
+                            # Build MySQL compose body
+                            var: $mysql_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:3306'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n    ${limits_part}" }
+
+                            var: $compose_yaml { val: "${mysql_body}\n${volumes_block}" }
+                            if: "$pool_enabled == 1" {
+                                then: {
+                                    if: "$name != ''" {
+                                        then: {
+                                            db.select: "SELECT db_user, db_password FROM db_databases WHERE server_id = ?" {
+                                                bind: [$id]
+                                                as: $db_users
+                                            }
+                                            db.generate_proxysql_config: {
+                                                server_name: $name
+                                                admin_user: $admin_user
+                                                admin_password: $admin_password
+                                                users: $db_users
+                                                path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
+                                            }
+                                            var: $compose_yaml { val: "${mysql_body}\n\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n${volumes_block}" }
+                                        }
+                                    }
+                                }
+                                else: {
+                                    box.stop: "${name}-pool" { as: $stop_pool_res }
+                                    box.delete: "${name}-pool" { as: $del_pool_res }
+                                }
+                            }
+
+                            box.compose: 'up' {
+                                yaml: $compose_yaml
+                                project_name: $name
+                                as: $rebuild_res
+                            }
+
+                            db.execute: "UPDATE db_servers SET pool_enabled = ?, pool_port = ? WHERE id = ?" {
+                                bind: [$pool_enabled, $pool_port, $id]
+                            }
+
+                            http.ok: {
+                                success: true
+                                message: "Connection pool (ProxySQL) configuration updated successfully."
+                            }
+                        }
                     }
-
-                    db.execute: "UPDATE db_servers SET pool_enabled = ?, pool_port = ? WHERE id = ?" {
-                        bind: [$pool_enabled, $pool_port, $id]
-                    }
-
-                    http.ok: { success: true, message: "Connection pool (ProxySQL) configuration updated successfully." }
+                }
+                else: {
+                    http.bad_request: { success: false, message: "Server database tidak ditemukan." }
                 }
             }
         }
-        else: {
-            http.bad_request: { success: false, message: "Server database tidak ditemukan." }
+    }
+    catch: {
+        http.bad_request: {
+            success: false
+            message: "Gagal memproses konfigurasi connection pool: ${error}"
         }
     }
 }
@@ -1796,7 +1921,10 @@ http.post: '/api/database/servers/config/save' {
             box.stop: $name { as: $stop_res }
             box.start: $name { as: $restart_res }
 
-            http.ok: { success: true, message: "Konfigurasi disimpan. Container database '${name}' berhasil direstart." }
+            http.ok: {
+                success: true
+                message: "Konfigurasi disimpan. Container database '${name}' berhasil direstart."
+            }
         }
         else: {
             http.bad_request: { success: false, message: "Server tidak ditemukan." }
@@ -1855,13 +1983,19 @@ http.post: '/api/database/backup-schedules/create' {
                     db.execute: "UPDATE db_backup_schedules SET schedule = ?, retention = ?, is_active = 1 WHERE database_name = ?" {
                         bind: [$schedule, $retention, $db_name]
                     }
-                    http.ok: { success: true, message: "Jadwal backup database berhasil diperbarui." }
+                    http.ok: {
+                        success: true
+                        message: "Jadwal backup database berhasil diperbarui."
+                    }
                 }
                 else: {
                     db.execute: "INSERT INTO db_backup_schedules (database_name, schedule, retention, is_active) VALUES (?, ?, ?, 1)" {
                         bind: [$db_name, $schedule, $retention]
                     }
-                    http.created: { success: true, message: "Jadwal backup database berhasil dibuat." }
+                    http.created: {
+                        success: true
+                        message: "Jadwal backup database berhasil dibuat."
+                    }
                 }
             }
         }
@@ -1880,7 +2014,10 @@ http.post: '/api/database/backup-schedules/delete' {
     db.execute: "DELETE FROM db_backup_schedules WHERE id = ?" {
         bind: [$id]
     }
-    http.ok: { success: true, message: "Jadwal backup database berhasil dihapus." }
+    http.ok: {
+        success: true
+        message: "Jadwal backup database berhasil dihapus."
+    }
 }
 
 

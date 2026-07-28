@@ -4,11 +4,18 @@ http.post: '/api/terminal/run' {
     http.json_body: { as: $body }
     var: $command { val: $body.command }
     
-    system.exec: $command { as: $res }
-    http.ok: {
-        stdout: $res.stdout
-        stderr: $res.stderr
-        exit_code: $res.exit_code
-        success: $res.success
+    try: {
+        run: {
+            system.exec: $command { as: $res }
+            http.ok: {
+                stdout: $res.stdout
+                stderr: $res.stderr
+                exit_code: $res.exit_code
+                success: $res.success
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengeksekusi perintah: ${error}" }
+        }
     }
 }

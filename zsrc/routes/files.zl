@@ -6,31 +6,38 @@ http.get: '/api/files/list' {
         default: '.'
         as: $dir_path
     }
-    io.exists: $dir_path { as: $exists }
-    if: $exists {
-        then: {
-            io.is_dir: $dir_path { as: $is_directory }
-            if: $is_directory {
+    try: {
+        run: {
+            io.exists: $dir_path { as: $exists }
+            if: $exists {
                 then: {
-                    system.dir_list: $dir_path { as: $files }
-                    http.ok: {
-                        data: $files
-                        current_path: $dir_path
+                    io.is_dir: $dir_path { as: $is_directory }
+                    if: $is_directory {
+                        then: {
+                            system.dir_list: $dir_path { as: $files }
+                            http.ok: {
+                                data: $files
+                                current_path: $dir_path
+                            }
+                        }
+                        else: {
+                            http.bad_request: {
+                                success: false,
+                                message: "Path bukan sebuah folder"
+                            }
+                        }
                     }
                 }
                 else: {
                     http.bad_request: {
                         success: false,
-                        message: "Path bukan sebuah folder"
+                        message: "Folder tidak ditemukan"
                     }
                 }
             }
         }
-        else: {
-            http.bad_request: {
-                success: false,
-                message: "Folder tidak ditemukan"
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal membaca direktori: ${error}" }
         }
     }
 }
@@ -39,28 +46,35 @@ http.get: '/api/files/list' {
 http.get: '/api/files/read' {
     auth.guard
     http.query: 'path' { as: $file_path }
-    io.exists: $file_path { as: $exists }
-    if: $exists {
-        then: {
-            io.is_dir: $file_path { as: $is_directory }
-            if: $is_directory {
+    try: {
+        run: {
+            io.exists: $file_path { as: $exists }
+            if: $exists {
                 then: {
-                    http.bad_request: {
-                        success: false,
-                        message: "Path adalah sebuah folder, bukan file"
+                    io.is_dir: $file_path { as: $is_directory }
+                    if: $is_directory {
+                        then: {
+                            http.bad_request: {
+                                success: false,
+                                message: "Path adalah sebuah folder, bukan file"
+                            }
+                        }
+                        else: {
+                            io.file.read: $file_path { as: $content }
+                            http.ok: { content: $content }
+                        }
                     }
                 }
                 else: {
-                    io.file.read: $file_path { as: $content }
-                    http.ok: { content: $content }
+                    http.bad_request: {
+                        success: false,
+                        message: "Berkas tidak ditemukan"
+                    }
                 }
             }
         }
-        else: {
-            http.bad_request: {
-                success: false,
-                message: "Berkas tidak ditemukan"
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal membaca file: ${error}" }
         }
     }
 }
@@ -71,11 +85,18 @@ http.post: '/api/files/write' {
     http.json_body: { as: $body }
     var: $file_path { val: $body.path }
     var: $content { val: $body.content }
-    io.file.write: {
-        path: $file_path
-        content: $content
+    try: {
+        run: {
+            io.file.write: {
+                path: $file_path
+                content: $content
+            }
+            http.ok: { message: "File berhasil disimpan" }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menyimpan file: ${error}" }
+        }
     }
-    http.ok: { message: "File berhasil disimpan" }
 }
 
 # 9. File Manager - Create File/Folder API
@@ -83,11 +104,18 @@ http.post: '/api/files/create-file' {
     auth.guard
     http.json_body: { as: $body }
     var: $file_path { val: $body.path }
-    io.file.write: {
-        path: $file_path
-        content: ""
+    try: {
+        run: {
+            io.file.write: {
+                path: $file_path
+                content: ""
+            }
+            http.ok: { message: "File berhasil dibuat" }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal membuat file: ${error}" }
+        }
     }
-    http.ok: { message: "File berhasil dibuat" }
 }
 
 # 9b. File Manager - Create Folder API
@@ -95,8 +123,15 @@ http.post: '/api/files/create-dir' {
     auth.guard
     http.json_body: { as: $body }
     var: $dir_path { val: $body.path }
-    io.dir.create: $dir_path
-    http.ok: { message: "Folder berhasil dibuat" }
+    try: {
+        run: {
+            io.dir.create: $dir_path
+            http.ok: { message: "Folder berhasil dibuat" }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal membuat folder: ${error}" }
+        }
+    }
 }
 
 # 10. File Manager - Delete File API
@@ -104,8 +139,15 @@ http.post: '/api/files/delete' {
     auth.guard
     http.json_body: { as: $body }
     var: $file_path { val: $body.path }
-    io.file.delete: $file_path
-    http.ok: { message: "File berhasil dihapus" }
+    try: {
+        run: {
+            io.file.delete: $file_path
+            http.ok: { message: "File berhasil dihapus" }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menghapus file: ${error}" }
+        }
+    }
 }
 
 # 10b. File Manager - Archive File/Folder API
@@ -114,20 +156,27 @@ http.post: '/api/files/archive' {
     http.json_body: { as: $body }
     var: $src_path { val: $body.path }
     var: $dest_path { val: $body.dest }
-    io.exists: $src_path { as: $exists }
-    if: $exists {
-        then: {
-            io.file.archive: {
-                path: $src_path
-                dest: $dest_path
+    try: {
+        run: {
+            io.exists: $src_path { as: $exists }
+            if: $exists {
+                then: {
+                    io.file.archive: {
+                        path: $src_path
+                        dest: $dest_path
+                    }
+                    http.ok: { message: "Archive berhasil dibuat" }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Berkas atau folder sumber tidak ditemukan"
+                    }
+                }
             }
-            http.ok: { message: "Archive berhasil dibuat" }
         }
-        else: {
-            http.bad_request: {
-                success: false,
-                message: "Berkas atau folder sumber tidak ditemukan"
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal membuat archive: ${error}" }
         }
     }
 }
@@ -138,20 +187,27 @@ http.post: '/api/files/extract' {
     http.json_body: { as: $body }
     var: $src_path { val: $body.path }
     var: $dest_path { val: $body.dest }
-    io.exists: $src_path { as: $exists }
-    if: $exists {
-        then: {
-            io.file.extract: {
-                path: $src_path
-                dest: $dest_path
+    try: {
+        run: {
+            io.exists: $src_path { as: $exists }
+            if: $exists {
+                then: {
+                    io.file.extract: {
+                        path: $src_path
+                        dest: $dest_path
+                    }
+                    http.ok: { message: "Archive berhasil diekstrak" }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Archive tidak ditemukan"
+                    }
+                }
             }
-            http.ok: { message: "Archive berhasil diekstrak" }
         }
-        else: {
-            http.bad_request: {
-                success: false,
-                message: "Archive tidak ditemukan"
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengekstrak archive: ${error}" }
         }
     }
 }
@@ -162,19 +218,26 @@ http.post: '/api/files/upload' {
     auth.has_role: 'editor' { as: $is_editor }
     if: $is_editor {
         then: {
-            http.save_uploads: { as: $success }
-            if: $success {
-                then: {
-                    http.ok: {
-                        success: true,
-                        message: "File uploaded successfully"
+            try: {
+                run: {
+                    http.save_uploads: { as: $success }
+                    if: $success {
+                        then: {
+                            http.ok: {
+                                success: true,
+                                message: "File uploaded successfully"
+                            }
+                        }
+                        else: {
+                            http.bad_request: {
+                                success: false,
+                                message: "Gagal mengunggah file"
+                            }
+                        }
                     }
                 }
-                else: {
-                    http.bad_request: {
-                        success: false,
-                        message: "Gagal mengunggah file"
-                    }
+                catch: {
+                    http.bad_request: { success: false, message: "Gagal mengunggah file: ${error}" }
                 }
             }
         }
@@ -197,21 +260,28 @@ http.post: '/api/files/chmod' {
         default: false
         as: $recursive
     }
-    io.exists: $file_path { as: $exists }
-    if: $exists {
-        then: {
-            io.file.chmod: {
-                path: $file_path
-                mode: $mode
-                recursive: $recursive
+    try: {
+        run: {
+            io.exists: $file_path { as: $exists }
+            if: $exists {
+                then: {
+                    io.file.chmod: {
+                        path: $file_path
+                        mode: $mode
+                        recursive: $recursive
+                    }
+                    http.ok: { message: "Permissions berhasil diperbarui" }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Berkas atau folder tidak ditemukan"
+                    }
+                }
             }
-            http.ok: { message: "Permissions berhasil diperbarui" }
         }
-        else: {
-            http.bad_request: {
-                success: false,
-                message: "Berkas atau folder tidak ditemukan"
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal merubah hak akses: ${error}" }
         }
     }
 }
@@ -220,7 +290,14 @@ http.post: '/api/files/chmod' {
 http.get: '/api/files/download' {
     auth.guard
     http.query: 'path' { as: $file_path }
-    http.download_file: { path: $file_path }
+    try: {
+        run: {
+            http.download_file: { path: $file_path }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengunduh file: ${error}" }
+        }
+    }
 }
 
 # 10g. File Manager - Copy File/Folder API
@@ -229,20 +306,27 @@ http.post: '/api/files/copy' {
     http.json_body: { as: $body }
     var: $src_path { val: $body.src }
     var: $dest_path { val: $body.dest }
-    io.exists: $src_path { as: $exists }
-    if: $exists {
-        then: {
-            io.file.copy: {
-                src: $src_path
-                dest: $dest_path
+    try: {
+        run: {
+            io.exists: $src_path { as: $exists }
+            if: $exists {
+                then: {
+                    io.file.copy: {
+                        src: $src_path
+                        dest: $dest_path
+                    }
+                    http.ok: { message: "Item berhasil disalin" }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Berkas atau folder sumber tidak ditemukan"
+                    }
+                }
             }
-            http.ok: { message: "Item berhasil disalin" }
         }
-        else: {
-            http.bad_request: {
-                success: false,
-                message: "Berkas atau folder sumber tidak ditemukan"
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menyalin item: ${error}" }
         }
     }
 }
@@ -253,20 +337,27 @@ http.post: '/api/files/move' {
     http.json_body: { as: $body }
     var: $src_path { val: $body.src }
     var: $dest_path { val: $body.dest }
-    io.exists: $src_path { as: $exists }
-    if: $exists {
-        then: {
-            io.file.move: {
-                src: $src_path
-                dest: $dest_path
+    try: {
+        run: {
+            io.exists: $src_path { as: $exists }
+            if: $exists {
+                then: {
+                    io.file.move: {
+                        src: $src_path
+                        dest: $dest_path
+                    }
+                    http.ok: { message: "Item berhasil dipindahkan" }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false,
+                        message: "Berkas atau folder sumber tidak ditemukan"
+                    }
+                }
             }
-            http.ok: { message: "Item berhasil dipindahkan" }
         }
-        else: {
-            http.bad_request: {
-                success: false,
-                message: "Berkas atau folder sumber tidak ditemukan"
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal memindahkan item: ${error}" }
         }
     }
 }

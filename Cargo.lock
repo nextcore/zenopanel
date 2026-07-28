@@ -5260,9 +5260,9 @@ dependencies = [
 
 [[package]]
 name = "zeno-apidoc"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "758b53ba27607f774d142cbd371ae49a2bfc7a374c9199753fedb81040b02610"
+checksum = "98abc73a2f55a5100f656aecabf619e7eeba4e6f1940eb81872c25e76576f204"
 dependencies = [
  "serde",
  "serde_json",
@@ -5270,18 +5270,18 @@ dependencies = [
 
 [[package]]
 name = "zeno-blade"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4a4a40bc8a79df2bc403b5575508757d288d60c6b6d7e050d7154af8eb01d1f"
+checksum = "cfe67553f1e975937aae77914dfdadcfadb1fb89d91d7502cc73b652bc874f6d"
 dependencies = [
  "zenocore",
 ]
 
 [[package]]
 name = "zeno-std"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ca9c7b02fbba2885a319ec9153d33c232c58665534b280adc988c0a60cdf717"
+checksum = "e5439c26295051bddffdce096f5e93575788c77871d4d437af9f964f4d702931"
 dependencies = [
  "chrono",
  "evalexpr",
@@ -5291,18 +5291,18 @@ dependencies = [
 
 [[package]]
 name = "zenocore"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f67ce1713e5c43f27a6c567484f18814ef0bfa9e0b13fdac301ddb6b5c30f6d2"
+checksum = "a8146e6a0fcb8ea97163123273c84adbb8c4e9a08c1c40c85064fb80ff18eee7"
 dependencies = [
  "libloading",
 ]
 
 [[package]]
 name = "zenoengine"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10bfcff79d37d53710ebc8a757d4cb7afd64823cfbbba38141cb26e3ea4e42e8"
+checksum = "4c96e2fb934f887841d9ba8c828c0fcaef88171bc1285a827680d176e758a363"
 dependencies = [
  "zeno-apidoc",
  "zeno-blade",

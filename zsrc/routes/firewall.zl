@@ -1,10 +1,17 @@
 # 1. Get Active Firewall Rules
 http.get: '/api/security/firewall' {
     auth.guard
-    system.firewall_status: { as: $rules }
-    http.ok: {
-        success: true
-        data: $rules
+    try: {
+        run: {
+            system.firewall_status: { as: $rules }
+            http.ok: {
+                success: true
+                data: $rules
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil aturan firewall: ${error}" }
+        }
     }
 }
 
@@ -17,26 +24,33 @@ http.post: '/api/security/firewall/add' {
     var: $protocol { val: $body.protocol }
     var: $action { val: $body.action }
 
-    system.firewall_rule_add: {
-        name: $name
-        port: $port
-        protocol: $protocol
-        action: $action
-        as: $ok
-    }
+    try: {
+        run: {
+            system.firewall_rule_add: {
+                name: $name
+                port: $port
+                protocol: $protocol
+                action: $action
+                as: $ok
+            }
 
-    if: $ok {
-        then: {
-            http.ok: {
-                success: true
-                message: "Aturan firewall berhasil ditambahkan."
+            if: $ok {
+                then: {
+                    http.ok: {
+                        success: true
+                        message: "Aturan firewall berhasil ditambahkan."
+                    }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false
+                        message: "Gagal menambahkan aturan firewall."
+                    }
+                }
             }
         }
-        else: {
-            http.bad_request: {
-                success: false
-                message: "Gagal menambahkan aturan firewall."
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menambahkan aturan firewall: ${error}" }
         }
     }
 }
@@ -50,26 +64,33 @@ http.post: '/api/security/firewall/delete' {
     var: $protocol { val: $body.protocol }
     var: $action { val: $body.action }
 
-    system.firewall_rule_delete: {
-        name: $name
-        port: $port
-        protocol: $protocol
-        action: $action
-        as: $ok
-    }
+    try: {
+        run: {
+            system.firewall_rule_delete: {
+                name: $name
+                port: $port
+                protocol: $protocol
+                action: $action
+                as: $ok
+            }
 
-    if: $ok {
-        then: {
-            http.ok: {
-                success: true
-                message: "Aturan firewall berhasil dihapus."
+            if: $ok {
+                then: {
+                    http.ok: {
+                        success: true
+                        message: "Aturan firewall berhasil dihapus."
+                    }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false
+                        message: "Gagal menghapus aturan firewall."
+                    }
+                }
             }
         }
-        else: {
-            http.bad_request: {
-                success: false
-                message: "Gagal menghapus aturan firewall."
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menghapus aturan firewall: ${error}" }
         }
     }
 }
@@ -77,10 +98,17 @@ http.post: '/api/security/firewall/delete' {
 # 4. Get Firewall Lockdown Status
 http.get: '/api/security/firewall/lockdown' {
     auth.guard
-    system.firewall_get_lockdown: { as: $enabled }
-    http.ok: {
-        success: true
-        enabled: $enabled
+    try: {
+        run: {
+            system.firewall_get_lockdown: { as: $enabled }
+            http.ok: {
+                success: true
+                enabled: $enabled
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mendapatkan status lockdown: ${error}" }
+        }
     }
 }
 
@@ -90,23 +118,30 @@ http.post: '/api/security/firewall/lockdown' {
     http.json_body: { as: $body }
     var: $enabled { val: $body.enabled }
 
-    system.firewall_set_lockdown: {
-        enabled: $enabled
-        as: $ok
-    }
+    try: {
+        run: {
+            system.firewall_set_lockdown: {
+                enabled: $enabled
+                as: $ok
+            }
 
-    if: $ok {
-        then: {
-            http.ok: {
-                success: true
-                message: "Lockdown mode berhasil diperbarui."
+            if: $ok {
+                then: {
+                    http.ok: {
+                        success: true
+                        message: "Lockdown mode berhasil diperbarui."
+                    }
+                }
+                else: {
+                    http.bad_request: {
+                        success: false
+                        message: "Gagal memperbarui lockdown mode."
+                    }
+                }
             }
         }
-        else: {
-            http.bad_request: {
-                success: false
-                message: "Gagal memperbarui lockdown mode."
-            }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal memperbarui lockdown mode: ${error}" }
         }
     }
 }

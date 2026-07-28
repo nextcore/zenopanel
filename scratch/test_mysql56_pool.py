@@ -137,3 +137,26 @@ time.sleep(10)
 res = session.get(f"{base_url}/api/database/servers/status")
 print("Servers status:", res.status_code)
 print("Servers status response:", res.text)
+
+# 8. Disable Connection Pool (ProxySQL)
+print("Disabling ProxySQL pool...")
+toggle_payload = {
+    "id": server_id,
+    "pool_enabled": 0
+}
+res = session.post(
+    f"{base_url}/api/database/servers/toggle-pool",
+    headers={"X-CSRF-Token": csrf_token},
+    json=toggle_payload
+)
+print("Disable pool status:", res.status_code)
+print("Disable pool response:", res.text)
+
+# Wait 5 seconds for container to stop and delete
+time.sleep(5)
+
+# Verify if container is gone
+print("Verifying if pool container has been removed...")
+res = session.get(f"{base_url}/api/database/servers/status")
+print("Final Servers status:", res.status_code)
+print("Final Servers status response:", res.text)

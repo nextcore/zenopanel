@@ -24,7 +24,6 @@ include: 'zsrc/routes/settings.zl'
 include: 'zsrc/routes/firewall.zl'
 include: 'zsrc/routes/users.zl'
 include: 'zsrc/routes/views.zl'
-include: 'zsrc/routes/websites.zl'
 include: 'zsrc/routes/machine.zl'
 include: 'zsrc/routes/migrate.zl'
 

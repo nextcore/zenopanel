@@ -5,8 +5,15 @@
 # 1. GET /api/cron/list
 http.get: '/api/cron/list' {
     auth.guard
-    db.select: "SELECT id, name, schedule, command, is_active, last_run FROM cron_jobs ORDER BY id DESC" { as: $jobs }
-    http.ok: { data: $jobs }
+    try: {
+        run: {
+            db.select: "SELECT id, name, schedule, command, is_active, last_run FROM cron_jobs ORDER BY id DESC" { as: $jobs }
+            http.ok: { data: $jobs }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil daftar cron job: ${error}" }
+        }
+    }
 }
 
 # 2. POST /api/cron/create
@@ -17,14 +24,21 @@ http.post: '/api/cron/create' {
     var: $schedule { val: $body.schedule }
     var: $command { val: $body.command }
 
-    db.execute: "INSERT INTO cron_jobs (name, schedule, command, is_active) VALUES (?, ?, ?, 1)" {
-        bind: [$name, $schedule, $command]
+    try: {
+        run: {
+            db.execute: "INSERT INTO cron_jobs (name, schedule, command, is_active) VALUES (?, ?, ?, 1)" {
+                bind: [$name, $schedule, $command]
+            }
+            
+            # Sync with /etc/cron.d/zenopanel
+            system.cron_sync: { as: $sync_success }
+            
+            http.created: { success: true, message: "Cron job created successfully" }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal membuat cron job: ${error}" }
+        }
     }
-    
-    # Sync with /etc/cron.d/zenopanel
-    system.cron_sync: { as: $sync_success }
-    
-    http.created: { success: true message: "Cron job created successfully" }
 }
 
 # 3. POST /api/cron/toggle
@@ -34,14 +48,21 @@ http.post: '/api/cron/toggle' {
     var: $id { val: $body.id }
     var: $is_active { val: $body.is_active }
 
-    db.execute: "UPDATE cron_jobs SET is_active = ? WHERE id = ?" {
-        bind: [$is_active, $id]
+    try: {
+        run: {
+            db.execute: "UPDATE cron_jobs SET is_active = ? WHERE id = ?" {
+                bind: [$is_active, $id]
+            }
+
+            # Sync with /etc/cron.d/zenopanel
+            system.cron_sync: { as: $sync_success }
+
+            http.ok: { success: true, message: "Cron job status updated successfully" }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengubah status cron job: ${error}" }
+        }
     }
-
-    # Sync with /etc/cron.d/zenopanel
-    system.cron_sync: { as: $sync_success }
-
-    http.ok: { success: true message: "Cron job status updated successfully" }
 }
 
 # 4. POST /api/cron/delete
@@ -50,14 +71,21 @@ http.post: '/api/cron/delete' {
     http.json_body: { as: $body }
     var: $id { val: $body.id }
 
-    db.execute: "DELETE FROM cron_jobs WHERE id = ?" {
-        bind: [$id]
+    try: {
+        run: {
+            db.execute: "DELETE FROM cron_jobs WHERE id = ?" {
+                bind: [$id]
+            }
+
+            # Sync with /etc/cron.d/zenopanel
+            system.cron_sync: { as: $sync_success }
+
+            http.ok: { success: true, message: "Cron job deleted successfully" }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menghapus cron job: ${error}" }
+        }
     }
-
-    # Sync with /etc/cron.d/zenopanel
-    system.cron_sync: { as: $sync_success }
-
-    http.ok: { success: true message: "Cron job deleted successfully" }
 }
 
 # 5. POST /api/cron/run
@@ -66,32 +94,39 @@ http.post: '/api/cron/run' {
     http.json_body: { as: $body }
     var: $id { val: $body.id }
 
-    db.select: "SELECT name, command FROM cron_jobs WHERE id = ?" {
-        bind: [$id]
-        first: true
-        as: $job
-    }
-
-    if: $job {
-        then: {
-            var: $command { val: $job.command }
-            system.exec: $command { as: $exec_res }
-            
-            # Update last run timestamp
-            db.execute: "UPDATE cron_jobs SET last_run = CURRENT_TIMESTAMP WHERE id = ?" {
+    try: {
+        run: {
+            db.select: "SELECT name, command FROM cron_jobs WHERE id = ?" {
                 bind: [$id]
+                first: true
+                as: $job
             }
 
-            http.ok: {
-                success: true
-                message: "Cron job executed successfully"
-                stdout: $exec_res.stdout
-                stderr: $exec_res.stderr
-                exit_code: $exec_res.exit_code
+            if: $job {
+                then: {
+                    var: $command { val: $job.command }
+                    system.exec: $command { as: $exec_res }
+                    
+                    # Update last run timestamp
+                    db.execute: "UPDATE cron_jobs SET last_run = CURRENT_TIMESTAMP WHERE id = ?" {
+                        bind: [$id]
+                    }
+
+                    http.ok: {
+                        success: true
+                        message: "Cron job executed successfully"
+                        stdout: $exec_res.stdout
+                        stderr: $exec_res.stderr
+                        exit_code: $exec_res.exit_code
+                    }
+                }
+                else: {
+                    http.bad_request: { message: "Cron job not found" }
+                }
             }
         }
-        else: {
-            http.bad_request: { message: "Cron job not found" }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal menjalankan cron job secara manual: ${error}" }
         }
     }
 }

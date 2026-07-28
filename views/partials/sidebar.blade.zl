@@ -9,10 +9,7 @@
             <i class="fa-solid fa-chart-line"></i>
             <span>Dashboard</span>
         </div>
-        <div class="nav-item" data-tab="websites" hx-get="/tab/websites" hx-target="#viewport-container" hx-trigger="click" style="display: none;">
-            <i class="fa-solid fa-globe"></i>
-            <span>Websites</span>
-        </div>
+
         <div class="nav-item" data-tab="files" hx-get="/tab/files" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-folder-open"></i>
             <span>File Manager</span>

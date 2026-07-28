@@ -1007,10 +1007,10 @@ export function onInstallDbEngineChange() {
         poolPortField.value = isPostgres ? '6432' : '6033';
     }
 
-    // Suggest name and data dir/volume based on engine (only if field is empty)
+    // Suggest name and data dir/volume based on engine (always update when selection changes)
     const shortName = engine.replace(':', '-').replace(/\./g, '').replace(/-/g, '_');
-    if (nameField && !nameField.value) nameField.value = shortName;
-    if (dataDirField && !dataDirField.value) {
+    if (nameField) nameField.value = shortName;
+    if (dataDirField) {
         dataDirField.value = `${shortName}_data`;
     }
 }
@@ -1049,7 +1049,18 @@ export function submitInstallDbEngine() {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Deploying...';
     }
 
-    showToast('info', 'Mendeploy container database... (ini mungkin membutuhkan beberapa menit)');
+    const steps = [
+        "Menyiapkan konfigurasi Zeno Box...",
+        "Menarik image database (jika belum ada)...",
+        "Membuat direktori volume data...",
+        "Menjalankan kontainer database server..."
+    ];
+    showActionProgress(
+        "Menginstal Database Engine",
+        "Menyiapkan kontainer database baru di panel...",
+        steps
+    );
+    startSimulatedProgress(steps, 2500); // 2.5 seconds per step for installation
 
     fetch('/api/database/install-server', {
         method: 'POST',
@@ -1058,6 +1069,7 @@ export function submitInstallDbEngine() {
     })
     .then(res => res.json())
     .then(res => {
+        hideActionProgress();
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Deploy & Register';
@@ -1071,6 +1083,7 @@ export function submitInstallDbEngine() {
         }
     })
     .catch(err => {
+        hideActionProgress();
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Deploy & Register';
@@ -1435,7 +1448,20 @@ window.deleteDatabaseBackup = deleteDatabaseBackup;
 
 // New competitive features
 export function toggleDatabaseRemoteAccess(serverId, makeRemote) {
-    showToast('info', 'Mengubah konfigurasi akses remote database...');
+    const steps = [
+        "Membaca konfigurasi firewall & database...",
+        "Membuat konfigurasi Compose YAML baru...",
+        "Menghentikan kontainer database...",
+        "Menjalankan ulang kontainer dengan port remote...",
+        "Menyesuaikan aturan firewall iptables..."
+    ];
+    showActionProgress(
+        makeRemote ? "Mengaktifkan Akses Remote" : "Menonaktifkan Akses Remote",
+        "Menyesuaikan konfigurasi port binding dan firewall...",
+        steps
+    );
+    startSimulatedProgress(steps, 800);
+
     fetch('/api/database/servers/toggle-remote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
@@ -1443,6 +1469,7 @@ export function toggleDatabaseRemoteAccess(serverId, makeRemote) {
     })
     .then(res => res.json())
     .then(res => {
+        hideActionProgress();
         if (res.success) {
             showToast('success', res.message);
             loadDatabaseServers();
@@ -1450,11 +1477,27 @@ export function toggleDatabaseRemoteAccess(serverId, makeRemote) {
             showToast('error', res.message || 'Gagal mengubah konfigurasi remote');
         }
     })
-    .catch(err => showToast('error', 'API error: ' + err.toString()));
+    .catch(err => {
+        hideActionProgress();
+        showToast('error', 'API error: ' + err.toString());
+    });
 }
 
 export function toggleDatabasePool(serverId, enablePool) {
-    showToast('info', 'Mengubah konfigurasi connection pool database...');
+    const steps = [
+        "Membaca konfigurasi server database...",
+        "Menghasilkan konfigurasi connection pool...",
+        "Menghentikan kontainer pool lama (jika ada)...",
+        "Membangun ulang Compose YAML...",
+        "Menyalakan kontainer connection pool..."
+    ];
+    showActionProgress(
+        enablePool ? "Mengaktifkan Connection Pool" : "Menonaktifkan Connection Pool",
+        "Menyesuaikan konfigurasi connection pool database...",
+        steps
+    );
+    startSimulatedProgress(steps, 800);
+
     fetch('/api/database/servers/toggle-pool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCSRFToken() },
@@ -1462,6 +1505,7 @@ export function toggleDatabasePool(serverId, enablePool) {
     })
     .then(res => res.json())
     .then(res => {
+        hideActionProgress();
         if (res.success) {
             showToast('success', res.message);
             loadDatabaseServers();
@@ -1469,7 +1513,10 @@ export function toggleDatabasePool(serverId, enablePool) {
             showToast('error', res.message || 'Gagal mengubah konfigurasi connection pool');
         }
     })
-    .catch(err => showToast('error', 'API error: ' + err.toString()));
+    .catch(err => {
+        hideActionProgress();
+        showToast('error', 'API error: ' + err.toString());
+    });
 }
 
 export function openDatabaseLogsModal(serverName) {
@@ -1971,5 +2018,74 @@ export function submitImportDatabase() {
 window.openImportDatabaseModal = openImportDatabaseModal;
 window.closeImportDatabaseModal = closeImportDatabaseModal;
 window.submitImportDatabase = submitImportDatabase;
+
+let progressInterval = null;
+
+export function showActionProgress(title, desc, steps) {
+    const modal = document.getElementById('action-progress-modal');
+    if (!modal) return;
+    
+    document.getElementById('action-progress-title').textContent = title;
+    document.getElementById('action-progress-desc').textContent = desc;
+    
+    const stepsContainer = document.getElementById('action-progress-steps');
+    stepsContainer.innerHTML = steps.map((step, idx) => `
+        <div id="progress-step-${idx}" style="display:flex; align-items:center; gap:10px; opacity: 0.4; transition: opacity 0.3s;">
+            <i class="fa-regular fa-circle" id="progress-step-icon-${idx}" style="color:var(--text-muted); font-size: 0.95rem;"></i>
+            <span id="progress-step-text-${idx}" style="color:var(--text-muted); font-size: 0.85rem;">${step}</span>
+        </div>
+    `).join('');
+    
+    modal.classList.add('active');
+}
+
+export function updateProgressStep(idx, status) {
+    const stepEl = document.getElementById(`progress-step-${idx}`);
+    const iconEl = document.getElementById(`progress-step-icon-${idx}`);
+    const textEl = document.getElementById(`progress-step-text-${idx}`);
+    if (!stepEl) return;
+    
+    stepEl.style.opacity = '1';
+    if (status === 'running') {
+        iconEl.className = 'fa-solid fa-spinner fa-spin';
+        iconEl.style.color = 'var(--accent-primary)';
+        textEl.style.color = 'var(--text-main)';
+        textEl.style.fontWeight = '500';
+    } else if (status === 'success') {
+        iconEl.className = 'fa-solid fa-circle-check';
+        iconEl.style.color = '#10b981';
+        textEl.style.color = 'var(--text-muted)';
+        textEl.style.fontWeight = 'normal';
+    }
+}
+
+export function hideActionProgress() {
+    const modal = document.getElementById('action-progress-modal');
+    if (modal) modal.classList.remove('active');
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+}
+
+export function startSimulatedProgress(steps, timings) {
+    let currentStep = 0;
+    updateProgressStep(currentStep, 'running');
+    
+    progressInterval = setInterval(() => {
+        updateProgressStep(currentStep, 'success');
+        currentStep++;
+        if (currentStep < steps.length) {
+            updateProgressStep(currentStep, 'running');
+        } else {
+            clearInterval(progressInterval);
+        }
+    }, timings);
+}
+
+window.showActionProgress = showActionProgress;
+window.updateProgressStep = updateProgressStep;
+window.hideActionProgress = hideActionProgress;
+window.startSimulatedProgress = startSimulatedProgress;
 
 

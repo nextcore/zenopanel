@@ -595,7 +595,7 @@
         <div class="modal-body">
             <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px 14px; margin-bottom:18px; font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
                 <i class="fa-solid fa-circle-info" style="color:var(--accent-primary); margin-right:6px;"></i>
-                Akan men-deploy container database baru via z-c dan otomatis mendaftarkannya ke panel.
+                Akan men-deploy container database baru via Zeno Box dan otomatis mendaftarkannya ke panel.
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
                 <div class="form-group">
@@ -1485,6 +1485,22 @@
         
         <div class="modal-footer" style="padding:12px 20px; border-top:1px solid var(--card-border); flex-shrink:0; display:flex; justify-content:flex-end;">
             <button class="btn-primary-action" onclick="closeWebSettingsModal()">Close Settings</button>
+        </div>
+    </div>
+</div>
+
+<!-- Action Progress Modal -->
+<div class="modal-overlay" id="action-progress-modal" style="z-index:9999;">
+    <div class="modal-card" style="max-width:440px; text-align:center; padding:25px;">
+        <div style="margin-bottom:15px;">
+            <i class="fa-solid fa-circle-notch fa-spin" style="font-size:2.2rem; color:var(--accent-primary);"></i>
+        </div>
+        <h3 id="action-progress-title" style="margin:0 0 8px; font-size:1.15rem; color:var(--text-main); font-weight:600;">Memproses Akses</h3>
+        <p id="action-progress-desc" style="margin:0 0 18px; font-size:0.8rem; color:var(--text-muted);">Mohon tunggu sebentar, sistem sedang melakukan konfigurasi...</p>
+        
+        <!-- Progress Steps Checklist -->
+        <div id="action-progress-steps" style="text-align:left; background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:8px; padding:15px; font-size:0.82rem; display:flex; flex-direction:column; gap:10px;">
+            <!-- Steps populated dynamically -->
         </div>
     </div>
 </div>

@@ -25,7 +25,6 @@ import {
 import { loadUsers } from "./users.js";
 import { loadSettings, loadSecuritySettings, loadFirewallRules } from "./settings.js";
 import { loadCronJobs } from "./cron.js";
-import { initWebsitesTab } from "./websites.js";
 import { loadZenoMachines, updateMachineSparklines } from "./machines.js";
 
 // Tab Navigation state
@@ -159,10 +158,6 @@ export function runTabInit(tab) {
 
   if (tab === "firewall") {
     loadFirewallRules();
-  }
-
-  if (tab === "websites") {
-    initWebsitesTab();
   }
 
   if (tab === "machines") {
