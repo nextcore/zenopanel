@@ -6,24 +6,94 @@ Daftar rilis resmi fitur, perbaikan, dan peningkatan teknologi pada platform Zen
 
 ## 🌟 Versi v1.8.1 (Rilis Terbaru)
 
-Rilis **v1.8.1** berfokus pada refaktor kode, perbaikan penanganan editor Monaco, optimalisasi pembuatan YAML untuk database, serta pembersihan dependensi:
-
-### 📝 1. Peningkatan Penanganan Editor Monaco
-Penyempurnaan integrasi editor Monaco pada panel editor Compose dan SQL untuk pengalaman pengodean yang lebih stabil:
-- **Pembersihan Instance Otomatis**: Memperbaiki masalah inisialisasi ulang editor dengan melakukan dispose pada instance lama jika elemen kontainer kosong di DOM.
-- **Auto-Layout Resizing**: Penambahan trigger layout secara otomatis setelah pengguna berpindah tab, mencegah masalah visual di mana ukuran editor tidak pas atau menyusut.
-- **Optimasi Layout**: Penyesuaian tinggi minimal (`min-height`) pada area kerja editor Compose dan konsol output agar lebih responsif di berbagai resolusi layar.
-
-### 🗄️ 2. Perbaikan Logika Pembuatan YAML Database & Sanitasi Password
-Mengatasi masalah parsing dan kompatibilitas pada modul manajemen database:
-- **Refaktor Variabel YAML**: Memperbaiki logika pembuatan Docker Compose YAML pada database PostgreSQL & MySQL dengan menghindari penggunaan variabel yang merujuk pada diri sendiri (*self-referential variables*). Kode kini menggunakan penggabungan variabel terpisah yang lebih bersih.
-- **Peningkatan Sintaks YAML**: Nilai environment password kini dibungkus menggunakan tanda kutip tunggal (`'`) untuk memastikan kepatuhan terhadap standar format YAML.
-- **Sanitasi Password Generator**: Menyederhanakan pembuatan password aman pada `generateSecurePassword` dengan membatasi karakter hanya pada alfanumerik (`a-z`, `A-Z`, `0-9`) untuk menghindari kegagalan parsing karakter khusus pada shell atau file konfigurasi.
-
-### 📦 3. Pembaruan Dependensi & Sistem Build
-- **Transisi ke Crates.io**: Mengupdate dependensi proyek untuk menggunakan pustaka `zenocore` dan paket `zeno-*` versi `v0.2.2` langsung dari crates.io resmi, serta menghapus patch path lokal yang tidak lagi diperlukan.
+Rilis **v1.8.1** membawa peningkatan besar pada ketahanan dan stabilitas sistem melalui implementasi error handling terpusat di seluruh lapisan rute API, pembersihan komponen tidak aktif, serta upgrade mesin skrip internal ZSL ke versi terbaru.
 
 ---
+
+### 🛡️ 1. Error Handling Terpusat via Try/Catch di Semua Rute API
+
+Seluruh endpoint API ZenoPanel kini dibungkus dengan blok `try/catch` ZSL yang memberikan perlindungan menyeluruh terhadap kegagalan runtime. Sebelumnya, kegagalan operasi sistem (I/O disk penuh, koneksi DB terputus, kontainer tidak ditemukan, dsb.) dapat menyebabkan request hang tanpa respons atau mengembalikan 500 mentah ke browser.
+
+**Rute yang diupgrade:**
+- **`database.zl`** — install-server, toggle-remote, toggle-pool, create, delete
+- **`box.zl`** — seluruh lifecycle manajemen kontainer & compose
+- **`files.zl`** — semua operasi file manager (read, write, delete, rename, upload, unzip)
+- **`proxy.zl`** — manajemen aturan reverse proxy
+- **`cron.zl`** — penjadwalan & sinkronisasi cron job
+- **`firewall.zl`** — status & aturan firewall, lockdown mode
+- **`system.zl`** — info sistem, proses, kill, update panel
+- **`containers.zl`** — seluruh lifecycle kontainer, volume, network, dan live migration
+- **`machine.zl`** — VM MicroVM (CRUD, ISO, snapshot, live migration)
+- **`managed.zl`** — proses native (add, edit, start/stop/restart, git sync, webhook)
+- **`migrate.zl`** — preflight check, progress stream
+- **`services.zl`** — kontrol service OS (Docker, Nginx, MySQL, PostgreSQL)
+- **`settings.zl`** — semua pengaturan admin (backup, security/WAF, log rotation, registry)
+- **`users.zl`** — manajemen akun pengguna
+- **`terminal.zl`** — eksekusi perintah shell interaktif
+- **`auth.zl`** — login, logout, rate-limit, JWT
+
+Pola yang digunakan:
+```yaml
+try: {
+    run: { # Logika eksekusi utama }
+    catch: {
+        http.bad_request: { success: false, message: "Pesan error: ${error}" }
+    }
+}
+```
+
+---
+
+### 🗑️ 2. Penghapusan Modul Websites
+
+Modul **Websites** yang sebelumnya tidak aktif digunakan kini telah dibersihkan sepenuhnya dari codebase:
+- Dihapus: `zsrc/routes/websites.zl`
+- Dihapus: `views/partials/tab_websites.blade.zl`
+- Dihapus: `public/js/websites.js`
+- Dihapus: referensi navigasi dari `sidebar.blade.zl`, `views.zl`, `navigation.js`, dan `app.js`
+
+---
+
+### ⚙️ 3. Upgrade ZenoCore & Ekosistem ZSL ke v0.2.3
+
+ZenoPanel kini menggunakan `zenocore 0.2.3` yang menyertakan slot `try/catch` secara native di mesin skrip ZSL. Perubahan ini memindahkan implementasi try/catch dari layer aplikasi ZenoPanel ke dalam library inti, sehingga tersedia untuk seluruh proyek yang menggunakan ZenoCore:
+
+| Crate | Sebelum | Sesudah |
+|---|---|---|
+| `zenocore` | 0.2.2 | **0.2.3** (+ slot `try/catch`) |
+| `zeno-std` | 0.2.2 | **0.2.3** |
+| `zeno-blade` | 0.2.2 | **0.2.3** |
+| `zeno-apidoc` | 0.2.2 | **0.2.3** |
+| `zenoengine` | 0.2.2 | **0.2.3** |
+
+Implementasi `try` duplikat di `src/slots/util.rs` ZenoPanel dihapus karena kini sudah tersedia dari upstream zenocore.
+
+---
+
+### 📝 4. Peningkatan Penanganan Editor Monaco
+
+- **Pembersihan Instance Otomatis**: Memperbaiki masalah inisialisasi ulang editor dengan dispose pada instance lama jika elemen kontainer kosong di DOM.
+- **Auto-Layout Resizing**: Trigger layout otomatis saat pengguna berpindah tab, mencegah masalah ukuran editor yang menyusut.
+- **Optimasi Layout**: Penyesuaian `min-height` pada area kerja editor Compose dan konsol output.
+
+---
+
+### 🗄️ 5. Perbaikan Logika Pembuatan YAML Database & Sanitasi Password
+
+- **Refaktor Variabel YAML**: Memperbaiki pembuatan Docker Compose YAML pada PostgreSQL & MySQL agar tidak menggunakan variabel self-referential.
+- **Peningkatan Sintaks YAML**: Nilai environment password kini dibungkus dengan tanda kutip tunggal (`'`) untuk kepatuhan standar YAML.
+- **Sanitasi Password Generator**: Membatasi karakter password hanya pada alfanumerik untuk menghindari kegagalan parsing karakter khusus.
+
+---
+
+### 📦 6. Informasi Distribusi
+
+| Artefak | Ukuran | Keterangan |
+|---|---|---|
+| `zenopanel-v1.8.1.tar.gz` | ~26 MB | Static binary Linux (x86_64-musl) |
+| `zenopanel-windows-v1.8.1.zip` | ~29 MB | WSL2 distro + launcher.exe untuk Windows |
+
+
 
 ## 🌟 Versi v1.8.0
 
