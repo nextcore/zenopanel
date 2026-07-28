@@ -1669,68 +1669,81 @@ http.get: '/api/database/servers/status' {
 
     if: { not_empty: $q_connections } {
         then: {
-            db.select: $q_connections {
-                db: $server_name
-                first: true
-                as: $res_conn
-            }
-            db.select: $q_uptime {
-                db: $server_name
-                first: true
-                as: $res_upt
-            }
-            db.select: $q_version {
-                db: $server_name
-                first: true
-                as: $res_ver
-            }
-
-            var: $connections { val: 0 }
-            if: "$driver == 'mysql'" {
-                then: {
-                    coalesce: $res_conn.Value {
-                        default: '0'
-                        as: $connections_str
+            try: {
+                run: {
+                    db.select: $q_connections {
+                        db: $server_name
+                        first: true
+                        as: $res_conn
                     }
-                    var: $connections { val: $connections_str }
-                }
-                else: {
-                    coalesce: $res_conn.val {
-                        default: 0
-                        as: $connections_int
+                    db.select: $q_uptime {
+                        db: $server_name
+                        first: true
+                        as: $res_upt
                     }
-                    var: $connections { val: $connections_int }
-                }
-            }
-
-            var: $uptime { val: 0 }
-            if: "$driver == 'mysql'" {
-                then: {
-                    coalesce: $res_upt.Value {
-                        default: '0'
-                        as: $uptime_str
+                    db.select: $q_version {
+                        db: $server_name
+                        first: true
+                        as: $res_ver
                     }
-                    var: $uptime { val: $uptime_str }
-                }
-                else: {
-                    coalesce: $res_upt.val {
-                        default: 0
-                        as: $uptime_float
+
+                    var: $connections { val: 0 }
+                    if: "$driver == 'mysql'" {
+                        then: {
+                            coalesce: $res_conn.Value {
+                                default: '0'
+                                as: $connections_str
+                            }
+                            var: $connections { val: $connections_str }
+                        }
+                        else: {
+                            coalesce: $res_conn.val {
+                                default: 0
+                                as: $connections_int
+                            }
+                            var: $connections { val: $connections_int }
+                        }
                     }
-                    var: $uptime { val: $uptime_float }
+
+                    var: $uptime { val: 0 }
+                    if: "$driver == 'mysql'" {
+                        then: {
+                            coalesce: $res_upt.Value {
+                                default: '0'
+                                as: $uptime_str
+                            }
+                            var: $uptime { val: $uptime_str }
+                        }
+                        else: {
+                            coalesce: $res_upt.val {
+                                default: 0
+                                as: $uptime_float
+                            }
+                            var: $uptime { val: $uptime_float }
+                        }
+                    }
+
+                    coalesce: $res_ver.val {
+                        default: 'Unknown'
+                        as: $version
+                    }
+
+                    http.ok: {
+                        success: true,
+                        connections: $connections,
+                        uptime: $uptime,
+                        version: $version
+                    }
                 }
-            }
-
-            coalesce: $res_ver.val {
-                default: 'Unknown'
-                as: $version
-            }
-
-            http.ok: {
-                success: true,
-                connections: $connections,
-                uptime: $uptime,
-                version: $version
+                catch: {
+                    http.ok: {
+                        success: false,
+                        connections: 0,
+                        uptime: 0,
+                        version: "Unavailable",
+                        error: $error
+                    }
+                }
             }
         }
         else: {
@@ -1743,6 +1756,7 @@ http.get: '/api/database/servers/status' {
         }
     }
 }
+
 
 # 4. Get Database Server Configuration & Live Limits
 http.get: '/api/database/servers/config' {
