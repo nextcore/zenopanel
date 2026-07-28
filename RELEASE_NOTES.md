@@ -6,13 +6,13 @@ Daftar rilis resmi fitur, perbaikan, dan peningkatan teknologi pada platform Zen
 
 ## 🌟 Versi v1.8.1 (Rilis Terbaru)
 
-Rilis **v1.8.1** membawa peningkatan besar pada ketahanan dan stabilitas sistem melalui implementasi error handling terpusat di seluruh lapisan rute API, pembersihan komponen tidak aktif, serta upgrade mesin skrip internal ZSL ke versi terbaru.
+Rilis **v1.8.1** membawa peningkatan besar pada ketahanan dan stabilitas sistem melalui implementasi error handling terpusat di seluruh lapisan rute API, pembersihan komponen tidak aktif, serta upgrade mesin skrip internal ZenoLang ke versi terbaru.
 
 ---
 
 ### 🛡️ 1. Error Handling Terpusat via Try/Catch di Semua Rute API
 
-Seluruh endpoint API ZenoPanel kini dibungkus dengan blok `try/catch` ZSL yang memberikan perlindungan menyeluruh terhadap kegagalan runtime. Sebelumnya, kegagalan operasi sistem (I/O disk penuh, koneksi DB terputus, kontainer tidak ditemukan, dsb.) dapat menyebabkan request hang tanpa respons atau mengembalikan 500 mentah ke browser.
+Seluruh endpoint API ZenoPanel kini dibungkus dengan blok `try/catch` ZenoLang yang memberikan perlindungan menyeluruh terhadap kegagalan runtime. Sebelumnya, kegagalan operasi sistem (I/O disk penuh, koneksi DB terputus, kontainer tidak ditemukan, dsb.) dapat menyebabkan request hang tanpa respons atau mengembalikan 500 mentah ke browser.
 
 **Rute yang diupgrade:**
 - **`database.zl`** — install-server, toggle-remote, toggle-pool, create, delete
@@ -54,9 +54,9 @@ Modul **Websites** yang sebelumnya tidak aktif digunakan kini telah dibersihkan 
 
 ---
 
-### ⚙️ 3. Upgrade ZenoCore & Ekosistem ZSL ke v0.2.3
+### ⚙️ 3. Upgrade ZenoCore & Ekosistem ZenoLang ke v0.2.3
 
-ZenoPanel kini menggunakan `zenocore 0.2.3` yang menyertakan slot `try/catch` secara native di mesin skrip ZSL. Perubahan ini memindahkan implementasi try/catch dari layer aplikasi ZenoPanel ke dalam library inti, sehingga tersedia untuk seluruh proyek yang menggunakan ZenoCore:
+ZenoPanel kini menggunakan `zenocore 0.2.3` yang menyertakan slot `try/catch` secara native di mesin skrip ZenoLang. Perubahan ini memindahkan implementasi try/catch dari layer aplikasi ZenoPanel ke dalam library inti, sehingga tersedia untuk seluruh proyek yang menggunakan ZenoCore:
 
 | Crate | Sebelum | Sesudah |
 |---|---|---|
