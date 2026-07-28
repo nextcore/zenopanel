@@ -718,6 +718,9 @@ export function switchContainerSubTab(tab) {
     import("./compose.js").then((m) => {
       m.loadComposeProjects();
       m.loadComposeYaml();
+      setTimeout(() => {
+        m.triggerMonacoLayout();
+      }, 100);
     });
   } else if (tab === "volumes") {
     loadVolumes();

@@ -115,7 +115,14 @@ export function loadComposeYaml(projectName, fileName) {
       const container = document.getElementById("compose-monaco-container");
       if (container) {
         getOrInitComposeMonaco(() => {
-          if (!composeMonacoInstance) {
+          const isDomEmpty = !container.querySelector(".monaco-editor");
+          if (!composeMonacoInstance || isDomEmpty) {
+            if (composeMonacoInstance) {
+              try {
+                composeMonacoInstance.dispose();
+              } catch (e) {}
+              composeMonacoInstance = null;
+            }
             composeMonacoInstance = monaco.editor.create(container, {
               value: res.yaml || "",
               language: language,
@@ -125,14 +132,26 @@ export function loadComposeYaml(projectName, fileName) {
               fontFamily: "var(--font-code)",
               minimap: { enabled: false }
             });
+            setTimeout(() => {
+              if (composeMonacoInstance) composeMonacoInstance.layout();
+            }, 100);
           } else {
             composeMonacoInstance.setValue(res.yaml || "");
             monaco.editor.setModelLanguage(composeMonacoInstance.getModel(), language);
+            setTimeout(() => {
+              if (composeMonacoInstance) composeMonacoInstance.layout();
+            }, 100);
           }
         });
       }
     })
     .catch((err) => console.error("Error loading compose YAML:", err));
+}
+
+export function triggerMonacoLayout() {
+  if (composeMonacoInstance) {
+    composeMonacoInstance.layout();
+  }
 }
 
 // ─── Project Explorer Functions ───────────────────────────────────────

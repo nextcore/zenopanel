@@ -690,16 +690,16 @@ http.post: '/api/database/install-server' {
         }
     }
 
-    # Build resource limits YAML block
-    var: $limits_yaml { val: "    oom_score_adj: -1000\n" }
+    # Build resource limits YAML block (trim-proof)
+    var: $limits_part { val: "oom_score_adj: -1000" }
     if: "$mem_limit != ''" {
         then: {
-            var: $limits_yaml { val: "${limits_yaml}    mem_limit: ${mem_limit}\n" }
+            var: $limits_part { val: "${limits_part}\n    mem_limit: ${mem_limit}" }
         }
     }
     if: "$cpus != ''" {
         then: {
-            var: $limits_yaml { val: "${limits_yaml}    cpus: ${cpus}\n" }
+            var: $limits_part { val: "${limits_part}\n    cpus: ${cpus}" }
         }
     }
 
@@ -711,21 +711,33 @@ http.post: '/api/database/install-server' {
         }
     }
 
-    # Build Docker Compose YAML — format environment as YAML list items
-    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n${limits_yaml}" }
+    # Build MySQL compose body
+    var: $mysql_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - 'MYSQL_ROOT_PASSWORD=${root_password}'\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n    ${limits_part}" }
 
+    # Build Postgres compose body (only populated if postgres)
+    var: $postgres_body { val: "" }
+    var: $pool_yaml { val: "" }
     if: "$driver == 'postgres'" {
         then: {
-            var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${root_password}\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n${limits_yaml}" }
+            var: $postgres_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - 'POSTGRES_PASSWORD=${root_password}'\n    ports:\n      - '${bind_prefix}:${port}:${db_port_internal}'\n    volumes:\n      - ${data_dir}:${data_volume}\n    restart: unless-stopped\n    ${limits_part}" }
             if: "$pool_enabled == 1" {
                 then: {
-                    var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${root_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
+                    var: $pool_yaml { val: "\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - 'DB_HOST=${name}'\n      - 'DB_PORT=5432'\n      - 'DB_USER=${admin_user}'\n      - 'DB_PASSWORD=${root_password}'\n      - 'AUTH_TYPE=trust'\n      - 'POOL_MODE=transaction'\n      - 'MAX_CLIENT_CONN=150'\n      - 'DEFAULT_POOL_SIZE=30'\n    restart: unless-stopped\n" }
                 }
             }
         }
     }
 
-    var: $compose_yaml { val: "${compose_yaml}${volumes_block}" }
+    # Select body based on driver
+    var: $compose_body { val: $mysql_body }
+    if: "$driver == 'postgres'" {
+        then: {
+            var: $compose_body { val: $postgres_body }
+        }
+    }
+
+    # Final combined YAML string — NO self-referential variables!
+    var: $compose_yaml { val: "${compose_body}\n${pool_yaml}${volumes_block}" }
 
     # Deploy container via compose
     box.compose: 'up' {
@@ -1275,16 +1287,16 @@ http.post: '/api/database/servers/toggle-pool' {
                 }
             }
 
-            # Build resource limits YAML block
-            var: $limits_yaml { val: "    oom_score_adj: -1000\n" }
+            # Build resource limits YAML block (trim-proof)
+            var: $limits_part { val: "oom_score_adj: -1000" }
             if: "$mem_limit != ''" {
                 then: {
-                    var: $limits_yaml { val: "${limits_yaml}    mem_limit: ${mem_limit}\n" }
+                    var: $limits_part { val: "${limits_part}\n    mem_limit: ${mem_limit}" }
                 }
             }
             if: "$cpus != ''" {
                 then: {
-                    var: $limits_yaml { val: "${limits_yaml}    cpus: ${cpus}\n" }
+                    var: $limits_part { val: "${limits_part}\n    cpus: ${cpus}" }
                 }
             }
 
@@ -1306,16 +1318,17 @@ http.post: '/api/database/servers/toggle-pool' {
                         }
                     }
 
-                    # Reconstruct compose YAML
-                    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:5432'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n${limits_yaml}" }
+                    # Build Postgres compose body
+                    var: $postgres_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - POSTGRES_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:5432'\n    volumes:\n      - ${data_dir}:/var/lib/postgresql/data\n    restart: unless-stopped\n    ${limits_part}" }
 
+                    var: $pool_yaml { val: "" }
                     if: "$pool_enabled == 1" {
                         then: {
-                            var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${admin_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
+                            var: $pool_yaml { val: "\n  ${name}-pool:\n    image: edoburu/pgbouncer:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6432'\n    environment:\n      - DB_HOST=${name}\n      - DB_PORT=5432\n      - DB_USER=${admin_user}\n      - DB_PASSWORD=${admin_password}\n      - AUTH_TYPE=trust\n      - POOL_MODE=transaction\n      - MAX_CLIENT_CONN=150\n      - DEFAULT_POOL_SIZE=30\n    restart: unless-stopped\n" }
                         }
                     }
 
-                    var: $compose_yaml { val: "${compose_yaml}${volumes_block}" }
+                    var: $compose_yaml { val: "${postgres_body}\n${pool_yaml}${volumes_block}" }
 
                     box.compose: 'up' {
                         yaml: $compose_yaml
@@ -1349,9 +1362,10 @@ http.post: '/api/database/servers/toggle-pool' {
                         }
                     }
 
-                    # Reconstruct compose YAML
-                    var: $compose_yaml { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:3306'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n${limits_yaml}" }
+                    # Build MySQL compose body
+                    var: $mysql_body { val: "services:\n  ${name}:\n    image: ${engine}\n    container_name: ${name}\n    environment:\n      - MYSQL_ROOT_PASSWORD=${admin_password}\n    ports:\n      - '${bind_prefix}:${port}:3306'\n    volumes:\n      - ${data_dir}:/var/lib/mysql\n      - /var/lib/zenopanel/db/${name}_conf:/etc/mysql/conf.d\n    restart: unless-stopped\n    ${limits_part}" }
 
+                    var: $pool_yaml { val: "" }
                     if: "$pool_enabled == 1" {
                         then: {
                             if: "$name != ''" {
@@ -1367,13 +1381,13 @@ http.post: '/api/database/servers/toggle-pool' {
                                         users: $db_users
                                         path: "/var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf"
                                     }
-                                    var: $compose_yaml { val: "${compose_yaml}\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
+                                    var: $pool_yaml { val: "\n  ${name}-pool:\n    image: proxysql/proxysql:latest\n    container_name: ${name}-pool\n    ports:\n      - '${bind_prefix}:${pool_port}:6033'\n    volumes:\n      - /var/lib/zenopanel/db/${name}_proxysql/proxysql.cnf:/etc/proxysql.cnf\n    restart: unless-stopped\n" }
                                 }
                             }
                         }
                     }
 
-                    var: $compose_yaml { val: "${compose_yaml}${volumes_block}" }
+                    var: $compose_yaml { val: "${mysql_body}\n${pool_yaml}${volumes_block}" }
 
                     box.compose: 'up' {
                         yaml: $compose_yaml

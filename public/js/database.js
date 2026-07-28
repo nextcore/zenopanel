@@ -561,7 +561,14 @@ function setSqlContent(val) {
     const container = document.getElementById('sql-monaco-container');
     if (container) {
         getOrInitDatabaseMonaco(() => {
-            if (!sqlMonacoInstance) {
+            const isDomEmpty = !container.querySelector(".monaco-editor");
+            if (!sqlMonacoInstance || isDomEmpty) {
+                if (sqlMonacoInstance) {
+                    try {
+                        sqlMonacoInstance.dispose();
+                    } catch (e) {}
+                    sqlMonacoInstance = null;
+                }
                 sqlMonacoInstance = monaco.editor.create(container, {
                     value: val,
                     language: 'sql',
@@ -593,7 +600,14 @@ function setDbConfigContent(val) {
     const container = document.getElementById('db-config-monaco-container');
     if (container) {
         getOrInitDatabaseMonaco(() => {
-            if (!dbConfigMonacoInstance) {
+            const isDomEmpty = !container.querySelector(".monaco-editor");
+            if (!dbConfigMonacoInstance || isDomEmpty) {
+                if (dbConfigMonacoInstance) {
+                    try {
+                        dbConfigMonacoInstance.dispose();
+                    } catch (e) {}
+                    dbConfigMonacoInstance = null;
+                }
                 dbConfigMonacoInstance = monaco.editor.create(container, {
                     value: val,
                     language: 'ini',
@@ -1361,7 +1375,7 @@ export function deleteDatabaseBackup(id, filename) {
 }
 
 function generateSecurePassword() {
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~";
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let pass = "";
     for (let i = 0; i < 16; i++) {
         pass += chars.charAt(Math.floor(Math.random() * chars.length));
