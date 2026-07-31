@@ -1,5 +1,5 @@
 # ==============================================================================
-# 🚀 ZenoPanel Control Center - PowerShell GUI Edition (v1.8.1)
+# 🚀 ZenoPanel Control Center - PowerShell GUI Edition (v1.8.2)
 # ==============================================================================
 # Skrip ini menduplikasi fungsionalitas launcher native Zig, menyediakan GUI 
 # interaktif yang ringan menggunakan Windows Forms untuk menghindari pemblokiran
@@ -12,7 +12,7 @@ Add-Type -AssemblyName System.Drawing
 $DISTRO_NAME = "zenopanel"
 $PORT = 3001
 $PANEL_URL = "http://localhost:3001/login"
-$VERSION = "v1.8.1"
+$VERSION = "v1.8.2"
 
 # Ambil path skrip saat ini
 $scriptPath = $MyInvocation.MyCommand.Path
