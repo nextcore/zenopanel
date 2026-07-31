@@ -205,6 +205,40 @@ export function toggleMobileSidebar() {
   }
 }
 
+// Toggle desktop sidebar slide collapse
+export function toggleDesktopSidebar() {
+  const aside = document.getElementById("main-sidebar") || document.querySelector("aside");
+  const icon = document.getElementById("sidebar-collapse-icon");
+  if (aside) {
+    aside.classList.toggle("collapsed");
+    const isCollapsed = aside.classList.contains("collapsed");
+    localStorage.setItem("zenopanel_sidebar_collapsed", isCollapsed ? "true" : "false");
+    if (icon) {
+      icon.className = isCollapsed ? "fa-solid fa-angles-right" : "fa-solid fa-angles-left";
+    }
+  }
+}
+
+// Universal sidebar toggle for header button
+export function toggleSidebar() {
+  if (window.innerWidth <= 768) {
+    toggleMobileSidebar();
+  } else {
+    toggleDesktopSidebar();
+  }
+}
+
+// Restore saved sidebar collapse preference on boot
+export function initSidebarState() {
+  const savedState = localStorage.getItem("zenopanel_sidebar_collapsed");
+  if (savedState === "true" && window.innerWidth > 768) {
+    const aside = document.getElementById("main-sidebar") || document.querySelector("aside");
+    const icon = document.getElementById("sidebar-collapse-icon");
+    if (aside) aside.classList.add("collapsed");
+    if (icon) icon.className = "fa-solid fa-angles-right";
+  }
+}
+
 // Setup navigation event listeners
 export function initNavigation() {
   document.querySelectorAll(".nav-item").forEach((item) => {

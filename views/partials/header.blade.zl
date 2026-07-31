@@ -1,6 +1,6 @@
 <header>
     <div class="header-left" style="display: flex; align-items: center; gap: 15px;">
-        <button class="btn-action mobile-menu-toggle" onclick="toggleMobileSidebar()">
+        <button class="btn-action mobile-menu-toggle" onclick="toggleSidebar()" title="Toggle Sidebar">
             <i class="fa-solid fa-bars"></i>
         </button>
         <div>

@@ -13,6 +13,9 @@ import {
   refreshCurrentTab,
   initNavigation,
   toggleMobileSidebar,
+  toggleDesktopSidebar,
+  toggleSidebar,
+  initSidebarState,
   runTabInit,
   toggleSecuritySubmenu,
 } from "./navigation.js";
@@ -418,6 +421,9 @@ const functionsToBind = {
   switchTab,
   refreshCurrentTab,
   toggleMobileSidebar,
+  toggleDesktopSidebar,
+  toggleSidebar,
+  initSidebarState,
   toggleSecuritySubmenu,
   setRingProgress,
   initPerformanceChart,
@@ -746,6 +752,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Initialize Navigation Listeners
   initNavigation();
+  initSidebarState();
 
   // Initialize File Manager Listeners
   initFileManager();

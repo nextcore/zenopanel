@@ -1,69 +1,72 @@
 <!-- Sidebar Navigation -->
-<aside>
+<aside id="main-sidebar">
     <div class="brand">
         <div class="brand-logo">Z</div>
         <div class="brand-name">ZenoPanel</div>
+        <button class="btn-icon sidebar-collapse-btn" onclick="toggleDesktopSidebar()" title="Toggle Sidebar Collapse">
+            <i class="fa-solid fa-angles-left" id="sidebar-collapse-icon"></i>
+        </button>
     </div>
     <nav class="nav-menu">
-        <div class="nav-item active" data-tab="dashboard" hx-get="/tab/dashboard" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item active" data-tab="dashboard" title="Dashboard" hx-get="/tab/dashboard" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-chart-line"></i>
             <span>Dashboard</span>
         </div>
 
-        <div class="nav-item" data-tab="files" hx-get="/tab/files" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="files" title="File Manager" hx-get="/tab/files" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-folder-open"></i>
             <span>File Manager</span>
         </div>
-        <div class="nav-item" data-tab="database" hx-get="/tab/database" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="database" title="Database" hx-get="/tab/database" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-database"></i>
             <span>Database</span>
         </div>
 
-        <div class="nav-item" data-tab="terminal" hx-get="/tab/terminal" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="terminal" title="Command Shell" hx-get="/tab/terminal" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-terminal"></i>
             <span>Command Shell</span>
         </div>
-        <div class="nav-item" data-tab="managed" hx-get="/tab/managed" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="managed" title="Managed Procs" hx-get="/tab/managed" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-gears"></i>
             <span>Managed Procs</span>
         </div>
-        <div class="nav-item" data-tab="proxy" hx-get="/tab/proxy" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="proxy" title="Reverse Proxy" hx-get="/tab/proxy" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-network-wired"></i>
             <span>Reverse Proxy</span>
         </div>
-        <div class="nav-item" data-tab="containers" hx-get="/tab/containers" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="containers" title="Containers" hx-get="/tab/containers" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-cube"></i>
             <span>Containers</span>
         </div>
-        <div class="nav-item" data-tab="machines" hx-get="/tab/machines" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="machines" title="Zeno Machine" hx-get="/tab/machines" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-server"></i>
             <span>Zeno Machine</span>
         </div>
 
-        <div class="nav-item" data-tab="cron" hx-get="/tab/cron" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="cron" title="Cron Jobs" hx-get="/tab/cron" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-clock"></i>
             <span>Cron Jobs</span>
         </div>
-        <div class="nav-item" data-tab="users" id="nav-users" style="display: none;" hx-get="/tab/users" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="users" id="nav-users" title="Users" style="display: none;" hx-get="/tab/users" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-users-gear"></i>
             <span>Users</span>
         </div>
-        <div class="nav-parent" id="nav-security" style="display: none;" onclick="toggleSecuritySubmenu(event)">
+        <div class="nav-parent" id="nav-security" title="Security" style="display: none;" onclick="toggleSecuritySubmenu(event)">
             <i class="fa-solid fa-shield-halved"></i>
             <span>Security</span>
             <i class="fa-solid fa-chevron-down submenu-arrow" id="security-arrow" style="margin-left: auto; font-size: 0.8rem; transition: transform 0.2s;"></i>
         </div>
         <div class="submenu" id="security-submenu" style="display: none; padding-left: 16px; flex-direction: column; gap: 4px;">
-            <div class="nav-item submenu-item" data-tab="firewall" hx-get="/tab/firewall" hx-target="#viewport-container" hx-trigger="click" style="font-size: 0.88rem; padding: 10px 14px;">
+            <div class="nav-item submenu-item" data-tab="firewall" title="Firewall" hx-get="/tab/firewall" hx-target="#viewport-container" hx-trigger="click" style="font-size: 0.88rem; padding: 10px 14px;">
                 <i class="fa-solid fa-border-all" style="font-size: 0.95rem;"></i>
                 <span>Firewall</span>
             </div>
-            <div class="nav-item submenu-item" data-tab="waf" hx-get="/tab/waf" hx-target="#viewport-container" hx-trigger="click" style="font-size: 0.88rem; padding: 10px 14px;">
+            <div class="nav-item submenu-item" data-tab="waf" title="WAF" hx-get="/tab/waf" hx-target="#viewport-container" hx-trigger="click" style="font-size: 0.88rem; padding: 10px 14px;">
                 <i class="fa-solid fa-user-shield" style="font-size: 0.95rem;"></i>
                 <span>WAF</span>
             </div>
         </div>
-        <div class="nav-item" data-tab="settings" id="nav-settings" style="display: none;" hx-get="/tab/settings" hx-target="#viewport-container" hx-trigger="click">
+        <div class="nav-item" data-tab="settings" id="nav-settings" title="Settings" style="display: none;" hx-get="/tab/settings" hx-target="#viewport-container" hx-trigger="click">
             <i class="fa-solid fa-sliders"></i>
             <span>Settings</span>
         </div>
