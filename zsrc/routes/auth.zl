@@ -131,37 +131,23 @@ http.post: /* {
 }
 
 # ============================================================
-# POST /logout — Hapus session cookies dan redirect ke login
+# POST /logout — Hapus session cookies dan redirect ke entrance path
 # ============================================================
 http.post: '/logout' {
-    try: {
-        run: {
-            system.entrance_path: { as: $login_path }
-            http.clear_cookie: 'zeno_token' { path: '/' }
-            http.clear_cookie: 'zeno_role' { path: '/' }
-            http.redirect: $login_path
-        }
-        catch: {
-            http.redirect: '/login'
-        }
-    }
+    system.entrance_path: { as: $login_path }
+    http.clear_cookie: 'zeno_token' { path: '/' }
+    http.clear_cookie: 'zeno_role' { path: '/' }
+    http.redirect: $login_path
 }
 
 # ============================================================
-# GET /logout — Hapus session cookies dan redirect ke login
+# GET /logout — Hapus session cookies dan redirect ke entrance path
 # ============================================================
 http.get: '/logout' {
-    try: {
-        run: {
-            system.entrance_path: { as: $login_path }
-            http.clear_cookie: 'zeno_token' { path: '/' }
-            http.clear_cookie: 'zeno_role' { path: '/' }
-            http.redirect: $login_path
-        }
-        catch: {
-            http.redirect: '/login'
-        }
-    }
+    system.entrance_path: { as: $login_path }
+    http.clear_cookie: 'zeno_token' { path: '/' }
+    http.clear_cookie: 'zeno_role' { path: '/' }
+    http.redirect: $login_path
 }
 
 
