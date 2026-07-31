@@ -45,6 +45,48 @@ http.get: '/api/containers/docker-search' {
     }
 }
 
+# ─── List Existing Docker Containers on Host ─────────────────────
+http.get: '/api/containers/docker-list' {
+    auth.guard
+    try: {
+        run: {
+            system.list_docker_containers: { as: $containers }
+            http.ok: { data: $containers }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengambil daftar kontainer Docker: ${error}" }
+        }
+    }
+}
+
+# ─── Import Docker Container to Zeno Box ────────────────────────
+http.post: '/api/containers/import-docker' {
+    auth.guard
+    http.json_body: { as: $body }
+    try: {
+        run: {
+            box.import_docker: {
+                docker_id: $body.docker_id
+                zeno_name: $body.zeno_name
+                as_compose: $body.as_compose
+                preserve_volumes: $body.preserve_volumes
+                as: $result
+            }
+            if: $result.success {
+                then: {
+                    http.ok: { success: true, message: $result.message }
+                }
+                else: {
+                    http.bad_request: { success: false, message: $result.stderr }
+                }
+            }
+        }
+        catch: {
+            http.bad_request: { success: false, message: "Gagal mengimpor kontainer Docker: ${error}" }
+        }
+    }
+}
+
 # ─── List Cached Images ──────────────────────────────────────────
 http.get: '/api/containers/images' {
     auth.guard

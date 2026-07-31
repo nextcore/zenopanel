@@ -1,45 +1,48 @@
-# 🚀 ZenoPanel Release Notes
+# ZenoPanel v1.9.0 Release Notes 🚀
 
-Daftar rilis resmi fitur, perbaikan, dan peningkatan teknologi pada platform ZenoPanel.
-
----
-
-## 🌟 Versi v1.8.2 (Rilis Terbaru)
-
-Rilis **v1.8.2** menghadirkan peningkatan antarmuka pengguna (UI/UX) dengan tombol slide toggle sidebar dinamis, dukungan penuh **Host Network Mode** pada engine Zeno Box Compose, manajemen database ProxySQL connection pooling, serta optimasi sistem Firewall bawaan dengan lockout protection.
+**Release Date:** July 31, 2026  
+**Tag:** `v1.9.0`  
+**Distribution Bundle:** `zenopanel-v1.9.0.tar.gz`
 
 ---
 
-### 🎨 1. Sidebar Slide Toggle & Collapsible Layout (UI/UX)
-- **Desain Responsif Fleksibel**: Menambahkan tombol *slide toggle* pada sidebar utama ZenoPanel untuk merubah tampilan dari lebar penuh (`260px`) menjadi mode ringkas ikon (`76px`).
-- **Animasi CSS Halus & Smart Tooltips**: Transisi lebar sidebar dan pemosisian ikon dibuat sangat responsif dilengkapi *tooltip* judul menu saat sidebar terlipat.
-- **LocalStorage State Persistence**: Status sidebar (*expanded* atau *collapsed*) tersimpan secara otomatis di peramban pengguna dan bertahan saat navigasi antar halaman.
+## 🌟 Major Feature: Native Docker Container Import to Zeno Box
 
-### 🐳 2. Zeno Box Engine & Docker Compose Enhancements
-- **Dukungan `network_mode: host` di Compose**: Engine Zeno Box Compose kini secara resmi mendukung deklarasi `network_mode: host` dari berkas `docker-compose.yml`, memungkinkan kontainer mengakses antarmuka jaringan fisik host tanpa hambatan NAT.
-- **Perbaikan Parsing Environment Variables**: Penanganan variabel lingkungan (*env*) untuk kontainer Zeno Box kini mendukung format objek JSON map (`{"KEY": "VALUE"}`).
+ZenoPanel v1.9.0 memperkenalkan kemampuan untuk **mengimpor kontainer Docker yang sedang atau pernah berjalan di host** langsung ke engine native **Zeno Box** (`runc` + OCI standard).
 
-### 🗄️ 3. Integrasi ProxySQL & Database Connection Pooling
-- **Generator Konfigurasi ProxySQL**: Integrasi slot ZenoLang `db.generate_proxysql_config` untuk mempermudah *deployment* ProxySQL Connection Pooling.
-- **Manajemen Port & Hostgroup Dinamis**: Memungkinkan penerusan query SQL berkecepatan tinggi dari port standar `3306` ke backend database terisolasi.
-
-### 🛡️ 4. Firewall Rules Manager & Lockout Protection (iptables)
-- **Penyelarasan Direct iptables Kernel**: Penambahan dan penghapusan aturan firewall via API `/api/security/firewall` disinkronkan secara *real-time* ke kernel `iptables` Linux.
-- **Fitur Lockout Protection**: Proteksi otomatis agar port manajemen vital (SSH `22`, HTTP `80/443`, dan port ZenoPanel) tidak dapat terblokir secara tidak sengaja.
+### 🚀 Key Highlights & Capabilities:
+- **Zero-Downtime Migration**: Mengimpor metadata (Environment Variables, Entrypoint/CMD, Working Directory, Exposed Ports, Mounts) dan isi berkas kontainer Docker.
+- **Dual Import Modes**:
+  1. **Single Container (RootFS Snapshot)**: Melakukan snapshot dan ekstraksi filesystem penuh kontainer Docker ke OCI RootFS Zeno Box. Cocok untuk aplikasi *stateless* atau *standalone*.
+  2. **Zeno Box Compose Project**: Menggenerasi file `docker-compose.yml` secara otomatis dan menempatkannya di tab **Compose**, siap dikelola via Monaco Code Editor.
+- **Zero-Copy Instant Volume Preservation (Optimized for Large Databases)**:
+  - Opsi *Zero-Copy* untuk direktori data / database besar (seperti MySQL, PostgreSQL, Redis).
+  - Menggunakan *Direct Bind Mount* tanpa menyalin file puluhan GB, sehingga proses impor selesai **dalam 0 detik** tanpa memakan ruang disk tambahan.
 
 ---
 
-### 🛠️ 5. Perbaikan Bug & Optimasi (Bug Fixes & Maintenance)
-- **Matchit 0.8 Path Syntax**: Penyesuaian sintaks routing ZenoEngine ke format parameter `{param}`.
-- **CSRF Token Handling**: Perbaikan ekstraksi header `X-CSRF-Token` pada login JSON API.
-- **Tampilan Header Mobile & Desktop**: Tombol toggle universal `toggleSidebar()` disinkronkan untuk perangkat seluler maupun komputer meja.
+## ⚡ ProxySQL & High-Concurrency Database Enhancements
+
+- **Optimasi ProxySQL Sidecar**: Perbaikan konfigurasi *Network Mode* pada Zeno Box Compose untuk mendukung koneksi ProxySQL backend pool dengan latency rendah dan pencegahan *hairpin loop*.
 
 ---
 
-### 📦 6. Informasi Distribusi
+## 🛠️ API & Engine Changes
 
-| Artefak | Ukuran | Keterangan |
-|---|---|---|
-| `zenopanel-v1.8.2.tar.gz` | ~26 MB | Static binary Linux (x86_64-musl) |
+### New ZenoLang Engine Slots (`src/slots/zeno_box/container.rs`):
+- `system.list_docker_containers`: Mengambil daftar kontainer Docker di host via daemon socket/CLI.
+- `box.import_docker`: Slot backend untuk memproses ekstraksi `docker inspect` & `docker export` atau penyusunan berkas Compose.
+
+### New API Endpoints (`zsrc/routes/containers.zl`):
+- `GET /api/containers/docker-list`: Mendapatkan daftar kontainer Docker di host.
+- `POST /api/containers/import-docker`: Memicu alur pengimporan kontainer.
+
+---
+
+## 🎨 UI / UX Improvements
+- **Import Docker Modal** pada tab *Containers*:
+  - Dropdown interaktif dengan pencarian kontainer Docker lokal.
+  - Auto-fill saran nama kontainer Zeno Box baru.
+  - Opsi pemilihan mode impor (Container vs Compose) dan toggle *Zero-Copy Volume Mount*.
 
 ---

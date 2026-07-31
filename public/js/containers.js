@@ -1354,4 +1354,105 @@ function drawSparkline(canvasId, data, color) {
   ctx.fill();
 }
 
+// ─── Import Existing Docker Container ────────────────────────────────
+
+export function openImportDockerModal() {
+  const modal = document.getElementById("import-docker-container-modal");
+  const select = document.getElementById("import-docker-select");
+  const zenoNameInput = document.getElementById("import-zeno-name");
+  
+  zenoNameInput.value = "";
+  select.innerHTML = '<option value="">Loading docker containers...</option>';
+  modal.classList.add("active");
+
+  fetch("/api/containers/docker-list")
+    .then((res) => res.json())
+    .then((res) => {
+      if (res.data && res.data.length > 0) {
+        select.innerHTML = '<option value="">-- Select a Container --</option>' +
+          res.data.map((c) => {
+            const portsStr = c.ports ? ` (${c.ports})` : '';
+            return `<option value="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)} [ID: ${escapeHtml(c.id.substring(0, 12))}] — ${escapeHtml(c.image)}${portsStr}</option>`;
+          }).join('');
+      } else {
+        select.innerHTML = '<option value="">No Docker containers found on host</option>';
+      }
+    })
+    .catch(() => {
+      select.innerHTML = '<option value="">Failed to connect to Docker daemon</option>';
+    });
+}
+
+export function closeImportDockerModal() {
+  document.getElementById("import-docker-container-modal").classList.remove("active");
+}
+
+export function onImportDockerSelectChange() {
+  const select = document.getElementById("import-docker-select");
+  const zenoNameInput = document.getElementById("import-zeno-name");
+  const selectedOption = select.options[select.selectedIndex];
+  if (selectedOption && selectedOption.dataset && selectedOption.dataset.name) {
+    const rawName = selectedOption.dataset.name.replace(/^\//, '');
+    zenoNameInput.value = rawName + "-zeno";
+  }
+}
+
+export function submitImportDocker() {
+  const select = document.getElementById("import-docker-select");
+  const dockerId = select.value;
+  const zenoName = document.getElementById("import-zeno-name").value.trim();
+  const targetTypeRadio = document.querySelector('input[name="import-target-type"]:checked');
+  const asCompose = targetTypeRadio ? targetTypeRadio.value === "compose" : false;
+  const preserveVolumesInput = document.getElementById("import-preserve-volumes");
+  const preserveVolumes = preserveVolumesInput ? preserveVolumesInput.checked : true;
+
+  if (!dockerId) {
+    showToast("error", "Please select a Docker container to import");
+    return;
+  }
+  if (!zenoName) {
+    showToast("error", "Please enter a name for the imported Zeno Box container");
+    return;
+  }
+
+  closeImportDockerModal();
+  showToast("info", asCompose ? `Generating Compose project from Docker container...` : `Exporting RootFS & metadata from Docker container...`, 0);
+
+  fetch("/api/containers/import-docker", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCSRFToken(),
+    },
+    body: JSON.stringify({
+      docker_id: dockerId,
+      zeno_name: zenoName,
+      as_compose: asCompose,
+      preserve_volumes: preserveVolumes,
+    }),
+  })
+    .then((res) => res.json())
+    .then((res) => {
+      const toast = document.querySelector(".toast-notification");
+      if (toast) toast.remove();
+
+      if (res.success) {
+        showToast("success", res.message || `Imported successfully!`);
+        if (asCompose) {
+          switchContainerSubTab("compose");
+        } else {
+          setTimeout(loadContainers, 500);
+        }
+      } else {
+        showToast("error", res.message || "Failed to import Docker container");
+      }
+    })
+    .catch((err) => {
+      const toast = document.querySelector(".toast-notification");
+      if (toast) toast.remove();
+      showToast("error", "Network error during container import");
+    });
+}
+
+
 

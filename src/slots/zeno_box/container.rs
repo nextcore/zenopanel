@@ -27,6 +27,8 @@ pub fn register(engine: &mut Engine) {
     register_box_logs(engine);
     register_box_rootfs_path(engine);
     register_box_update(engine);
+    register_box_import_docker(engine);
+    register_system_list_docker_containers(engine);
 }
 
 fn check_oom_killed(id: &str) -> bool {
@@ -1267,3 +1269,319 @@ fn register_box_update(engine: &mut Engine) {
         }
     );
 }
+
+fn register_system_list_docker_containers(engine: &mut Engine) {
+    engine.register(
+        "system.list_docker_containers",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut target = "containers".to_string();
+            for child in &node.children {
+                if child.name == "as" {
+                    if let Some(ref val) = child.value {
+                        target = val.trim_start_matches('$').to_string();
+                    }
+                }
+            }
+
+            let output = Command::new("docker")
+                .args(&["ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}"])
+                .output();
+
+            let mut list = Vec::new();
+            if let Ok(out) = output {
+                if out.status.success() {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    for line in text.lines() {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 4 {
+                            let mut item = HashMap::new();
+                            item.insert("id".to_string(), Value::String(parts[0].to_string()));
+                            item.insert("name".to_string(), Value::String(parts[1].to_string()));
+                            item.insert("image".to_string(), Value::String(parts[2].to_string()));
+                            item.insert("status".to_string(), Value::String(parts[3].to_string()));
+                            item.insert("ports".to_string(), Value::String(if parts.len() > 4 { parts[4].to_string() } else { String::new() }));
+                            list.push(Value::Map(item));
+                        }
+                    }
+                }
+            }
+
+            scope.set(&target, Value::List(list));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "List existing Docker containers on host".to_string(),
+            example: "system.list_docker_containers { as: $containers }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+
+fn register_box_import_docker(engine: &mut Engine) {
+    engine.register(
+        "box.import_docker",
+        Arc::new(|_engine, _ctx, node, scope| {
+            let mut docker_id = String::new();
+            let mut zeno_name = String::new();
+            let mut target = "import_result".to_string();
+
+            let mut as_compose = false;
+            let mut preserve_volumes = true;
+            for child in &node.children {
+                let resolved = resolve_node_value(_engine, child, scope);
+                match child.name.as_str() {
+                    "docker_id" | "id" => docker_id = resolved.to_string_coerce(),
+                    "zeno_name" | "name" => zeno_name = resolved.to_string_coerce(),
+                    "as_compose" | "compose" => as_compose = resolved.to_bool(),
+                    "preserve_volumes" | "keep_volumes" => preserve_volumes = resolved.to_bool(),
+                    "as" => {
+                        if let Some(ref val) = child.value {
+                            target = val.trim_start_matches('$').to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if docker_id.is_empty() {
+                let mut res = HashMap::new();
+                res.insert("success".to_string(), Value::Bool(false));
+                res.insert("stderr".to_string(), Value::String("docker_id is required".to_string()));
+                scope.set(&target, Value::Map(res));
+                return Ok(());
+            }
+
+            if zeno_name.is_empty() {
+                zeno_name = docker_id.clone();
+            }
+
+            let inspect_out = Command::new("docker")
+                .args(&["inspect", &docker_id])
+                .output();
+
+            let mut result = HashMap::new();
+            if inspect_out.is_err() || !inspect_out.as_ref().unwrap().status.success() {
+                result.insert("success".to_string(), Value::Bool(false));
+                result.insert("stderr".to_string(), Value::String(format!("Failed to inspect docker container '{}'", docker_id)));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            let inspect_val = inspect_out.unwrap();
+            let inspect_str = String::from_utf8_lossy(&inspect_val.stdout);
+            let inspect_json: serde_json::Value = match serde_json::from_str(&inspect_str) {
+                Ok(v) => v,
+                Err(e) => {
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert("stderr".to_string(), Value::String(format!("Failed to parse docker inspect JSON: {}", e)));
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+            };
+
+            let cont_meta = match inspect_json.get(0) {
+                Some(m) => m,
+                None => {
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert("stderr".to_string(), Value::String("Docker inspect output empty".to_string()));
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+            };
+
+            let image = cont_meta.get("Config")
+                .and_then(|c| c.get("Image"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("docker-imported:latest")
+                .to_string();
+
+            let mut cmd = Vec::new();
+            if let Some(cmd_arr) = cont_meta.get("Config").and_then(|c| c.get("Cmd")).and_then(|c| c.as_array()) {
+                for item in cmd_arr {
+                    if let Some(s) = item.as_str() {
+                        cmd.push(s.to_string());
+                    }
+                }
+            }
+
+            let mut env = HashMap::new();
+            if let Some(env_arr) = cont_meta.get("Config").and_then(|c| c.get("Env")).and_then(|e| e.as_array()) {
+                for item in env_arr {
+                    if let Some(s) = item.as_str() {
+                        let parts: Vec<&str> = s.splitn(2, '=').collect();
+                        if parts.len() == 2 {
+                            env.insert(parts[0].to_string(), parts[1].to_string());
+                        }
+                    }
+                }
+            }
+
+            let cwd = cont_meta.get("Config")
+                .and_then(|c| c.get("WorkingDir"))
+                .and_then(|w| w.as_str())
+                .unwrap_or("/")
+                .to_string();
+
+            let mut ports = Vec::new();
+            if let Some(port_bindings) = cont_meta.get("HostConfig").and_then(|h| h.get("PortBindings")).and_then(|p| p.as_object()) {
+                for (cont_port, bindings) in port_bindings {
+                    let c_port = cont_port.split('/').next().unwrap_or(cont_port);
+                    if let Some(b_arr) = bindings.as_array() {
+                        if let Some(b_first) = b_arr.get(0) {
+                            if let Some(host_port) = b_first.get("HostPort").and_then(|hp| hp.as_str()) {
+                                ports.push(format!("{}:{}", host_port, c_port));
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut mounts = Vec::new();
+            if let Some(mount_arr) = cont_meta.get("Mounts").and_then(|m| m.as_array()) {
+                for m in mount_arr {
+                    let src = m.get("Source").and_then(|s| s.as_str()).unwrap_or("");
+                    let dst = m.get("Destination").and_then(|d| d.as_str()).unwrap_or("");
+                    if !src.is_empty() && !dst.is_empty() {
+                        mounts.push(format!("{}:{}", src, dst));
+                    }
+                }
+            }
+
+            let data_dir = get_data_dir();
+
+            if as_compose {
+                let compose_dir = Path::new(&data_dir).join("compose").join(&zeno_name);
+                if let Err(e) = fs::create_dir_all(&compose_dir) {
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert("stderr".to_string(), Value::String(format!("Failed to create compose directory: {}", e)));
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+
+                let mut yaml_content = format!("version: '3.8'\n\nservices:\n  {}:\n    image: {}\n    container_name: {}\n", zeno_name, image, zeno_name);
+                if !cmd.is_empty() {
+                    yaml_content.push_str(&format!("    command: {}\n", cmd.join(" ")));
+                }
+                if !ports.is_empty() {
+                    yaml_content.push_str("    ports:\n");
+                    for p in &ports {
+                        yaml_content.push_str(&format!("      - '{}'\n", p));
+                    }
+                }
+                if !env.is_empty() {
+                    yaml_content.push_str("    environment:\n");
+                    for (k, v) in &env {
+                        yaml_content.push_str(&format!("      - {}={}\n", k, v));
+                    }
+                }
+                if preserve_volumes && !mounts.is_empty() {
+                    yaml_content.push_str("    volumes:\n");
+                    for m in &mounts {
+                        yaml_content.push_str(&format!("      - {}\n", m));
+                    }
+                }
+                yaml_content.push_str("    restart: unless-stopped\n");
+
+                let yaml_path = compose_dir.join("docker-compose.yml");
+                if let Err(e) = fs::write(&yaml_path, yaml_content) {
+                    result.insert("success".to_string(), Value::Bool(false));
+                    result.insert("stderr".to_string(), Value::String(format!("Failed to write docker-compose.yml: {}", e)));
+                    scope.set(&target, Value::Map(result));
+                    return Ok(());
+                }
+
+                result.insert("success".to_string(), Value::Bool(true));
+                result.insert("message".to_string(), Value::String(format!("Docker container imported as Zeno Box Compose project '{}'!", zeno_name)));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            let bundle_p = bundle_dir(&data_dir, &zeno_name);
+            let rootfs_p = rootfs_dir(&data_dir, &zeno_name);
+
+            if let Err(e) = fs::create_dir_all(&rootfs_p) {
+                result.insert("success".to_string(), Value::Bool(false));
+                result.insert("stderr".to_string(), Value::String(format!("Failed to create rootfs directory: {}", e)));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            let export_status = Command::new("sh")
+                .arg("-c")
+                .arg(format!("docker export {} | tar -x -C {}", docker_id, rootfs_p.to_string_lossy()))
+                .status();
+
+            if export_status.is_err() || !export_status.as_ref().unwrap().success() {
+                result.insert("success".to_string(), Value::Bool(false));
+                result.insert("stderr".to_string(), Value::String(format!("Failed to export docker container filesystem for '{}'", docker_id)));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            if let Err(e) = generate_config_json(
+                &bundle_p,
+                cmd.clone(),
+                env.clone(),
+                &cwd,
+                mounts.clone(),
+                false,
+                0,
+                0.0,
+                None,
+                false,
+            ) {
+                result.insert("success".to_string(), Value::Bool(false));
+                result.insert("stderr".to_string(), Value::String(format!("Failed to generate OCI config.json: {}", e)));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            let c_log_path = log_path(&data_dir, &zeno_name).to_string_lossy().to_string();
+            let state = ContainerState {
+                id: zeno_name.clone(),
+                image,
+                status: "stopped".to_string(),
+                pid: 0,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                exited_at: None,
+                exit_code: None,
+                cmd,
+                log_path: Some(c_log_path),
+                ports: Some(ports),
+                env: Some(env),
+                mounts: Some(mounts),
+                cwd: Some(cwd),
+                host_network: Some(false),
+                restart_policy: Some("unless-stopped".to_string()),
+                desired_status: Some("stopped".to_string()),
+                memory_limit: Some(0),
+                cpu_limit: Some(0.0),
+                oom_score_adj: None,
+                read_only: Some(false),
+                network: Some("bridge".to_string()),
+            };
+
+            if let Err(e) = save_container_state(&state) {
+                result.insert("success".to_string(), Value::Bool(false));
+                result.insert("stderr".to_string(), Value::String(format!("Failed to save container state: {}", e)));
+                scope.set(&target, Value::Map(result));
+                return Ok(());
+            }
+
+            result.insert("success".to_string(), Value::Bool(true));
+            result.insert("message".to_string(), Value::String(format!("Container '{}' imported successfully into Zeno Box!", zeno_name)));
+            scope.set(&target, Value::Map(result));
+            Ok(())
+        }),
+        SlotMeta {
+            description: "Import an existing Docker container into Zeno Box".to_string(),
+            example: "box.import_docker: { docker_id: 'my-docker-db', zeno_name: 'zeno-db', as: $result }".to_string(),
+            inputs: HashMap::new(),
+            required_blocks: Vec::new(),
+            value_type: "".to_string(),
+        }
+    );
+}
+

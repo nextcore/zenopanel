@@ -32,6 +32,9 @@
                     <button class="btn-action" onclick="openContainerImagesModal()" style="display:flex; align-items:center; gap:6px;">
                         <i class="fa-solid fa-layer-group"></i> Images
                     </button>
+                    <button class="btn-action" onclick="openImportDockerModal()" style="display:flex; align-items:center; gap:6px; color:var(--accent-primary);">
+                        <i class="fa-brands fa-docker"></i> Import from Docker
+                    </button>
                     <button class="btn-action" onclick="pruneUnusedImages()" style="display:flex; align-items:center; gap:6px; background: rgba(239, 68, 68, 0.05); border-color: rgba(239, 68, 68, 0.15); color: #fca5a5;">
                         <i class="fa-solid fa-broom"></i> Clean Cache
                     </button>
@@ -568,10 +571,55 @@ services:
 
             <div style="text-align: right;">
                 <button onclick="closeMigrateContainerModal()" style="padding: 8px 20px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: transparent; color: var(--text-muted); cursor: pointer;">Tutup</button>
+</div>
+</div>
+
+<!-- Import Docker Container Modal -->
+<div class="modal-overlay" id="import-docker-container-modal">
+    <div class="modal-card" style="max-width:520px;">
+        <div class="modal-header">
+            <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+                <i class="fa-brands fa-docker" style="color:var(--accent-primary);"></i> Import Docker Container to Zeno Box
+            </div>
+            <div class="modal-close" onclick="closeImportDockerModal()">&times;</div>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Select Existing Docker Container</label>
+                <select id="import-docker-select" onchange="onImportDockerSelectChange()" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+                    <option value="">Loading docker containers...</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">New Zeno Box Container Name / Project Name</label>
+                <input type="text" id="import-zeno-name" placeholder="e.g. my-imported-app" style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text-main); outline:none;">
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label style="display:block; margin-bottom:6px; font-weight:500; font-size:0.9rem;">Import Mode Target</label>
+                <div style="display:flex; flex-direction:column; gap:8px; background:rgba(255,255,255,0.02); padding:12px; border-radius:6px; border:1px solid var(--card-border);">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem; color:var(--text-main);">
+                        <input type="radio" name="import-target-type" value="container" checked style="cursor:pointer;">
+                        <span><i class="fa-solid fa-cube" style="color:var(--accent-primary); margin-right:4px;"></i> Single Zeno Box Container (Full RootFS Snapshot)</span>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem; color:var(--text-main);">
+                        <input type="radio" name="import-target-type" value="compose" style="cursor:pointer;">
+                        <span><i class="fa-solid fa-layer-group" style="color:#38bdf8; margin-right:4px;"></i> Zeno Box Compose Project (Generate <code>docker-compose.yml</code>)</span>
+                    </label>
+                    <label id="preserve-volumes-container" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem; color:var(--success); margin-left:24px; margin-top:2px;">
+                        <input type="checkbox" id="import-preserve-volumes" checked style="cursor:pointer;">
+                        <span><i class="fa-solid fa-hard-drive" style="margin-right:4px;"></i> <strong>Preserve Volume Paths (Zero-Copy Instant Mount)</strong> — Recommended for Large DBs</span>
+                    </label>
+                </div>
             </div>
         </div>
-
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--card-border); padding-top:15px; margin-top:15px;">
+            <button class="btn-action" onclick="closeImportDockerModal()">Cancel</button>
+            <button class="btn-primary-action" id="btn-import-docker-submit" onclick="submitImportDocker()">
+                <i class="fa-solid fa-file-import"></i> Import Container
+            </button>
+        </div>
     </div>
 </div>
+
 
 
