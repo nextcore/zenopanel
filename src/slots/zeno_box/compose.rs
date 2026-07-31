@@ -268,6 +268,7 @@ pub struct ComposeService {
     pub cpus: Option<f64>,
     pub oom_score_adj: Option<i32>,
     pub read_only: Option<bool>,
+    pub network_mode: Option<String>,
     pub extra_hosts: Option<ComposeExtraHosts>,
 }
 
@@ -575,6 +576,7 @@ fn compose_up(path: &str) -> Result<String, String> {
         };
 
         output.push_str(&format!("  ▶ Creating container '{}'...\n", container_name));
+        let is_host_net = svc.network_mode.as_deref() == Some("host") || network_name == "host";
         container_create(
             container_name,
             image,
@@ -583,7 +585,7 @@ fn compose_up(path: &str) -> Result<String, String> {
             "",
             volumes,
             ports,
-            false,
+            is_host_net,
             restart_policy,
             mem_limit,
             cpu_limit,
