@@ -571,7 +571,9 @@ services:
 
             <div style="text-align: right;">
                 <button onclick="closeMigrateContainerModal()" style="padding: 8px 20px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: transparent; color: var(--text-muted); cursor: pointer;">Tutup</button>
-</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Import Docker Container Modal -->
