@@ -600,6 +600,65 @@ fn compose_up(path: &str) -> Result<String, String> {
 
         output.push_str(&format!("  ▶ Starting container '{}'...\n", container_name));
         container_start(container_name)?;
+
+        // Upgrade 2: Healthcheck support — wait for container health if specified
+        if let Some(ref hc) = svc.healthcheck {
+            output.push_str(&format!("  ▶ Waiting for healthcheck on '{}'...\n", container_name));
+            let retries = hc.retries.unwrap_or(10);
+            let mut healthy = false;
+            let mut last_log = String::new();
+
+            for attempt in 1..=retries {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+
+                let hc_cmd = match &hc.test {
+                    serde_yaml::Value::String(s) => vec!["sh".to_string(), "-c".to_string(), s.clone()],
+                    serde_yaml::Value::Sequence(seq) => {
+                        let mut vec = Vec::new();
+                        for item in seq {
+                            if let Some(s) = item.as_str() {
+                                vec.push(s.to_string());
+                            }
+                        }
+                        if vec.first().map(|s| s.as_str()) == Some("CMD-SHELL") {
+                            vec.remove(0);
+                            vec = vec!["sh".to_string(), "-c".to_string(), vec.join(" ")];
+                        } else if vec.first().map(|s| s.as_str()) == Some("CMD") {
+                            vec.remove(0);
+                        }
+                        vec
+                    }
+                    _ => Vec::new(),
+                };
+
+                if !hc_cmd.is_empty() {
+                    let mut exec_args = vec!["exec", container_name];
+                    let cmd_strs: Vec<&str> = hc_cmd.iter().map(|s| s.as_str()).collect();
+                    exec_args.extend(cmd_strs);
+
+                    let res = crate::slots::zeno_box::get_runc_bin();
+                    let root = format!("{}/runc", get_data_dir());
+                    let mut full_args = vec!["--root", &root];
+                    full_args.extend(exec_args);
+
+                    let hc_exec = std::process::Command::new(&res).args(&full_args).output();
+                    if let Ok(out) = hc_exec {
+                        if out.status.success() {
+                            healthy = true;
+                            output.push_str(&format!("  ✓ Healthcheck passed for '{}' on attempt {}/{}.\n", container_name, attempt, retries));
+                            break;
+                        } else {
+                            last_log = String::from_utf8_lossy(&out.stderr).to_string();
+                        }
+                    }
+                }
+            }
+
+            if !healthy {
+                output.push_str(&format!("  ⚠ Warning: Healthcheck timed out for '{}' after {} attempts. (Last error: {})\n", container_name, retries, last_log.trim()));
+            }
+        }
+
         output.push_str(&format!("  ✓ Service '{}' is up.\n", name));
     }
 

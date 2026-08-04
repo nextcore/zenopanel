@@ -643,13 +643,17 @@ pub fn register(engine: &mut Engine) {
                 match action.as_str() {
                     "check" => {
                         let blocked = state.login_limiter.is_blocked(&ip);
+                        // Upgrade 4: If blocked state expired after 5 minutes, auto-unblock IP from WAF
+                        if !blocked {
+                            state.ip_block_list.remove(&ip);
+                        }
                         scope.set(&target, Value::Bool(blocked));
                     }
                     "record" => {
                         let remaining = state.login_limiter.record_failure(&ip);
                         scope.set(&target, Value::Int(remaining as i64));
 
-                        // Auto-block IP in WAF when all attempts are exhausted
+                        // Auto-block IP in WAF temporarily (5 mins) when all attempts are exhausted
                         if remaining == 0 {
                             state.ip_block_list.add(&ip, "block");
                             let ip_clone = ip.clone();
@@ -658,7 +662,7 @@ pub fn register(engine: &mut Engine) {
                                 tokio::runtime::Handle::current().block_on(async {
                                     if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
                                         let _ = sqlx::query(
-                                            "INSERT INTO waf_ip_rules (ip, type, reason) VALUES (?, 'block', 'Brute-force login attempt') ON CONFLICT(ip) DO UPDATE SET type = 'block', reason = excluded.reason"
+                                            "INSERT INTO waf_ip_rules (ip, type, reason) VALUES (?, 'block', 'Brute-force login attempt (temporary 5m block)') ON CONFLICT(ip) DO UPDATE SET type = 'block', reason = excluded.reason"
                                         )
                                         .bind(&ip_clone)
                                         .execute(&pool)
@@ -666,11 +670,24 @@ pub fn register(engine: &mut Engine) {
                                     }
                                 })
                             });
-                            eprintln!("[WAF] Auto-blocked IP {} after exhausting login attempts", ip);
+                            eprintln!("[WAF] Auto-blocked IP {} temporarily (5 mins) after exhausting login attempts", ip);
                         }
                     }
                     "clear" => {
                         state.login_limiter.clear(&ip);
+                        state.ip_block_list.remove(&ip);
+                        let ip_clone = ip.clone();
+                        let db_manager = state.db_manager.clone();
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                if let Some(crate::db::DbPool::Sqlite(pool)) = db_manager.get_pool("default").await {
+                                    let _ = sqlx::query("DELETE FROM waf_ip_rules WHERE ip = ? AND reason LIKE '%Brute-force%'")
+                                        .bind(&ip_clone)
+                                        .execute(&pool)
+                                        .await;
+                                }
+                            })
+                        });
                         scope.set(&target, Value::Bool(true));
                     }
                     _ => {}
