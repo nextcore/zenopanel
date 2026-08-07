@@ -1,48 +1,50 @@
-# ZenoPanel v1.9.0 Release Notes 🚀
+# ZenoPanel v1.9.1 Release Notes 🚀
 
-**Release Date:** July 31, 2026  
-**Tag:** `v1.9.0`  
-**Distribution Bundle:** `zenopanel-v1.9.0.tar.gz`
+**Release Date:** August 7, 2026  
+**Tag:** `v1.9.1`  
+**Distribution Bundle:** `zenopanel-v1.9.1.tar.gz`
 
 ---
 
-## 🌟 Major Feature: Native Docker Container Import to Zeno Box
+## 🌟 Major Feature: Container Healthcheck & Volume Enhancements
 
-ZenoPanel v1.9.0 memperkenalkan kemampuan untuk **mengimpor kontainer Docker yang sedang atau pernah berjalan di host** langsung ke engine native **Zeno Box** (`runc` + OCI standard).
+ZenoPanel v1.9.1 menghadirkan peningkatan pada engine kontainer Zeno Box, kompatibilitas Docker Compose, serta sistem keamanan Web Application Firewall (WAF).
 
 ### 🚀 Key Highlights & Capabilities:
-- **Zero-Downtime Migration**: Mengimpor metadata (Environment Variables, Entrypoint/CMD, Working Directory, Exposed Ports, Mounts) dan isi berkas kontainer Docker.
-- **Dual Import Modes**:
-  1. **Single Container (RootFS Snapshot)**: Melakukan snapshot dan ekstraksi filesystem penuh kontainer Docker ke OCI RootFS Zeno Box. Cocok untuk aplikasi *stateless* atau *standalone*.
-  2. **Zeno Box Compose Project**: Menggenerasi file `docker-compose.yml` secara otomatis dan menempatkannya di tab **Compose**, siap dikelola via Monaco Code Editor.
-- **Zero-Copy Instant Volume Preservation (Optimized for Large Databases)**:
-  - Opsi *Zero-Copy* untuk direktori data / database besar (seperti MySQL, PostgreSQL, Redis).
-  - Menggunakan *Direct Bind Mount* tanpa menyalin file puluhan GB, sehingga proses impor selesai **dalam 0 detik** tanpa memakan ruang disk tambahan.
+
+#### 1. Dukungan Healthcheck Kontainer (Zeno Box Compose)
+- Mendukung opsi pengujian kesehatan (`healthcheck`) pada definisi servis Compose.
+- Engine akan menunggu status kontainer menjadi sehat dengan menjalankan pengujian perintah (`CMD`, `CMD-SHELL`, atau perintah langsung) di dalam kontainer via `runc exec`.
+- Menggunakan skema *retry* otomatis (default hingga 10 kali percobaan dengan jeda 2 detik) sebelum memberikan peringatan timeout jika kontainer tidak kunjung sehat.
+
+#### 2. Kustomisasi & Volume Eksternal pada Compose
+- Mendukung konfigurasi volume tingkat atas (*top-level* `volumes`) dengan parameter `external: true` atau penamaan kustom (`name`).
+- Jika dikonfigurasi sebagai volume eksternal/kustom, engine tidak akan menambahkan prefiks nama proyek (`project_name_`), memudahkan berbagi volume antar-servis dan integrasi data yang sudah ada di host.
+
+#### 3. Auto-Populate Named Volume dari Image Data
+- Otomatis menginisialisasi isi *named volume* yang masih kosong menggunakan data bawaan yang ada pada direktori *rootfs* gambar (*image data*).
+- Meniru perilaku native Docker untuk mencegah hilangnya file konfigurasi default saat pertama kali kontainer dipasang dengan volume baru.
 
 ---
 
-## ⚡ ProxySQL & High-Concurrency Database Enhancements
-
-- **Optimasi ProxySQL Sidecar**: Perbaikan konfigurasi *Network Mode* pada Zeno Box Compose untuk mendukung koneksi ProxySQL backend pool dengan latency rendah dan pencegahan *hairpin loop*.
+## 🛡️ WAF Auto-Expiring Temporary IP Blocks
+- Fitur keamanan login brute-force diperbarui dengan pembatasan IP sementara selama **5 menit**.
+- IP yang diblokir otomatis oleh sistem karena melebihi batas kegagalan login akan dihapus dari daftar blokir WAF setelah masa kedaluwarsa habis saat dilakukan pemeriksaan berikutnya.
 
 ---
 
 ## 🛠️ API & Engine Changes
 
-### New ZenoLang Engine Slots (`src/slots/zeno_box/container.rs`):
-- `system.list_docker_containers`: Mengambil daftar kontainer Docker di host via daemon socket/CLI.
-- `box.import_docker`: Slot backend untuk memproses ekstraksi `docker inspect` & `docker export` atau penyusunan berkas Compose.
-
-### New API Endpoints (`zsrc/routes/containers.zl`):
-- `GET /api/containers/docker-list`: Mendapatkan daftar kontainer Docker di host.
-- `POST /api/containers/import-docker`: Memicu alur pengimporan kontainer.
-
----
-
-## 🎨 UI / UX Improvements
-- **Import Docker Modal** pada tab *Containers*:
-  - Dropdown interaktif dengan pencarian kontainer Docker lokal.
-  - Auto-fill saran nama kontainer Zeno Box baru.
-  - Opsi pemilihan mode impor (Container vs Compose) dan toggle *Zero-Copy Volume Mount*.
+### Slot Mesin Baru & Logika yang Diperbarui:
+- **`src/slots/zeno_box/compose.rs`**:
+  - Implementasi logika pengecekan healthcheck menggunakan `runc exec`.
+  - Penyesuaian pemetaan volume eksternal tanpa prefiks proyek.
+- **`src/slots/zeno_box/container.rs`**:
+  - Fungsi `copy_dir_all` dan `is_dir_empty` untuk menyalin konten awal image ke named volume.
+- **`src/slots/auth.rs`**:
+  - Penambahan mekanisme auto-unblock pada WAF jika masa berlaku blokir brute-force telah habis.
 
 ---
+
+## 🎨 Launcher Updates
+- Sinkronisasi versi default launcher native (`launcher/main.zig`) dan skrip PowerShell (`launcher/zenopanel.ps1`) ke versi **v1.9.1** untuk kestabilan distribusi.
