@@ -527,7 +527,32 @@ fn compose_up(path: &str) -> Result<String, String> {
                     let container_path = parts[1];
                     let is_named_volume = !host_path.starts_with('/') && !host_path.starts_with('.') && !host_path.starts_with('~');
                     if is_named_volume {
-                        volumes.push(format!("{}_{}:{}", project_name, host_path, container_path));
+                        let mut final_host_path = host_path.to_string();
+                        let mut use_prefix = true;
+
+                        if let Some(ref top_volumes) = cf.volumes {
+                            if let Some(vol_config) = top_volumes.get(host_path) {
+                                if let Some(map) = vol_config.as_mapping() {
+                                    if let Some(ext_val) = map.get(&serde_yaml::Value::String("external".to_string())) {
+                                        if ext_val.as_bool() == Some(true) {
+                                            use_prefix = false;
+                                        }
+                                    }
+                                    if let Some(name_val) = map.get(&serde_yaml::Value::String("name".to_string())) {
+                                        if let Some(custom_name) = name_val.as_str() {
+                                            final_host_path = custom_name.to_string();
+                                            use_prefix = false;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if use_prefix {
+                            volumes.push(format!("{}_{}:{}", project_name, final_host_path, container_path));
+                        } else {
+                            volumes.push(format!("{}:{}", final_host_path, container_path));
+                        }
                     } else {
                         let resolved_path = if host_path.starts_with('.') {
                             if let Some(parent) = compose_path_buf.parent() {

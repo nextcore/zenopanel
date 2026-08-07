@@ -385,6 +385,28 @@ fn generate_config_json(
     Ok(())
 }
 
+fn is_dir_empty(path: &Path) -> bool {
+    if let Ok(mut entries) = fs::read_dir(path) {
+        entries.next().is_none()
+    } else {
+        true
+    }
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn container_create(
     id: &str,
     image: &str,
@@ -411,6 +433,29 @@ pub(crate) fn container_create(
     fs::create_dir_all(&bundle_p).map_err(|e| e.to_string())?;
 
     mount_overlayfs(image, &data_dir, id)?;
+
+    // Populate named volumes from image if they are empty
+    let rootfs_p = bundle_p.join("rootfs");
+    for m in &mounts {
+        let parts: Vec<&str> = m.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            let host_path = parts[0];
+            let container_path = parts[1];
+            let is_named_volume = !host_path.starts_with('/') && !host_path.starts_with('.') && !host_path.starts_with('~');
+            if is_named_volume {
+                let resolved_host_path = Path::new(&data_dir).join("volumes").join(host_path);
+                let container_src_path = rootfs_p.join(container_path.trim_start_matches('/'));
+                
+                if !resolved_host_path.exists() {
+                    let _ = fs::create_dir_all(&resolved_host_path);
+                }
+
+                if is_dir_empty(&resolved_host_path) && container_src_path.exists() && container_src_path.is_dir() {
+                    let _ = copy_dir_all(&container_src_path, &resolved_host_path);
+                }
+            }
+        }
+    }
 
     let mut resolved_cwd = cwd.to_string();
     let mut merged_env = env.clone();
